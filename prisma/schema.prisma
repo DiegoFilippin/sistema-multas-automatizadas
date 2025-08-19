@@ -1,0 +1,277 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Empresa gestora da plataforma
+model CompanyMaster {
+  id        String   @id @default(cuid())
+  name      String
+  cnpj      String   @unique
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  companies Company[]
+  plans     Plan[]
+
+  @@map("companies_master")
+}
+
+// Planos de assinatura
+model Plan {
+  id                      String  @id @default(cuid())
+  name                    String
+  price                   Float
+  includedResources       Int
+  additionalResourcePrice Float
+  features                Json
+  status                  String  @default("active")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  // Relacionamentos
+  masterCompanyId String
+  masterCompany   CompanyMaster @relation(fields: [masterCompanyId], references: [id])
+  companies       Company[]
+
+  @@map("plans")
+}
+
+// Empresas clientes (despachantes)
+model Company {
+  id                   String    @id @default(cuid())
+  name                 String
+  cnpj                 String    @unique
+  email                String?
+  phone                String?
+  address              String?
+  status               String    @default("active")
+  subscriptionExpiresAt DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relacionamentos
+  masterCompanyId String
+  masterCompany   CompanyMaster @relation(fields: [masterCompanyId], references: [id])
+  planId          String
+  plan            Plan          @relation(fields: [planId], references: [id])
+
+  users    User[]
+  clients  Client[]
+  multas   Multa[]
+  recursos Recurso[]
+  invoices Invoice[]
+
+  @@map("companies")
+}
+
+// Usuários do sistema
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  role      String   // 'master', 'despachante', 'cliente'
+  avatar    String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+  clientId  String?  @unique
+  client    Client?  @relation(fields: [clientId], references: [id])
+
+  @@map("users")
+}
+
+// Clientes finais (proprietários de veículos)
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  cpf       String   @unique
+  email     String?
+  phone     String?
+  address   String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  user      User?
+  vehicles  Vehicle[]
+  multas    Multa[]
+
+  @@map("clients")
+}
+
+// Veículos dos clientes
+model Vehicle {
+  id           String   @id @default(cuid())
+  placa        String   @unique
+  modelo       String?
+  marca        String?
+  ano          Int?
+  cor          String?
+  renavam      String?
+  chassi       String?
+  categoria    String?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relacionamentos
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+  multas   Multa[]
+
+  @@map("vehicles")
+}
+
+// Multas
+model Multa {
+  id                 String    @id @default(cuid())
+  numeroAuto         String    @unique
+  placa              String
+  tipoInfracao       String
+  descricaoInfracao  String
+  dataInfracao       DateTime
+  localInfracao      String
+  valor              Float
+  dataVencimento     DateTime?
+  orgaoAutuador      String
+  status             String    @default("pendente") // pendente, em_recurso, deferida, indeferida
+  observacoes        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id])
+  vehicleId String?
+  vehicle   Vehicle? @relation(fields: [vehicleId], references: [id])
+  recursos  Recurso[]
+
+  @@map("multas")
+}
+
+// Recursos de multas
+model Recurso {
+  id                   String    @id @default(cuid())
+  numeroProcesso       String    @unique
+  tipoRecurso          String
+  fundamentacao        String
+  probabilidadeSucesso Int
+  status               String    @default("rascunho") // rascunho, enviado, em_analise, deferido, indeferido
+  geradoPorIA          Boolean   @default(false)
+  dataCriacao          DateTime  @default(now())
+  dataEnvio            DateTime?
+  dataDecisao          DateTime?
+  observacoes          String?
+  documentos           Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  multaId   String
+  multa     Multa   @relation(fields: [multaId], references: [id])
+
+  @@map("recursos")
+}
+
+// Faturas/Cobranças
+model Invoice {
+  id          String    @id @default(cuid())
+  number      String    @unique
+  description String
+  amount      Float
+  dueDate     DateTime
+  paidAt      DateTime?
+  status      String    @default("pending") // pending, paid, overdue, cancelled
+  paymentMethod String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relacionamentos
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  @@map("invoices")
+}
+
+// Configurações das empresas
+model CompanySettings {
+  id        String   @id @default(cuid())
+  settings  Json     // Configurações em JSON
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  companyId String @unique
+
+  @@map("company_settings")
+}
+
+// Automações configuradas
+model Automation {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // 'multa_check', 'notification', 'resource_creation'
+  config      Json     // Configuração da automação
+  isActive    Boolean  @default(true)
+  lastRun     DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relacionamentos
+  companyId String
+
+  @@map("automations")
+}
+
+// Log de atividades
+model ActivityLog {
+  id          String   @id @default(cuid())
+  action      String
+  description String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  // Relacionamentos
+  userId    String?
+  companyId String?
+
+  @@map("activity_logs")
+}
+
+// Templates de recursos
+model ResourceTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  type        String   // Tipo de infração
+  template    String   // Template do recurso
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relacionamentos
+  companyId String?
+
+  @@map("resource_templates")
+}

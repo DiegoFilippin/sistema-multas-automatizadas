@@ -1,0 +1,1 @@
+-- Adicionar coluna aspectos_avaliacao

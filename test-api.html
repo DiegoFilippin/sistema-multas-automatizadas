@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste API Datawash</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        input, button { padding: 10px; margin: 5px; }
+        .result { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #ffebee; color: #c62828; }
+        .success { background: #e8f5e8; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Teste API Datawash Backend</h1>
+        
+        <div>
+            <h3>1. Teste Health Check</h3>
+            <button onclick="testHealth()">Testar Health Check</button>
+            <div id="healthResult" class="result"></div>
+        </div>
+        
+        <div>
+            <h3>2. Teste Consulta CPF</h3>
+            <input type="text" id="cpfInput" placeholder="Digite um CPF (11 dígitos)" value="12345678901">
+            <button onclick="testCPF()">Consultar CPF</button>
+            <div id="cpfResult" class="result"></div>
+        </div>
+        
+        <div>
+            <h3>3. Teste Consulta CEP</h3>
+            <input type="text" id="cepInput" placeholder="Digite um CEP (8 dígitos)" value="01234567">
+            <button onclick="testCEP()">Consultar CEP</button>
+            <div id="cepResult" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3001/api';
+        
+        async function testHealth() {
+            const resultDiv = document.getElementById('healthResult');
+            resultDiv.innerHTML = 'Testando...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>✅ Health Check OK</strong><br>
+                    Status: ${response.status}<br>
+                    Dados: <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <strong>❌ Erro no Health Check</strong><br>
+                    Erro: ${error.message}
+                `;
+            }
+        }
+        
+        async function testCPF() {
+            const resultDiv = document.getElementById('cpfResult');
+            const cpf = document.getElementById('cpfInput').value.replace(/\D/g, '');
+            
+            if (cpf.length !== 11) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = '❌ CPF deve ter 11 dígitos';
+                return;
+            }
+            
+            resultDiv.innerHTML = 'Consultando CPF...';
+            
+            try {
+                console.log('Fazendo requisição para:', `${API_BASE}/datawash/cpf/${cpf}`);
+                
+                const response = await fetch(`${API_BASE}/datawash/cpf/${cpf}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer test-token'
+                    }
+                });
+                
+                console.log('Resposta recebida:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Dados recebidos:', data);
+                
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>✅ Consulta CPF OK</strong><br>
+                    Status: ${response.status}<br>
+                    Nome: ${data.nome || 'N/A'}<br>
+                    Data Nascimento: ${data.dataNascimento || 'N/A'}<br>
+                    CNH: ${data.cnh || 'N/A'}<br>
+                    Email: ${data.email || 'N/A'}<br>
+                    Telefone: ${data.telefone || 'N/A'}<br>
+                    Endereço: ${data.endereco ? JSON.stringify(data.endereco) : 'N/A'}<br>
+                    <details>
+                        <summary>Dados completos</summary>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </details>
+                `;
+            } catch (error) {
+                console.error('Erro na consulta CPF:', error);
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <strong>❌ Erro na Consulta CPF</strong><br>
+                    Erro: ${error.message}
+                `;
+            }
+        }
+        
+        async function testCEP() {
+            const resultDiv = document.getElementById('cepResult');
+            const cep = document.getElementById('cepInput').value.replace(/\D/g, '');
+            
+            if (cep.length !== 8) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = '❌ CEP deve ter 8 dígitos';
+                return;
+            }
+            
+            resultDiv.innerHTML = 'Consultando CEP...';
+            
+            try {
+                const response = await fetch(`${API_BASE}/cep/${cep}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer test-token'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                resultDiv.className = 'result success';
+                resultDiv.innerHTML = `
+                    <strong>✅ Consulta CEP OK</strong><br>
+                    Status: ${response.status}<br>
+                    Logradouro: ${data.logradouro || 'N/A'}<br>
+                    Bairro: ${data.bairro || 'N/A'}<br>
+                    Cidade: ${data.cidade || 'N/A'}<br>
+                    Estado: ${data.estado || 'N/A'}<br>
+                    <details>
+                        <summary>Dados completos</summary>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    </details>
+                `;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <strong>❌ Erro na Consulta CEP</strong><br>
+                    Erro: ${error.message}
+                `;
+            }
+        }
+        
+        // Teste automático do health check ao carregar a página
+        window.onload = function() {
+            testHealth();
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,243 @@
+import { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  Building2, 
+  Users, 
+  FileText, 
+  CreditCard, 
+  Settings, 
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  BarChart3,
+  Zap,
+  Shield,
+  Bot,
+  Receipt
+} from 'lucide-react';
+import { useAuthStore } from '@/stores/authStore';
+import { cn } from '@/lib/utils';
+
+interface SidebarProps {
+  className?: string;
+}
+
+interface MenuItem {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  href: string;
+  roles: ('admin' | 'user' | 'viewer' | 'admin_master' | 'expert')[];
+  badge?: string;
+}
+
+const menuItems: MenuItem[] = [
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    href: '/dashboard',
+    roles: ['admin', 'user', 'viewer']
+  },
+  {
+    id: 'empresas',
+    label: 'Empresas',
+    icon: Building2,
+    href: '/empresas',
+    roles: ['admin']
+  },
+  {
+    id: 'usuarios',
+    label: 'Usuários',
+    icon: Users,
+    href: '/usuarios',
+    roles: ['admin', 'user']
+  },
+  {
+    id: 'clientes',
+    label: 'Clientes',
+    icon: Shield,
+    href: '/clientes',
+    roles: ['admin', 'user']
+  },
+  {
+    id: 'multas',
+    label: 'Multas',
+    icon: FileText,
+    href: '/multas',
+    roles: ['admin', 'user', 'viewer']
+  },
+  {
+    id: 'recursos',
+    label: 'Recursos IA',
+    icon: Zap,
+    href: '/recursos',
+    roles: ['admin', 'user'],
+    badge: 'IA'
+  },
+  {
+    id: 'relatorios-financeiros',
+    label: 'Relatórios Financeiros',
+    icon: BarChart3,
+    href: '/relatorios-financeiros',
+    roles: ['admin', 'user']
+  },
+  {
+    id: 'centro-automacao',
+    label: 'Centro de Automação',
+    icon: Bot,
+    href: '/centro-automacao',
+    roles: ['admin', 'user'],
+    badge: 'IA'
+  },
+  {
+    id: 'sistema-cobranca',
+    label: 'Sistema de Cobrança',
+    icon: Receipt,
+    href: '/sistema-cobranca',
+    roles: ['admin', 'user']
+  },
+  {
+    id: 'configuracoes',
+    label: 'Configurações',
+    icon: Settings,
+    href: '/configuracoes',
+    roles: ['admin', 'user', 'viewer']
+  },
+  {
+    id: 'asaas-config',
+    label: 'Configurações Asaas',
+    icon: CreditCard,
+    href: '/asaas-config',
+    roles: ['admin', 'admin_master']
+  }
+];
+
+export default function Sidebar({ className }: SidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState(false);
+  const { user, logout } = useAuthStore();
+  const location = useLocation();
+
+  const filteredMenuItems = menuItems.filter(item => 
+    user && item.roles.includes(user.role)
+  );
+
+  const handleLogout = () => {
+    logout();
+  };
+
+  return (
+    <div className={cn(
+      'bg-white border-r border-gray-200 flex flex-col transition-all duration-300',
+      isCollapsed ? 'w-16' : 'w-64',
+      className
+    )}>
+      {/* Header */}
+      <div className="p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between">
+          {!isCollapsed && (
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center">
+                <img 
+                  src="/icetran-logo.png" 
+                  alt="ICETRAN Logo" 
+                  className="w-8 h-8 object-contain"
+                />
+              </div>
+              <span className="font-bold text-xl text-gray-900">Icetran - Multas</span>
+            </div>
+          )}
+          
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            {isCollapsed ? (
+              <ChevronRight className="w-4 h-4 text-gray-600" />
+            ) : (
+              <ChevronLeft className="w-4 h-4 text-gray-600" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* User Info */}
+      {user && (
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center space-x-3">
+            <img
+              src={'https://trae-api-us.mchost.guru/api/ide/v1/text_to_image?prompt=professional%20avatar%20business%20person&image_size=square'}
+              alt={user.nome}
+              className="w-10 h-10 rounded-full object-cover"
+            />
+            {!isCollapsed && (
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {user.nome}
+                </p>
+                <p className="text-xs text-gray-500 capitalize">
+                  {user.role === 'admin_master' ? 'Admin Master' :
+                   user.role === 'admin' ? 'Administrador' : 
+                   user.role === 'user' ? 'Usuário' : 
+                   user.role === 'expert' ? 'Especialista' : 'Visualizador'}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Navigation */}
+      <nav className="flex-1 p-4 space-y-1">
+        {filteredMenuItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname === item.href;
+          
+          return (
+            <Link
+              key={item.id}
+              to={item.href}
+              className={cn(
+                'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                isActive
+                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                  : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+              )}
+            >
+              <Icon className={cn(
+                'w-5 h-5 flex-shrink-0',
+                isActive ? 'text-blue-700' : 'text-gray-400'
+              )} />
+              
+              {!isCollapsed && (
+                <>
+                  <span className="flex-1">{item.label}</span>
+                  {item.badge && (
+                    <span className="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-800 rounded-full">
+                      {item.badge}
+                    </span>
+                  )}
+                </>
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Logout */}
+      <div className="p-4 border-t border-gray-200">
+        <button
+          onClick={handleLogout}
+          className={cn(
+            'flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-gray-900 transition-colors w-full',
+            isCollapsed && 'justify-center'
+          )}
+        >
+          <LogOut className="w-5 h-5 text-gray-400" />
+          {!isCollapsed && <span>Sair</span>}
+        </button>
+      </div>
+    </div>
+  );
+}
