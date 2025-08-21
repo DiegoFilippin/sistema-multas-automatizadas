@@ -29,6 +29,7 @@ import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { recursosService } from '@/services/recursosService';
+import TipoRecursoTag, { Art267Explanation } from '@/components/TipoRecursoTag';
 
 interface RecursoCardProps {
   recurso: any;
@@ -48,43 +49,76 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
   const canEdit = (user?.role === 'user' || user?.role === 'admin') && recurso.status === 'rascunho';
   const canSend = (user?.role === 'user' || user?.role === 'admin') && recurso.status === 'rascunho';
   
+  const getStatusConfig = (status: string) => {
+    switch (status) {
+      case 'deferido':
+        return { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-800', badge: 'bg-green-100 text-green-800', icon: CheckCircle, iconColor: 'text-green-600' };
+      case 'indeferido':
+        return { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-800', badge: 'bg-red-100 text-red-800', icon: XCircle, iconColor: 'text-red-600' };
+      case 'em_analise':
+        return { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-800', icon: Clock, iconColor: 'text-blue-600' };
+      default:
+        return { bg: 'bg-gray-50', border: 'border-gray-200', text: 'text-gray-800', badge: 'bg-gray-100 text-gray-800', icon: FileText, iconColor: 'text-gray-600' };
+    }
+  };
+  
+  const statusConfig = getStatusConfig(recurso.status);
+  const StatusIcon = statusConfig.icon;
+  
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div className={cn(
+      'bg-white rounded-xl shadow-sm border-2 p-6 hover:shadow-lg transition-all duration-200 cursor-pointer group',
+      statusConfig.border
+    )}>
+      {/* Header com Status Badge */}
       <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center space-x-3">
-          <div className={cn(
-            'w-12 h-12 rounded-lg flex items-center justify-center',
-            recurso.status === 'deferido' ? 'bg-green-100' :
-            recurso.status === 'indeferido' ? 'bg-red-100' :
-            recurso.status === 'em_analise' ? 'bg-blue-100' :
-            'bg-gray-100'
-          )}>
-            {recurso.status === 'deferido' ? (
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            ) : recurso.status === 'indeferido' ? (
-              <XCircle className="w-6 h-6 text-red-600" />
-            ) : recurso.status === 'em_analise' ? (
-              <Clock className="w-6 h-6 text-blue-600" />
-            ) : (
-              <FileText className="w-6 h-6 text-gray-600" />
+        <div className="flex-1">
+          <div className="flex items-center justify-between mb-2">
+            <span className={cn(
+              'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+              statusConfig.badge
+            )}>
+              <StatusIcon className={cn('w-3 h-3 mr-1', statusConfig.iconColor)} />
+              {recurso.status === 'deferido' ? 'Deferido' :
+               recurso.status === 'indeferido' ? 'Indeferido' :
+               recurso.status === 'em_analise' ? 'Em Análise' : 'Rascunho'}
+            </span>
+            {recurso.geradoPorIA && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                <Bot className="w-3 h-3 mr-1" />
+                IA
+              </span>
             )}
           </div>
-          <div>
-            <h3 className="font-semibold text-gray-900">{recurso.numero_processo}</h3>
-            <p className="text-sm text-gray-600">{multa?.placa_veiculo} • {multa?.descricao_infracao}</p>
+          
+          <h3 className="font-bold text-lg text-gray-900 mb-1 group-hover:text-blue-600 transition-colors">
+            {recurso.numero_processo}
+          </h3>
+          
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
+            </div>
+            {multa && (
+              <p className="text-sm text-gray-600">
+                <Car className="w-4 h-4 inline mr-1" />
+                {multa.placa_veiculo} • {multa.descricao_infracao}
+              </p>
+            )}
             {multa?.clients && (
               <p className="text-xs text-blue-600 font-medium">
-                {multa.clients.nome} • {multa.clients.cpf_cnpj}
+                <User className="w-3 h-3 inline mr-1" />
+                {multa.clients.nome}
               </p>
             )}
           </div>
         </div>
         
         {showActions && (
-          <div className="relative">
+          <div className="relative ml-4">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <MoreVertical className="w-4 h-4" />
             </button>
@@ -157,64 +191,57 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
         )}
       </div>
       
-      <div className="space-y-3">
-        <div>
-          <p className="text-sm font-medium text-gray-900">{recurso.tipo_recurso}</p>
-          <p className="text-xs text-gray-600 line-clamp-2">{recurso.fundamentacao}</p>
-        </div>
-        
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-1 text-sm text-gray-600">
-              <Percent className="w-4 h-4" />
-              <span>{recurso.probabilidade_sucesso}% sucesso</span>
-            </div>
-            
-            {multa && (
-              <div className="flex items-center space-x-1 text-sm text-gray-600">
-                <DollarSign className="w-4 h-4" />
-                <span>R$ {(multa.valor_original || 0).toFixed(2)}</span>
-              </div>
-            )}
-          </div>
-          
-          <span className={cn(
-            'px-2 py-1 text-xs font-medium rounded-full',
-            recurso.status === 'deferido' ? 'bg-green-100 text-green-800' :
-            recurso.status === 'indeferido' ? 'bg-red-100 text-red-800' :
-            recurso.status === 'em_analise' ? 'bg-blue-100 text-blue-800' :
-            'bg-gray-100 text-gray-800'
-          )}>
-            {recurso.status === 'deferido' ? 'Deferido' :
-             recurso.status === 'indeferido' ? 'Indeferido' :
-             recurso.status === 'em_analise' ? 'Em Análise' : 'Rascunho'}
-          </span>
-        </div>
-        
-        <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-100">
+      {/* Fundamentação */}
+      <div className="mt-4 mb-4">
+        <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
+          {recurso.fundamentacao}
+        </p>
+      </div>
+      
+      {/* Métricas */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-gray-50 rounded-lg p-3">
           <div className="flex items-center space-x-2">
+            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+              <Percent className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 font-medium">Sucesso</p>
+              <p className="text-lg font-bold text-gray-900">{recurso.probabilidade_sucesso}%</p>
+            </div>
+          </div>
+        </div>
+        
+        {multa && (
+          <div className="bg-gray-50 rounded-lg p-3">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                <DollarSign className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Valor</p>
+                <p className="text-lg font-bold text-gray-900">R$ {(multa.valor_original || 0).toFixed(2)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+      
+      {/* Timeline */}
+      <div className="space-y-2 pt-4 border-t border-gray-100">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center space-x-2 text-gray-500">
             <Calendar className="w-3 h-3" />
-            <span>
-              Criado: {format(new Date(recurso.created_at), 'dd/MM/yyyy', { locale: ptBR })}
-            </span>
+            <span>Criado: {format(new Date(recurso.created_at), 'dd/MM/yyyy', { locale: ptBR })}</span>
           </div>
           
           {recurso.data_protocolo && (
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 text-green-600">
               <Send className="w-3 h-3" />
-              <span>
-                Enviado: {format(new Date(recurso.data_protocolo), 'dd/MM/yyyy', { locale: ptBR })}
-              </span>
+              <span>Enviado: {format(new Date(recurso.data_protocolo), 'dd/MM/yyyy', { locale: ptBR })}</span>
             </div>
           )}
         </div>
-        
-        {recurso.geradoPorIA && (
-          <div className="flex items-center space-x-2 text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
-            <Bot className="w-3 h-3" />
-            <span>Gerado por IA</span>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -247,6 +274,9 @@ function RecursoDetailsModal({ isOpen, onClose, recurso, multa }: RecursoDetails
             <div>
               <h2 className="text-xl font-semibold text-gray-900">Detalhes do Recurso</h2>
               <p className="text-gray-600 mt-1">{recurso.numero_processo}</p>
+              <div className="mt-2">
+                <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="md" />
+              </div>
             </div>
             <span className={cn(
               'px-3 py-1 text-sm font-medium rounded-full',
@@ -296,10 +326,17 @@ function RecursoDetailsModal({ isOpen, onClose, recurso, multa }: RecursoDetails
           <div>
             <h3 className="text-lg font-medium text-gray-900 mb-4">Informações do Recurso</h3>
             <div className="space-y-4">
+              {/* Explicação Art. 267 se aplicável */}
+              {recurso.tipo_recurso === 'conversao' && (
+                <Art267Explanation className="mb-4" />
+              )}
+              
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <p className="text-sm text-gray-600">Tipo de Recurso</p>
-                  <p className="font-medium text-gray-900">{recurso.tipo_recurso}</p>
+                  <div className="mt-1">
+                    <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
+                  </div>
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Probabilidade de Sucesso</p>
@@ -448,6 +485,10 @@ export default function Recursos() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedRecurso, setSelectedRecurso] = useState<any>(null);
   
+  // Paginação
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 20;
+  
   useEffect(() => {
     if (user) {
       // Carregar recursos baseado no tipo de usuário
@@ -482,6 +523,17 @@ export default function Recursos() {
     
     return matchesSearch && matchesStatus && matchesTipo;
   });
+  
+  // Paginação
+  const totalPages = Math.ceil(filteredRecursos.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedRecursos = filteredRecursos.slice(startIndex, endIndex);
+  
+  // Reset página quando filtros mudam
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, tipoFilter]);
   
   const handleDownloadPDF = async (recursoId: string) => {
     try {
@@ -536,10 +588,63 @@ export default function Recursos() {
   
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Carregando recursos...</p>
+      <div className="space-y-6">
+        {/* Header Skeleton */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="h-8 bg-gray-200 rounded w-48 mb-2 animate-pulse"></div>
+            <div className="h-4 bg-gray-200 rounded w-64 animate-pulse"></div>
+          </div>
+          <div className="mt-4 sm:mt-0">
+            <div className="h-10 bg-gray-200 rounded w-32 animate-pulse"></div>
+          </div>
+        </div>
+        
+        {/* Stats Cards Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <div className="h-4 bg-gray-200 rounded w-24 mb-2 animate-pulse"></div>
+                  <div className="h-8 bg-gray-200 rounded w-16 animate-pulse"></div>
+                </div>
+                <div className="w-12 h-12 bg-gray-200 rounded-lg animate-pulse"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* Filters Skeleton */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-10 bg-gray-200 rounded animate-pulse"></div>
+            ))}
+          </div>
+        </div>
+        
+        {/* Cards Skeleton */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <div className="h-6 bg-gray-200 rounded w-20 mb-2 animate-pulse"></div>
+                  <div className="h-6 bg-gray-200 rounded w-32 mb-2 animate-pulse"></div>
+                  <div className="h-4 bg-gray-200 rounded w-24 animate-pulse"></div>
+                </div>
+                <div className="w-8 h-8 bg-gray-200 rounded animate-pulse"></div>
+              </div>
+              <div className="space-y-3">
+                <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="h-16 bg-gray-200 rounded animate-pulse"></div>
+                  <div className="h-16 bg-gray-200 rounded animate-pulse"></div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     );
@@ -632,8 +737,8 @@ export default function Recursos() {
       </div>
       
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <input
@@ -663,11 +768,10 @@ export default function Recursos() {
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">Todos os tipos</option>
-            <option value="Defesa Prévia">Defesa Prévia</option>
-            <option value="Recurso de Multa">Recurso de Multa</option>
-            <option value="Recurso de Suspensão">Recurso de Suspensão</option>
-            <option value="JARI">JARI</option>
-            <option value="CETRAN">CETRAN</option>
+            <option value="conversao">Art. 267 CTB - Conversão</option>
+            <option value="defesa_previa">Defesa Prévia</option>
+            <option value="jari">JARI</option>
+            <option value="cetran">CETRAN</option>
           </select>
           
           <button className="inline-flex items-center justify-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
@@ -680,14 +784,19 @@ export default function Recursos() {
       {/* Results */}
       <div className="flex items-center justify-between">
         <p className="text-gray-600">
-          {filteredRecursos.length} recurso{filteredRecursos.length !== 1 ? 's' : ''} encontrado{filteredRecursos.length !== 1 ? 's' : ''}
+          Mostrando {startIndex + 1}-{Math.min(endIndex, filteredRecursos.length)} de {filteredRecursos.length} recurso{filteredRecursos.length !== 1 ? 's' : ''}
         </p>
+        {totalPages > 1 && (
+          <p className="text-sm text-gray-500">
+            Página {currentPage} de {totalPages}
+          </p>
+        )}
       </div>
       
       {/* Recursos Grid */}
-      {filteredRecursos.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {filteredRecursos.map((recurso) => {
+      {paginatedRecursos.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+          {paginatedRecursos.map((recurso) => {
             // Usar os dados da multa que vêm junto com o recurso (com dados do cliente)
             const multa = multas.find(m => m.id === recurso.multa_id);
             return (
@@ -707,9 +816,97 @@ export default function Recursos() {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-          <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Nenhum recurso encontrado</h3>
-          <p className="text-gray-600 mb-6">Não há recursos que correspondam aos filtros selecionados.</p>
+          <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <FileText className="w-10 h-10 text-gray-400" />
+          </div>
+          <h3 className="text-xl font-semibold text-gray-900 mb-3">Nenhum recurso encontrado</h3>
+          <p className="text-gray-600 mb-8 max-w-md mx-auto">
+            {searchTerm || statusFilter !== 'all' || tipoFilter !== 'all' 
+              ? 'Não há recursos que correspondam aos filtros selecionados. Tente ajustar os filtros ou criar um novo recurso.'
+              : 'Você ainda não possui recursos cadastrados. Comece criando seu primeiro recurso de multa.'
+            }
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              onClick={() => navigate('/recursos/novo')}
+              className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Criar Primeiro Recurso
+            </button>
+            {(searchTerm || statusFilter !== 'all' || tipoFilter !== 'all') && (
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                  setTipoFilter('all');
+                }}
+                className="inline-flex items-center justify-center px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                Limpar Filtros
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {/* Paginação */}
+      {totalPages > 1 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center justify-center sm:justify-start space-x-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+              
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNumber;
+                  const maxVisible = 5;
+                  if (totalPages <= maxVisible) {
+                    pageNumber = i + 1;
+                  } else if (currentPage <= Math.floor(maxVisible / 2) + 1) {
+                    pageNumber = i + 1;
+                  } else if (currentPage >= totalPages - Math.floor(maxVisible / 2)) {
+                    pageNumber = totalPages - maxVisible + 1 + i;
+                  } else {
+                    pageNumber = currentPage - Math.floor(maxVisible / 2) + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={pageNumber}
+                      onClick={() => setCurrentPage(pageNumber)}
+                      className={cn(
+                        'px-3 py-2 text-sm font-medium rounded-lg transition-colors',
+                        currentPage === pageNumber
+                          ? 'bg-blue-600 text-white'
+                          : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
+                      )}
+                    >
+                      {pageNumber}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              <button
+                onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Próximo
+              </button>
+            </div>
+            
+            <div className="text-sm text-gray-500 text-center sm:text-right">
+              {filteredRecursos.length} recursos no total
+            </div>
+          </div>
         </div>
       )}
       

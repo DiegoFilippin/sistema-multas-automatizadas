@@ -42,9 +42,9 @@ class AuthService {
         throw new Error('Login failed')
       }
 
-      // Get user profile from user_profiles table
+      // Get user profile from users table
       const { data: userProfile, error: profileError } = await supabase
-        .from('user_profiles')
+        .from('users')
         .select('*')
         .eq('id', authData.user.id)
         .single()
@@ -53,20 +53,20 @@ class AuthService {
         throw new Error('User profile not found')
       }
 
-      // Update last login in user_profiles
+      // Update last login in users
       await supabase
-        .from('user_profiles')
-        .update({ updated_at: new Date().toISOString() })
+        .from('users')
+        .update({ ultimo_login: new Date().toISOString() })
         .eq('id', authData.user.id)
 
       const user: AuthUser = {
         id: userProfile.id,
         email: userProfile.email,
-        nome: userProfile.name, // Campo 'name' da user_profiles
+        nome: userProfile.nome, // Campo 'nome' da users
         role: userProfile.role,
-        company_id: undefined, // user_profiles não tem company_id
-        ativo: true, // user_profiles sempre ativo
-        ultimo_login: userProfile.updated_at,
+        company_id: userProfile.company_id,
+        ativo: userProfile.ativo,
+        ultimo_login: userProfile.ultimo_login,
       }
 
       return { user, session: authData.session }
@@ -91,14 +91,16 @@ class AuthService {
         throw new Error('Registration failed')
       }
 
-      // Create user profile in user_profiles table
+      // Create user profile in users table
       const { data: userProfile, error: profileError } = await supabase
-        .from('user_profiles')
+        .from('users')
         .insert({
           id: authData.user.id,
           email: data.email,
-          name: data.nome, // Campo 'name' na user_profiles
+          nome: data.nome, // Campo 'nome' na users
           role: data.role || 'user',
+          company_id: data.company_id,
+          ativo: true,
         })
         .select()
         .single()
@@ -110,10 +112,10 @@ class AuthService {
       const user: AuthUser = {
         id: userProfile.id,
         email: userProfile.email,
-        nome: userProfile.name, // Campo 'name' da user_profiles
+        nome: userProfile.nome, // Campo 'nome' da users
         role: userProfile.role,
-        company_id: undefined, // user_profiles não tem company_id
-        ativo: true, // user_profiles sempre ativo
+        company_id: userProfile.company_id,
+        ativo: userProfile.ativo,
       }
 
       return { user, session: authData.session }
@@ -137,9 +139,9 @@ class AuthService {
         return null
       }
 
-      // Get user profile from user_profiles table
+      // Get user profile from users table
       const { data: userProfile, error: profileError } = await supabase
-        .from('user_profiles')
+        .from('users')
         .select('*')
         .eq('id', user.id)
         .single()
@@ -151,11 +153,11 @@ class AuthService {
       return {
         id: userProfile.id,
         email: userProfile.email,
-        nome: userProfile.name, // Campo 'name' da user_profiles
+        nome: userProfile.nome, // Campo 'nome' da users
         role: userProfile.role,
-        company_id: undefined, // user_profiles não tem company_id
-        ativo: true, // user_profiles sempre ativo
-        ultimo_login: userProfile.updated_at,
+        company_id: userProfile.company_id,
+        ativo: userProfile.ativo,
+        ultimo_login: userProfile.ultimo_login,
       }
     } catch (error) {
       return null
@@ -164,14 +166,14 @@ class AuthService {
 
   async updateProfile(userId: string, updates: Partial<Pick<AuthUser, 'nome' | 'email'>>): Promise<AuthUser> {
     try {
-      // Mapear 'nome' para 'name' se necessário
+      // Preparar updates para a tabela users
       const mappedUpdates: any = {}
-      if (updates.nome) mappedUpdates.name = updates.nome
+      if (updates.nome) mappedUpdates.nome = updates.nome
       if (updates.email) mappedUpdates.email = updates.email
       mappedUpdates.updated_at = new Date().toISOString()
 
       const { data, error } = await supabase
-        .from('user_profiles')
+        .from('users')
         .update(mappedUpdates)
         .eq('id', userId)
         .select()
@@ -184,11 +186,11 @@ class AuthService {
       return {
         id: data.id,
         email: data.email,
-        nome: data.name, // Campo 'name' da user_profiles
+        nome: data.nome, // Campo 'nome' da users
         role: data.role,
-        company_id: undefined, // user_profiles não tem company_id
-        ativo: true, // user_profiles sempre ativo
-        ultimo_login: data.updated_at,
+        company_id: data.company_id,
+        ativo: data.ativo,
+        ultimo_login: data.ultimo_login,
       }
     } catch (error) {
       throw new Error(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`)

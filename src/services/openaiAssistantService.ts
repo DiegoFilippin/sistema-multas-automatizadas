@@ -21,16 +21,17 @@ class OpenAIAssistantService {
     const assistantId = import.meta.env.VITE_OPENAI_ASSISTANT_ID;
     
     if (!apiKey) {
-      throw new Error('VITE_OPENAI_API_KEY não configurada');
+      console.warn('VITE_OPENAI_API_KEY não configurada - funcionalidades de IA limitadas');
+      return;
     }
     
     if (!assistantId) {
-      throw new Error('VITE_OPENAI_ASSISTANT_ID não configurada');
-    }
-
-    // Validar formato do assistant_id
-    if (!assistantId.startsWith('asst_') || assistantId.length < 10) {
-      throw new Error('VITE_OPENAI_ASSISTANT_ID tem formato inválido. Deve começar com "asst_"');
+      console.warn('VITE_OPENAI_ASSISTANT_ID não configurada - usando modo básico');
+    } else {
+      // Validar formato do assistant_id apenas se fornecido
+      if (!assistantId.startsWith('asst_') || assistantId.length < 10) {
+        console.warn('VITE_OPENAI_ASSISTANT_ID tem formato inválido. Deve começar com "asst_"');
+      }
     }
 
     this.openai = new OpenAI({
@@ -38,9 +39,9 @@ class OpenAIAssistantService {
       dangerouslyAllowBrowser: true // Necessário para uso no frontend
     });
     
-    this.assistantId = assistantId;
+    this.assistantId = assistantId || '';
     this.knowledgeService = KnowledgeService.getInstance();
-    console.log('OpenAI Assistant Service inicializado com assistant_id:', assistantId);
+    console.log('OpenAI Assistant Service inicializado:', assistantId ? `com assistant_id: ${assistantId}` : 'em modo básico');
   }
 
   static isConfigured(): boolean {

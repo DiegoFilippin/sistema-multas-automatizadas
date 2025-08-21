@@ -35,6 +35,8 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { clientsService } from '@/services/clientsService';
 import GeminiOcrService from '@/services/geminiOcrService';
+import { datawashService } from '@/services/datawashService';
+import DataWashService from '@/services/datawashService';
 
 interface Endereco {
   id: string;
@@ -406,126 +408,80 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       return;
     }
 
+    // Validar CPF antes de consultar
+    if (!DataWashService.validarCPF(cpfLimpo)) {
+      toast.error('CPF inválido');
+      return;
+    }
+
     setIsLoadingCPF(true);
     
     try {
       console.log('Iniciando consulta CPF:', cpfLimpo);
       
-      // Fazer requisição para o backend
-      const response = await fetch(`http://localhost:3001/api/datawash/cpf/${cpfLimpo}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || 'test-token'}` // Token de teste se não houver
-        }
-      });
+      // Usar o novo serviço DataWash com fallback robusto
+      const dados = await datawashService.consultarCPF(cpfLimpo);
       
-      console.log('Resposta do backend:', response.status, response.statusText);
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('CPF não encontrado na base de dados.');
-        } else if (response.status === 401) {
-          throw new Error('Não autorizado. Faça login novamente.');
+      console.log('Dados recebidos:', dados);
+      
+      if (dados.success) {
+        // Preencher dados básicos
+        setFormData({
+          ...formData,
+          nome: dados.nome || '',
+          cpf: dados.cpf,
+          dataNascimento: dados.dataNascimento || '',
+          cnh: ''
+        });
+        
+        // Preencher primeiro endereço se disponível
+        if (dados.endereco && (dados.endereco.logradouro || dados.endereco.cep)) {
+          setEnderecos([{
+            id: '1',
+            tipo: 'residencial',
+            logradouro: dados.endereco.logradouro || '',
+            numero: dados.endereco.numero || '',
+            complemento: dados.endereco.complemento || '',
+            bairro: dados.endereco.bairro || '',
+            cidade: dados.endereco.cidade || '',
+            estado: dados.endereco.estado || '',
+            cep: dados.endereco.cep || '',
+            principal: true
+          }]);
+        }
+        
+        // Preencher primeiro email se disponível
+        if (dados.email) {
+          setEmails([{
+            id: '1',
+            tipo: 'pessoal',
+            endereco: dados.email,
+            principal: true
+          }]);
+        }
+        
+        // Preencher primeiro telefone se disponível
+        if (dados.telefone) {
+          setTelefones([{
+            id: '1',
+            tipo: 'celular',
+            numero: dados.telefone,
+            principal: true
+          }]);
+        }
+        
+        setCpfConsultado(true);
+        
+        if (dados.source === 'fallback') {
+          toast.warning(dados.warning || 'Usando dados simulados - API temporariamente indisponível');
         } else {
-          throw new Error('Erro ao consultar CPF. Tente novamente.');
+          toast.success('Dados do CPF carregados com sucesso!');
         }
       }
-
-      const dados = await response.json();
-      console.log('Dados recebidos do backend:', dados);
-      
-      // Preencher dados básicos
-      setFormData({
-        ...formData,
-        nome: dados.nome || '',
-        cpf: cpfLimpo,
-        dataNascimento: dados.dataNascimento || '',
-        cnh: dados.cnh || ''
-      });
-      
-      // Preencher primeiro endereço se disponível
-      if (dados.endereco && (dados.endereco.logradouro || dados.endereco.cep)) {
-        setEnderecos([{
-          id: '1',
-          tipo: 'residencial',
-          logradouro: dados.endereco.logradouro || '',
-          numero: dados.endereco.numero || '',
-          complemento: dados.endereco.complemento || '',
-          bairro: dados.endereco.bairro || '',
-          cidade: dados.endereco.cidade || '',
-          estado: dados.endereco.estado || '',
-          cep: dados.endereco.cep || '',
-          principal: true
-        }]);
-      }
-      
-      // Preencher primeiro email se disponível
-      if (dados.email) {
-        setEmails([{
-          id: '1',
-          tipo: 'pessoal',
-          endereco: dados.email,
-          principal: true
-        }]);
-      }
-      
-      // Preencher primeiro telefone se disponível
-      if (dados.telefone) {
-        setTelefones([{
-          id: '1',
-          tipo: 'celular',
-          numero: dados.telefone,
-          principal: true
-        }]);
-      }
-      
-      setCpfConsultado(true);
-      toast.success('Dados do CPF carregados com sucesso!');
       
     } catch (error) {
       console.error('Erro ao consultar CPF:', error);
-      
-      // Fallback para dados simulados em caso de erro
-      const dadosSimulados = gerarDadosSimulados(cpfLimpo);
-      
-      setFormData({
-        ...formData,
-        nome: dadosSimulados.nome,
-        cpf: cpfLimpo,
-        dataNascimento: dadosSimulados.dataNascimento,
-        cnh: dadosSimulados.cnh
-      });
-      
-      setEnderecos([{
-        id: '1',
-        tipo: 'residencial',
-        logradouro: dadosSimulados.logradouro,
-        numero: dadosSimulados.numero,
-        complemento: dadosSimulados.complemento,
-        bairro: dadosSimulados.bairro,
-        cidade: dadosSimulados.cidade,
-        estado: dadosSimulados.estado,
-        cep: dadosSimulados.cep,
-        principal: true
-      }]);
-      
-      setEmails([{
-        id: '1',
-        tipo: 'pessoal',
-        endereco: dadosSimulados.email,
-        principal: true
-      }]);
-      
-      setTelefones([{
-        id: '1',
-        tipo: 'celular',
-        numero: dadosSimulados.telefone,
-        principal: true
-      }]);
-      
-      setCpfConsultado(true);
-      toast.warning('Usando dados simulados. ' + (error.message || 'Erro ao consultar API.'));
+      toast.error(error.message || 'Erro ao consultar CPF. Tente novamente.');
     } finally {
       setIsLoadingCPF(false);
     }

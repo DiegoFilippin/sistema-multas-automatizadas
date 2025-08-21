@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import TipoRecursoTag from '@/components/TipoRecursoTag';
 
 interface StatCardProps {
   title: string;
@@ -331,6 +332,7 @@ export default function DashboardDespachante() {
                             IA
                           </span>
                         )}
+                        <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
                       </div>
                     </div>
                   </div>

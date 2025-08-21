@@ -17,6 +17,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, 
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import TipoRecursoTag from '@/components/TipoRecursoTag';
 
 interface StatCardProps {
   title: string;
@@ -314,6 +315,10 @@ export default function DashboardCliente() {
                        recurso.status === 'indeferido' ? 'Indeferido' :
                        recurso.status === 'em_analise' ? 'Em Análise' : 'Rascunho'}
                     </span>
+                  </div>
+                  
+                  <div className="mb-2">
+                    <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
                   </div>
                   
                   <div className="flex items-center justify-between">

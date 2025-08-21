@@ -7,6 +7,7 @@ import { multasService } from '@/services/multasService'
 import { pdfService } from '@/services/pdfService'
 import type { Database } from '@/lib/supabase'
 import FeedbackRecurso from '@/components/FeedbackRecurso'
+import TipoRecursoTag, { Art267Explanation } from '@/components/TipoRecursoTag'
 import { toast } from 'sonner'
 
 type Recurso = {
@@ -258,7 +259,9 @@ export default function MultaDetalhesSimples() {
                         <FileText className="w-4 h-4 text-gray-500" />
                         <div>
                           <p className="font-medium text-gray-900">{recurso.numero_processo}</p>
-                          <p className="text-sm text-gray-600">{recurso.tipo_recurso}</p>
+                          <div className="mt-1">
+                            <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
+                          </div>
                         </div>
                       </div>
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${
@@ -284,6 +287,11 @@ export default function MultaDetalhesSimples() {
                         <p className="font-medium text-gray-900">{formatDate(recurso.created_at)}</p>
                       </div>
                     </div>
+                    
+                    {/* Explicação Art. 267 se aplicável */}
+                    {recurso.tipo_recurso === 'conversao' && (
+                      <Art267Explanation className="mb-4" />
+                    )}
                     
                     <div className="mb-4">
                       <p className="text-sm text-gray-600 mb-2">Fundamentação Legal</p>

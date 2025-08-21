@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
@@ -12,13 +12,16 @@ import {
   FileText,
   Brain,
   Scale,
-  Sparkles
+  Sparkles,
+  Plus
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RecursoService, { DadosInfracao, DadosCliente, DadosVeiculo, ContextoJuridico } from '@/services/recursoService';
 import FeedbackRecurso from '@/components/FeedbackRecurso';
 import HistoricoMultasModal from '@/components/HistoricoMultasModal';
 import { isMultaLeve, podeConverterEmAdvertencia, getTextoConversaoAdvertencia, MultaData } from '@/utils/multaUtils';
+import { useClientsStore } from '@/stores/clientsStore';
+import { useAuthStore } from '@/stores/authStore';
 
 interface DocumentoProcessado {
   numeroAuto: string;
@@ -39,8 +42,9 @@ interface DocumentoProcessado {
 interface Cliente {
   id: string;
   nome: string;
-  cpf: string;
+  cpf_cnpj: string;
   email?: string;
+  telefone?: string;
   status: 'ativo' | 'inativo';
 }
 
@@ -52,18 +56,135 @@ interface Veiculo {
   ano: number;
 }
 
-const clientesMock: Cliente[] = [
-  { id: '1', nome: 'João Silva', cpf: '123.456.789-00', email: 'joao@email.com', status: 'ativo' },
-  { id: '2', nome: 'Maria Santos', cpf: '987.654.321-00', email: 'maria@email.com', status: 'ativo' },
-];
+// Dados mockados removidos - agora usando dados reais do store
 
 const veiculosMock: Veiculo[] = [
   { id: '1', marca: 'Toyota', modelo: 'Corolla', placa: 'ABC-1234', ano: 2020 },
   { id: '2', marca: 'Honda', modelo: 'Civic', placa: 'XYZ-5678', ano: 2019 },
 ];
 
+// Modal simples para cadastro de cliente
+interface NovoClienteModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (cliente: any) => void;
+}
+
+function NovoClienteModal({ isOpen, onClose, onSave }: NovoClienteModalProps) {
+  const [formData, setFormData] = useState({
+    nome: '',
+    cpf_cnpj: '',
+    email: '',
+    telefone: ''
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.nome || !formData.cpf_cnpj) {
+      toast.error('Nome e CPF/CNPJ são obrigatórios');
+      return;
+    }
+    
+    onSave(formData);
+    setFormData({ nome: '', cpf_cnpj: '', email: '', telefone: '' });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Novo Cliente</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            ✕
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nome *
+            </label>
+            <input
+              type="text"
+              value={formData.nome}
+              onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Nome completo"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              CPF/CNPJ *
+            </label>
+            <input
+              type="text"
+              value={formData.cpf_cnpj}
+              onChange={(e) => setFormData({ ...formData, cpf_cnpj: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="000.000.000-00"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Email
+            </label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="email@exemplo.com"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Telefone
+            </label>
+            <input
+              type="tel"
+              value={formData.telefone}
+              onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="(11) 99999-9999"
+            />
+          </div>
+          
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function NovoRecurso() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const { clients, fetchClients, addClient, isLoading: loadingClientes } = useClientsStore();
   const [etapaAtual, setEtapaAtual] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [buscaCliente, setBuscaCliente] = useState('');
@@ -78,14 +199,76 @@ export default function NovoRecurso() {
   const [recursoId, setRecursoId] = useState<string>('');
   const [mostrarFeedback, setMostrarFeedback] = useState(false);
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
+  const [showNovoClienteModal, setShowNovoClienteModal] = useState(false);
   const [tipoRecurso, setTipoRecurso] = useState<'normal' | 'conversao'>('normal');
   
   const recursoService = RecursoService.getInstance();
 
-  const clientesFiltrados = clientesMock.filter(cliente =>
+  // Carregar clientes quando acessar etapa 1
+  useEffect(() => {
+    if (etapaAtual === 1 && (user?.company_id || user?.role === 'admin_master')) {
+      loadClientes();
+    }
+  }, [etapaAtual, user?.company_id, user?.role]);
+  
+  const loadClientes = async () => {
+    // Super admin pode acessar sem company_id específico
+    if (!user?.company_id && user?.role !== 'admin_master') {
+      toast.error('Empresa do usuário não encontrada. Faça login novamente.');
+      return;
+    }
+
+    try {
+      // Para admin_master, não passar filtro de companyId para ver todos os clientes
+      // Para outros usuários, filtrar pela empresa
+      const filters = user?.role === 'admin_master' 
+        ? { status: 'ativo' as const }
+        : { status: 'ativo' as const, companyId: user.company_id };
+      
+      await fetchClients(filters);
+      
+      if (clients.length === 0) {
+        const message = user?.role === 'admin_master' 
+          ? 'Nenhum cliente encontrado no sistema. Cadastre clientes primeiro.'
+          : 'Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.';
+        toast.info(message);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error);
+      toast.error('Erro ao carregar clientes. Verifique sua conexão e tente novamente.');
+    }
+  };
+  
+  const clientesFiltrados = clients.filter(cliente =>
     cliente.nome.toLowerCase().includes(buscaCliente.toLowerCase()) ||
-    cliente.cpf.includes(buscaCliente)
+    cliente.cpf_cnpj.includes(buscaCliente)
   );
+  
+  // Função para salvar novo cliente
+  const handleSalvarNovoCliente = async (dadosCliente: any) => {
+    try {
+      if (!user?.company_id) {
+        toast.error('Empresa do usuário não encontrada');
+        return;
+      }
+      
+      const novoCliente = {
+        ...dadosCliente,
+        company_id: user.company_id,
+        status: 'ativo' as const
+      };
+      
+      await addClient(novoCliente);
+      toast.success('Cliente cadastrado com sucesso!');
+      setShowNovoClienteModal(false);
+      
+      // Recarregar clientes
+      await fetchClients({ status: 'ativo', companyId: user.company_id });
+    } catch (error) {
+      console.error('Erro ao cadastrar cliente:', error);
+      toast.error('Erro ao cadastrar cliente');
+    }
+  };
 
   const handleSelecionarCliente = (cliente: Cliente) => {
     setClienteSelecionado(cliente);
@@ -220,7 +403,7 @@ export default function NovoRecurso() {
       const dadosCliente: DadosCliente = {
         id: clienteSelecionado.id,
         nome: clienteSelecionado.nome,
-        cpf: clienteSelecionado.cpf,
+        cpf: clienteSelecionado.cpf_cnpj,
         email: clienteSelecionado.email
       };
       
@@ -262,54 +445,81 @@ export default function NovoRecurso() {
         <p className="text-gray-600">Escolha o cliente para o qual será gerado o recurso</p>
       </div>
 
-      {/* Busca de Cliente */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-        <input
-          type="text"
-          placeholder="Buscar por nome ou CPF..."
-          value={buscaCliente}
-          onChange={(e) => setBuscaCliente(e.target.value)}
-          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+      {/* Busca de Cliente e Botão Novo Cliente */}
+      <div className="flex gap-3">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou CPF..."
+            value={buscaCliente}
+            onChange={(e) => setBuscaCliente(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+        
+        <button
+          onClick={() => setShowNovoClienteModal(true)}
+          className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700"
+        >
+          <Plus className="h-4 w-4" />
+          Novo Cliente
+        </button>
       </div>
 
       {/* Lista de Clientes */}
-      <div className="space-y-3 max-h-96 overflow-y-auto">
-        {clientesFiltrados.map((cliente) => (
-          <div
-            key={cliente.id}
-            onClick={() => handleSelecionarCliente(cliente)}
-            className="p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition-colors"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold text-gray-900">{cliente.nome}</h3>
-                <p className="text-sm text-gray-600">CPF: {cliente.cpf}</p>
-                {cliente.email && (
-                  <p className="text-sm text-gray-600">Email: {cliente.email}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  cliente.status === 'ativo' 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  {cliente.status}
-                </span>
-              </div>
-            </div>
+      <div className="bg-white border border-gray-200 rounded-lg">
+        {loadingClientes ? (
+          <div className="p-8 text-center">
+            <Loader2 className="mx-auto h-8 w-8 text-blue-600 animate-spin mb-4" />
+            <p className="text-gray-600">Carregando clientes...</p>
           </div>
-        ))}
+        ) : clientesFiltrados.length === 0 ? (
+          <div className="p-8 text-center">
+            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 mb-2">
+              {buscaCliente ? 'Nenhum cliente encontrado' : 'Nenhum cliente cadastrado'}
+            </p>
+            <button
+              onClick={() => setShowNovoClienteModal(true)}
+              className="text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Cadastrar primeiro cliente
+            </button>
+          </div>
+        ) : (
+          <div className="max-h-96 overflow-y-auto">
+            {clientesFiltrados.map((cliente) => (
+              <div
+                key={cliente.id}
+                onClick={() => handleSelecionarCliente(cliente)}
+                className="p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{cliente.nome}</h3>
+                    <p className="text-sm text-gray-600">CPF/CNPJ: {cliente.cpf_cnpj}</p>
+                    {cliente.email && (
+                      <p className="text-sm text-gray-600">Email: {cliente.email}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      cliente.status === 'ativo' 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {cliente.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {clientesFiltrados.length === 0 && (
-        <div className="text-center py-8">
-          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">Nenhum cliente encontrado</p>
-        </div>
-      )}
+
     </div>
   );
 
@@ -325,7 +535,7 @@ export default function NovoRecurso() {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-semibold text-blue-900 mb-2">Cliente Selecionado:</h3>
         <p className="text-blue-800">{clienteSelecionado?.nome}</p>
-        <p className="text-sm text-blue-700">CPF: {clienteSelecionado?.cpf}</p>
+        <p className="text-sm text-blue-700">CPF/CNPJ: {clienteSelecionado?.cpf_cnpj}</p>
       </div>
 
       {/* Lista de Veículos */}
@@ -672,6 +882,15 @@ export default function NovoRecurso() {
             codigo_infracao: dadosExtraidos.codigoInfracao,
             descricao_infracao: dadosExtraidos.descricaoInfracao
           }}
+        />
+      )}
+      
+      {/* Modal de Novo Cliente */}
+      {showNovoClienteModal && (
+        <NovoClienteModal
+          isOpen={showNovoClienteModal}
+          onClose={() => setShowNovoClienteModal(false)}
+          onSave={handleSalvarNovoCliente}
         />
       )}
     </div>

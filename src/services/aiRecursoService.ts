@@ -7,7 +7,7 @@ interface RecursoGerado {
   argumentacao: string;
   fundamentacao_legal: string;
   pedido: string;
-  tipo: 'defesa_previa' | 'recurso_primeira_instancia' | 'recurso_segunda_instancia';
+  tipo: 'defesa_previa' | 'conversao_advertencia' | 'recurso_primeira_instancia' | 'recurso_segunda_instancia';
 }
 
 export class AiRecursoService {
@@ -107,15 +107,40 @@ DADOS DA MULTA:
 DADOS DO REQUERENTE:
 - Nome: ${nomeCliente}
 
-${isConversaoAdvertencia ? `INSTRUÇÕES ESPECÍFICAS PARA CONVERSÃO EM ADVERTÊNCIA:
-1. Gere um PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO
-2. Fundamente no Art. 267 do Código de Trânsito Brasileiro (CTB)
-3. Destaque que se trata de infração LEVE
-4. Mencione que o condutor NÃO possui registro de multas nos últimos 12 meses
-5. Solicite a aplicação da penalidade de advertência por escrito em substituição à multa
-6. Use linguagem formal e respeitosa
-7. Inclua todos os dados da infração e do requerente
-8. Estruture como requerimento administrativo formal` : `INSTRUÇÕES ESPECÍFICAS PARA DEFESA PRÉVIA:
+${isConversaoAdvertencia ? `INSTRUÇÕES ESPECÍFICAS PARA CONVERSÃO EM ADVERTÊNCIA (Art. 267 CTB):
+
+ESTRUTURA OBRIGATÓRIA DO DOCUMENTO:
+
+1. CABEÇALHO:
+   - "PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO"
+   - "Art. 267 do Código de Trânsito Brasileiro"
+   - "Auto de Infração nº [numero]"
+
+2. DESTINATÁRIO:
+   - "Ilmo. Sr. Diretor do [Órgão Autuador]"
+
+3. IDENTIFICAÇÃO DO REQUERENTE:
+   - Nome completo, nacionalidade, CPF
+   - Qualidade: proprietário/condutor do veículo
+   - Placa do veículo
+
+4. FUNDAMENTAÇÃO LEGAL (OBRIGATÓRIA):
+   - Citar expressamente o "Art. 267 do Código de Trânsito Brasileiro"
+   - Destacar que é "infração LEVE" (valor R$ ${dadosMulta.valorMulta})
+   - Mencionar "NÃO possui registro de multas nos últimos 12 meses"
+   - Explicar que o Art. 267 permite conversão em advertência por escrito
+
+5. PEDIDO FORMAL:
+   - Solicitar expressamente a "CONVERSÃO DA MULTA EM ADVERTÊNCIA POR ESCRITO"
+   - Mencionar "substituição da penalidade pecuniária"
+   - Referenciar novamente o Art. 267 do CTB
+
+6. ENCERRAMENTO:
+   - "Termos em que, Pede deferimento."
+   - Local e data
+   - Campo para assinatura com nome e CPF
+
+IMPORTANTE: Use EXATAMENTE os termos "conversão", "advertência por escrito", "Art. 267", "infração leve" e "últimos 12 meses".` : `INSTRUÇÕES ESPECÍFICAS PARA DEFESA PRÉVIA:
 1. Gere um documento COMPLETO e FORMAL, pronto para protocolo
 2. Inclua cabeçalho com destinatário (órgão autuador)
 3. Identifique completamente o requerente e o veículo
@@ -180,7 +205,7 @@ IMPORTANTE:
         if (tentativa === maxTentativas) {
           console.log('❌ Todas as tentativas de parsing do Gemini falharam, usando fallback estático');
           console.log('🔄 USANDO FALLBACK ESTÁTICO - Falha no parsing do Gemini');
-          return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente);
+          return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente, tipoDocumento);
         }
         
         // Continuar para próxima tentativa
@@ -205,20 +230,71 @@ IMPORTANTE:
     console.log('❌ TODAS AS TENTATIVAS DE IA FALHARAM!');
     console.log('🔄 USANDO FALLBACK ESTÁTICO FINAL - Falha em OpenAI e Gemini');
     console.log('Último erro registrado:', ultimoErro);
-    return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente);
+    return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente, tipoDocumento);
   }
   
-  private criarRecursoFallbackEstatico(dadosMulta: DocumentoProcessado, nomeCliente: string): RecursoGerado {
+  private criarRecursoFallbackEstatico(dadosMulta: DocumentoProcessado, nomeCliente: string, tipoDocumento?: string): RecursoGerado {
     console.log('📄 GERANDO RECURSO COM FALLBACK ESTÁTICO');
+    console.log('Tipo de documento:', tipoDocumento);
     console.log('Dados da multa para fallback:', {
       numeroAuto: dadosMulta.numeroAuto,
       placaVeiculo: dadosMulta.placaVeiculo,
-      orgaoAutuador: dadosMulta.orgaoAutuador
+      orgaoAutuador: dadosMulta.orgaoAutuador,
+      valorMulta: dadosMulta.valorMulta
     });
     console.log('Nome do cliente para fallback:', nomeCliente);
     
     const dataAtual = new Date().toLocaleDateString('pt-BR');
     const orgaoDestinatario = dadosMulta.orgaoAutuador || 'Órgão de Trânsito Competente';
+    
+    // Verificar se é conversão em advertência (Art. 267)
+    const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
+    
+    if (isConversaoAdvertencia) {
+      // Gerar documento específico para Art. 267 CTB
+      const documentoArt267 = `PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO\n` +
+        `Art. 267 do Código de Trânsito Brasileiro\n` +
+        `Auto de Infração nº ${dadosMulta.numeroAuto}\n\n` +
+        `Ilmo. Sr. Diretor do ${orgaoDestinatario}\n\n` +
+        `${nomeCliente}, brasileiro(a), vem respeitosamente requerer a V.Sa. a ` +
+        `CONVERSÃO DA MULTA EM ADVERTÊNCIA POR ESCRITO, com base no Art. 267 do ` +
+        `Código de Trânsito Brasileiro.\n\n` +
+        `DADOS DA INFRAÇÃO:\n` +
+        `- Auto de Infração: ${dadosMulta.numeroAuto}\n` +
+        `- Data da Infração: ${dadosMulta.dataInfracao}\n` +
+        `- Local: ${dadosMulta.localInfracao}\n` +
+        `- Placa do Veículo: ${dadosMulta.placaVeiculo}\n` +
+        `- Código da Infração: ${dadosMulta.codigoInfracao}\n` +
+        `- Descrição: ${dadosMulta.descricaoInfracao}\n` +
+        `- Valor da Multa: R$ ${dadosMulta.valorMulta}\n\n` +
+        `FUNDAMENTAÇÃO LEGAL:\n\n` +
+        `1. A infração cometida é classificada como LEVE (valor R$ ${dadosMulta.valorMulta});\n` +
+        `2. O requerente NÃO possui registro de multas nos últimos 12 meses;\n` +
+        `3. O Art. 267 do Código de Trânsito Brasileiro estabelece que a penalidade ` +
+        `de multa pode ser convertida em advertência por escrito quando se tratar de ` +
+        `infração leve cometida pela primeira vez.\n\n` +
+        `PEDIDO:\n\n` +
+        `Diante do exposto, requer-se a aplicação do Art. 267 do CTB, convertendo ` +
+        `a multa em ADVERTÊNCIA POR ESCRITO, em substituição à penalidade pecuniária.\n\n` +
+        `Termos em que,\n` +
+        `Pede deferimento.\n\n` +
+        `_________________, ${dataAtual}\n\n` +
+        `_________________________\n` +
+        `${nomeCliente}\n` +
+        `Requerente`;
+      
+      const recursoArt267 = {
+        titulo: `PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO - Auto de Infração nº ${dadosMulta.numeroAuto}`,
+        argumentacao: documentoArt267,
+        fundamentacao_legal: `Art. 267 do Código de Trânsito Brasileiro (Lei 9.503/97) - Conversão de multa em advertência por escrito para infrações leves cometidas pela primeira vez.`,
+        pedido: `Conversão da multa em advertência por escrito, com base no Art. 267 do CTB, em substituição à penalidade pecuniária no valor de R$ ${dadosMulta.valorMulta}.`,
+        tipo: 'conversao_advertencia' as const
+      };
+      
+      console.log('✅ Recurso Art. 267 (fallback estático) gerado com sucesso!');
+      console.log('Título do recurso Art. 267:', recursoArt267.titulo);
+      return recursoArt267;
+    }
     
     const documentoCompleto = `AO ${orgaoDestinatario.toUpperCase()}\n\n` +
       `DEFESA PRÉVIA\n` +
