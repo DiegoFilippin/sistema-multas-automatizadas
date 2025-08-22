@@ -21,7 +21,7 @@ interface DataWashResponse {
 }
 
 class DataWashService {
-  private baseUrl = 'http://localhost:3001/api/datawash';
+  private baseUrl = import.meta.env.VITE_API_BASE_URL ? `${import.meta.env.VITE_API_BASE_URL}/api/datawash` : 'http://localhost:3001/api/datawash';
   private isProduction = import.meta.env.PROD;
   
   async consultarCPF(cpf: string): Promise<DataWashResponse> {
