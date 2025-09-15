@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import AgenteJuridicoAdmin from '@/components/AgenteJuridicoAdmin';
 import DashboardAgenteJuridico from '@/components/DashboardAgenteJuridico';
+import MultaTypesConfig from '@/components/MultaTypesConfig';
 
 interface ConfigSection {
   id: string;
@@ -178,7 +179,7 @@ export default function Configuracoes() {
     whatsappProvider: 'whatsapp-business'
   });
 
-  const configSections: ConfigSection[] = [
+  const allConfigSections: ConfigSection[] = [
     {
       id: 'perfil',
       title: 'Perfil',
@@ -204,6 +205,12 @@ export default function Configuracoes() {
       description: 'APIs e conexões externas'
     },
     {
+      id: 'tipos-multa',
+      title: 'Tipos de Multa',
+      icon: Settings,
+      description: 'Configurar preços por tipo de multa'
+    },
+    {
       id: 'agente-juridico',
       title: 'Agente Jurídico',
       icon: Brain,
@@ -222,6 +229,22 @@ export default function Configuracoes() {
       description: 'Gerenciar assinatura e pagamentos'
     }
   ];
+
+  // Filtrar seções baseado no tipo de usuário
+  const configSections = allConfigSections.filter(section => {
+    // Se o usuário for despachante, ocultar certas seções
+    if (user?.role === 'Despachante') {
+      const hiddenSections = ['integracoes', 'agente-juridico', 'metricas-ia', 'plano'];
+      return !hiddenSections.includes(section.id);
+    }
+    // Mostrar todas as seções apenas para superadmin
+    if (user?.role === 'Superadmin') {
+      return true;
+    }
+    // Para outros tipos de usuário (ICETRAN, Usuario/Cliente), ocultar seções administrativas
+    const adminSections = ['integracoes', 'agente-juridico', 'metricas-ia', 'plano'];
+    return !adminSections.includes(section.id);
+  });
 
   const handleSaveProfile = async () => {
     setIsLoading(true);
@@ -831,6 +854,7 @@ export default function Configuracoes() {
           {activeTab === 'notificacoes' && renderNotificationsTab()}
           {activeTab === 'seguranca' && renderSecurityTab()}
           {activeTab === 'integracoes' && renderIntegrationsTab()}
+          {activeTab === 'tipos-multa' && <MultaTypesConfig />}
           {activeTab === 'agente-juridico' && <AgenteJuridicoAdmin />}
           {activeTab === 'metricas-ia' && <DashboardAgenteJuridico />}
           {activeTab === 'plano' && renderPlanTab()}

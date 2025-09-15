@@ -46,8 +46,15 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
   const [showMenu, setShowMenu] = useState(false);
   const { user } = useAuthStore();
   
-  const canEdit = (user?.role === 'user' || user?.role === 'admin') && recurso.status === 'rascunho';
-  const canSend = (user?.role === 'user' || user?.role === 'admin') && recurso.status === 'rascunho';
+  // Função auxiliar para verificar se o usuário pode editar/enviar recursos
+  const canManageRecursos = (userRole: string | undefined) => {
+    if (!userRole) return false;
+    return userRole === 'Despachante' || userRole === 'ICETRAN' || userRole === 'Superadmin' || 
+           userRole === 'user' || userRole === 'admin'; // Compatibilidade com roles antigos
+  };
+  
+  const canEdit = canManageRecursos(user?.role) && recurso.status === 'rascunho';
+  const canSend = canManageRecursos(user?.role) && recurso.status === 'rascunho';
   
   const getStatusConfig = (status: string) => {
     switch (status) {
@@ -173,7 +180,7 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
                   </button>
                 )}
                 
-                {(user?.role === 'user' || user?.role === 'admin') && (
+                {canManageRecursos(user?.role) && (
                   <button
                     onClick={() => {
                       onDelete(recurso.id);
@@ -492,12 +499,20 @@ export default function Recursos() {
   useEffect(() => {
     if (user) {
       // Carregar recursos baseado no tipo de usuário
-      if (user.role === 'admin') { // 'admin' no banco = 'master' na interface
-        fetchRecursos(); // Admin vê todos os recursos
-      } else if (user.role === 'user') { // 'user' no banco = 'despachante' na interface
+      if (user.role === 'Superadmin' || user.role === 'ICETRAN') {
+        fetchRecursos(); // Superadmin e ICETRAN veem todos os recursos
+      } else if (user.role === 'Despachante') {
         fetchRecursos({ companyId: user.company_id }); // Despachante vê recursos da empresa
-      } else if (user.role === 'viewer') { // 'viewer' no banco = 'cliente' na interface
+      } else if (user.role === 'Usuario/Cliente') {
         fetchRecursos({ clientId: user.id }); // Cliente vê apenas seus recursos
+      }
+      // Manter compatibilidade com roles antigos durante transição
+      else if (user.role === 'admin') {
+        fetchRecursos();
+      } else if (user.role === 'user') {
+        fetchRecursos({ companyId: user.company_id });
+      } else if (user.role === 'viewer') {
+        fetchRecursos({ clientId: user.id });
       }
     }
   }, [user, fetchRecursos]);
@@ -508,7 +523,7 @@ export default function Recursos() {
   const filteredRecursos = recursos.filter(recurso => {
     // Se for cliente, mostrar apenas recursos de suas multas
     const multa = multas.find(m => m.id === recurso.multa_id);
-    if (user?.role === 'viewer') {
+    if (user?.role === 'Usuario/Cliente') {
       if (!multa || multa.client_id !== user.id) {
         return false;
       }
@@ -656,10 +671,10 @@ export default function Recursos() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {user?.role === 'user' ? 'Meus Recursos' : 'Gestão de Recursos'}
+            {user?.role === 'Usuario/Cliente' ? 'Meus Recursos' : 'Gestão de Recursos'}
           </h1>
           <p className="text-gray-600 mt-1">
-            {user?.role === 'user' 
+            {user?.role === 'Usuario/Cliente'
               ? 'Acompanhe o status dos seus recursos de multas'
               : 'Gerencie recursos de multas dos clientes'
             }

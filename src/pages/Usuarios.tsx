@@ -12,7 +12,10 @@ import {
   User,
   Mail,
   Phone,
-  Shield
+  Shield,
+  RotateCw,
+  Users,
+  RefreshCw
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'sonner';
@@ -22,11 +25,24 @@ interface Usuario {
   nome: string;
   email: string;
   telefone?: string;
-  role: 'admin' | 'user' | 'viewer';
+  role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | 'admin' | 'user' | 'viewer'; // Incluir roles antigos para compatibilidade
   company_id: string;
   ativo: boolean;
   ultimo_login?: string;
   created_at: string;
+  asaas_customer_id?: string;
+}
+
+interface DespachanteWithoutCustomer {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  asaas_customer_id?: string;
+  created_at: string;
+  user_profiles: {
+    role: string;
+  };
 }
 
 interface UsuarioModalProps {
@@ -41,7 +57,7 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
     nome: '',
     email: '',
     telefone: '',
-    role: 'user' as 'admin' | 'user' | 'viewer' | 'admin_master' | 'expert',
+    role: 'Usuario/Cliente' as 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente',
     password: '',
     confirmPassword: ''
   });
@@ -54,7 +70,10 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
         nome: usuario.nome || '',
         email: usuario.email || '',
         telefone: usuario.telefone || '',
-        role: usuario.role || 'user',
+        role: (usuario.role === 'admin' ? 'ICETRAN' : 
+               usuario.role === 'user' ? 'Despachante' : 
+               usuario.role === 'viewer' ? 'Usuario/Cliente' : 
+               usuario.role) as 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' || 'Usuario/Cliente',
         password: '',
         confirmPassword: ''
       });
@@ -63,7 +82,7 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
         nome: '',
         email: '',
         telefone: '',
-        role: 'user',
+        role: 'Usuario/Cliente',
         password: '',
         confirmPassword: ''
       });
@@ -152,12 +171,13 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
               <select
                 required
                 value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value as 'admin' | 'user' | 'viewer' })}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value as 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
-                <option value="user">Usuário</option>
-                <option value="admin">Administrador</option>
-                <option value="viewer">Visualizador</option>
+                <option value="Usuario/Cliente">Usuário/Cliente</option>
+                <option value="Despachante">Despachante</option>
+                <option value="ICETRAN">ICETRAN</option>
+                <option value="Superadmin">Superadministrador</option>
               </select>
             </div>
 
@@ -228,9 +248,9 @@ function UsuarioCard({ usuario, onEdit, onToggleStatus, onDelete }: UsuarioCardP
   const getRoleColor = (role: string) => {
     switch (role) {
       case 'admin': return 'bg-red-100 text-red-800';
-      case 'admin_master': return 'bg-purple-100 text-purple-800';
+
       case 'user': return 'bg-blue-100 text-blue-800';
-      case 'expert': return 'bg-green-100 text-green-800';
+      
       case 'viewer': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -238,11 +258,14 @@ function UsuarioCard({ usuario, onEdit, onToggleStatus, onDelete }: UsuarioCardP
 
   const getRoleLabel = (role: string) => {
     switch (role) {
-      case 'admin': return 'Administrador';
-      case 'admin_master': return 'Admin Master';
-      case 'user': return 'Usuário';
-      case 'expert': return 'Especialista';
-      case 'viewer': return 'Visualizador';
+      case 'Superadmin': return 'Superadministrador';
+      case 'ICETRAN': return 'ICETRAN';
+      case 'Despachante': return 'Despachante';
+      case 'Usuario/Cliente': return 'Usuário/Cliente';
+      // Manter compatibilidade com roles antigos durante transição
+      case 'admin': return 'ICETRAN';
+      case 'user': return 'Despachante';
+      case 'viewer': return 'Usuário/Cliente';
       default: return role;
     }
   };
@@ -349,6 +372,13 @@ export default function Usuarios() {
   const [showModal, setShowModal] = useState(false);
   const [editingUsuario, setEditingUsuario] = useState<Usuario | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Estados para sincronização de customers
+  const [despachantesWithoutCustomer, setDespachantesWithoutCustomer] = useState<DespachanteWithoutCustomer[]>([]);
+  const [showSyncSection, setShowSyncSection] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncingUserId, setSyncingUserId] = useState<string | null>(null);
+  const [loadingDespachantes, setLoadingDespachantes] = useState(false);
 
   useEffect(() => {
     fetchUsuarios();
@@ -367,7 +397,7 @@ export default function Usuarios() {
           nome: 'João Silva',
           email: 'joao@empresa.com',
           telefone: '(11) 99999-9999',
-          role: 'admin',
+          role: 'ICETRAN',
           company_id: user?.company_id || '',
           ativo: true,
           ultimo_login: new Date().toISOString(),
@@ -378,7 +408,7 @@ export default function Usuarios() {
           nome: 'Maria Santos',
           email: 'maria@empresa.com',
           telefone: '(11) 88888-8888',
-          role: 'user',
+          role: 'Despachante',
           company_id: user?.company_id || '',
           ativo: true,
           created_at: new Date().toISOString()
@@ -477,6 +507,110 @@ export default function Usuarios() {
     setShowModal(true);
   };
 
+  // Funções para sincronização de customers
+  const fetchDespachantesWithoutCustomer = async () => {
+    setLoadingDespachantes(true);
+    try {
+      const response = await fetch('/api/users/despachantes-without-customer');
+      const result = await response.json();
+      
+      if (result.success) {
+        setDespachantesWithoutCustomer(result.data);
+        console.log(`📋 Despachantes sem customer: ${result.data.length}`);
+      } else {
+        toast.error(`Erro ao buscar despachantes: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar despachantes sem customer:', error);
+      toast.error('Erro ao buscar despachantes sem customer');
+    } finally {
+      setLoadingDespachantes(false);
+    }
+  };
+
+  const handleSyncSingleCustomer = async (userId: string, userName: string) => {
+    setSyncingUserId(userId);
+    try {
+      const response = await fetch('/api/users/create-asaas-customer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success(`Customer criado com sucesso para ${userName}!`);
+        // Remover da lista de despachantes sem customer
+        setDespachantesWithoutCustomer(prev => prev.filter(d => d.id !== userId));
+      } else {
+        toast.error(`Erro ao criar customer para ${userName}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Erro ao criar customer:', error);
+      toast.error(`Erro ao criar customer para ${userName}`);
+    } finally {
+      setSyncingUserId(null);
+    }
+  };
+
+  const handleSyncAllCustomers = async () => {
+    if (despachantesWithoutCustomer.length === 0) {
+      toast.info('Nenhum despachante sem customer encontrado');
+      return;
+    }
+
+    if (!confirm(`Deseja sincronizar ${despachantesWithoutCustomer.length} despachantes? Esta operação pode demorar alguns minutos.`)) {
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const response = await fetch('/api/users/sync-all-customers', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        const { total, success, errors } = result.data;
+        
+        if (success === total) {
+          toast.success(`✅ Todos os ${success} despachantes foram sincronizados com sucesso!`);
+        } else {
+          toast.warning(`⚠️ ${success}/${total} despachantes sincronizados. ${errors.length} erros encontrados.`);
+          
+          // Mostrar erros no console para debug
+          if (errors.length > 0) {
+            console.error('Erros na sincronização:', errors);
+          }
+        }
+        
+        // Atualizar lista
+        await fetchDespachantesWithoutCustomer();
+      } else {
+        toast.error(`Erro na sincronização: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Erro na sincronização em lote:', error);
+      toast.error('Erro na sincronização em lote');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleToggleSyncSection = async () => {
+    if (!showSyncSection) {
+      await fetchDespachantesWithoutCustomer();
+    }
+    setShowSyncSection(!showSyncSection);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -496,14 +630,117 @@ export default function Usuarios() {
           <h1 className="text-2xl font-bold text-gray-900">Gestão de Usuários</h1>
           <p className="text-gray-600 mt-1">Gerencie os usuários da sua empresa</p>
         </div>
-        <button
-          onClick={handleNewUsuario}
-          className="mt-4 sm:mt-0 inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Novo Usuário</span>
-        </button>
+        <div className="mt-4 sm:mt-0 flex space-x-3">
+          {(user?.role === 'Superadmin' || user?.role === 'ICETRAN') && (
+            <button
+              onClick={handleToggleSyncSection}
+              className="inline-flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+            >
+              <RotateCw className="w-4 h-4" />
+               <span>Sincronizar Customers</span>
+            </button>
+          )}
+          <button
+            onClick={handleNewUsuario}
+            className="inline-flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Novo Usuário</span>
+          </button>
+        </div>
       </div>
+      
+      {/* Seção de Sincronização de Customers */}
+      {showSyncSection && (user?.role === 'Superadmin' || user?.role === 'ICETRAN') && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <Users className="w-6 h-6 text-orange-600" />
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Sincronização de Customers Asaas</h2>
+                <p className="text-sm text-gray-600">Despachantes que ainda não possuem customer criado no Asaas</p>
+              </div>
+            </div>
+            <div className="flex space-x-2">
+              <button
+                onClick={fetchDespachantesWithoutCustomer}
+                disabled={loadingDespachantes}
+                className="inline-flex items-center space-x-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingDespachantes ? 'animate-spin' : ''}`} />
+                <span>Atualizar</span>
+              </button>
+              {despachantesWithoutCustomer.length > 0 && (
+                <button
+                  onClick={handleSyncAllCustomers}
+                  disabled={isSyncing}
+                  className="inline-flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50"
+                >
+                  <RotateCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+                   <span>{isSyncing ? 'Sincronizando...' : `Sincronizar Todos (${despachantesWithoutCustomer.length})`}</span>
+                </button>
+              )}
+            </div>
+          </div>
+          
+          {loadingDespachantes ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center">
+                <RefreshCw className="w-8 h-8 animate-spin text-orange-600 mx-auto mb-2" />
+                <p className="text-gray-600">Carregando despachantes...</p>
+              </div>
+            </div>
+          ) : despachantesWithoutCustomer.length === 0 ? (
+            <div className="text-center py-8">
+              <CheckCircle2 className="w-12 h-12 text-green-500 mx-auto mb-3" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Todos os despachantes sincronizados!</h3>
+              <p className="text-gray-600">Todos os despachantes já possuem customer criado no Asaas.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600 mb-3">
+                Encontrados <strong>{despachantesWithoutCustomer.length}</strong> despachantes sem customer no Asaas
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {despachantesWithoutCustomer.map((despachante) => (
+                  <div key={despachante.id} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h4 className="font-medium text-gray-900">{despachante.name}</h4>
+                        <p className="text-sm text-gray-600">{despachante.email}</p>
+                        {despachante.phone && (
+                          <p className="text-sm text-gray-500">{despachante.phone}</p>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">
+                          Criado em: {new Date(despachante.created_at).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleSyncSingleCustomer(despachante.id, despachante.name)}
+                        disabled={syncingUserId === despachante.id || isSyncing}
+                        className="ml-3 inline-flex items-center space-x-1 px-3 py-1 bg-orange-600 text-white text-sm rounded-md hover:bg-orange-700 transition-colors disabled:opacity-50"
+                      >
+                        {syncingUserId === despachante.id ? (
+                          <>
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                            <span>Criando...</span>
+                          </>
+                        ) : (
+                          <>
+                             <RotateCw className="w-3 h-3" />
+                             <span>Criar</span>
+                           </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">

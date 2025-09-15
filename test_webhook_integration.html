@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste de Integração Webhook</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔗 Teste de Integração Webhook</h1>
+        <p>Este teste verifica se o webhook está sendo enviado corretamente após a criação de uma cobrança.</p>
+        
+        <div class="test-section">
+            <h3>1. Teste de Conectividade com Webhook</h3>
+            <button onclick="testWebhookConnectivity()">Testar Conectividade</button>
+            <div id="connectivity-result" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>2. Teste de Envio de Webhook</h3>
+            <button onclick="testWebhookSend()">Enviar Webhook de Teste</button>
+            <div id="webhook-result" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>3. Buscar Wallet da Empresa</h3>
+            <button onclick="testCompanyWallet()">Buscar Wallet</button>
+            <div id="wallet-result" class="result"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>4. Simular Criação de Cobrança (Frontend)</h3>
+            <button onclick="simulateChargeCreation()">Simular Cobrança</button>
+            <div id="charge-result" class="result"></div>
+        </div>
+    </div>
+
+    <script>
+        const WEBHOOK_URL = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
+        const COMPANY_ID = 'c1f4c95f-1f16-4680-b568-aefc43390564'; // ID da empresa de teste
+        
+        function log(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            element.textContent = message;
+            element.className = `result ${type}`;
+        }
+        
+        async function testWebhookConnectivity() {
+            log('connectivity-result', 'Testando conectividade com webhook...', 'info');
+            
+            try {
+                const response = await fetch(WEBHOOK_URL, {
+                    method: 'GET',
+                    mode: 'cors'
+                });
+                
+                log('connectivity-result', 
+                    `Status: ${response.status}\n` +
+                    `Status Text: ${response.statusText}\n` +
+                    `URL acessível: ${response.ok ? 'Sim' : 'Não'}`, 
+                    response.ok ? 'success' : 'error'
+                );
+            } catch (error) {
+                log('connectivity-result', 
+                    `Erro de conectividade:\n${error.message}\n\n` +
+                    `Possíveis causas:\n` +
+                    `- CORS bloqueado\n` +
+                    `- Webhook inativo\n` +
+                    `- URL incorreta`, 
+                    'error'
+                );
+            }
+        }
+        
+        async function testWebhookSend() {
+            log('webhook-result', 'Enviando webhook de teste...', 'info');
+            
+            const testData = {
+                wallet_icetran: 'eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0',
+                wallet_despachante: 'da8284f1-8c7b-4d86-8abc-e4c52257a332',
+                Customer_cliente: {
+                    id: '8fdb2182-d7a4-4cdb-9c76-323c1d0c9376',
+                    nome: 'DIEGO DA SILVA FILIPPIN',
+                    cpf: '00230049968',
+                    email: 'diegofilippin@hotmail.com',
+                    telefone: '47981424151'
+                },
+                Valor_cobrança: 50.00,
+                Idserviço: '3f1ae29d-05de-4f3a-ab5b-aad93d449cf1'
+            };
+            
+            try {
+                const response = await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(testData)
+                });
+                
+                const responseText = await response.text();
+                
+                log('webhook-result', 
+                    `Status: ${response.status}\n` +
+                    `Webhook enviado: ${response.ok ? 'Sucesso' : 'Falha'}\n` +
+                    `Resposta: ${responseText}\n\n` +
+                    `Dados enviados:\n${JSON.stringify(testData, null, 2)}`, 
+                    response.ok ? 'success' : 'error'
+                );
+            } catch (error) {
+                log('webhook-result', 
+                    `Erro ao enviar webhook:\n${error.message}`, 
+                    'error'
+                );
+            }
+        }
+        
+        async function testCompanyWallet() {
+            log('wallet-result', 'Buscando wallet da empresa...', 'info');
+            
+            try {
+                const response = await fetch(`/api/companies/${COMPANY_ID}/wallet`);
+                const data = await response.json();
+                
+                log('wallet-result', 
+                    `Status: ${response.status}\n` +
+                    `Sucesso: ${data.success}\n` +
+                    `Wallet ID: ${data.wallet_id}\n` +
+                    `Company ID: ${data.company_id}\n` +
+                    `Company Name: ${data.company_name}`, 
+                    response.ok ? 'success' : 'error'
+                );
+            } catch (error) {
+                log('wallet-result', 
+                    `Erro ao buscar wallet:\n${error.message}`, 
+                    'error'
+                );
+            }
+        }
+        
+        async function simulateChargeCreation() {
+            log('charge-result', 'Simulando criação de cobrança com webhook...', 'info');
+            
+            try {
+                // 1. Buscar wallet da empresa
+                const walletResponse = await fetch(`/api/companies/${COMPANY_ID}/wallet`);
+                const walletData = await walletResponse.json();
+                
+                if (!walletResponse.ok) {
+                    throw new Error(`Erro ao buscar wallet: ${walletData.error}`);
+                }
+                
+                // 2. Simular dados da cobrança criada
+                const chargeData = {
+                    payment_id: 'test_payment_' + Date.now(),
+                    asaas_payment_id: 'pay_test_' + Date.now(),
+                    amount: 50.00,
+                    success: true
+                };
+                
+                // 3. Preparar dados do webhook
+                const webhookData = {
+                    wallet_icetran: 'eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0',
+                    wallet_despachante: walletData.wallet_id,
+                    Customer_cliente: {
+                        id: '8fdb2182-d7a4-4cdb-9c76-323c1d0c9376',
+                        nome: 'DIEGO DA SILVA FILIPPIN',
+                        cpf: '00230049968',
+                        email: 'diegofilippin@hotmail.com',
+                        telefone: '47981424151'
+                    },
+                    Valor_cobrança: chargeData.amount,
+                    Idserviço: '3f1ae29d-05de-4f3a-ab5b-aad93d449cf1'
+                };
+                
+                // 4. Enviar webhook
+                const webhookResponse = await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(webhookData)
+                });
+                
+                const webhookResult = await webhookResponse.text();
+                
+                log('charge-result', 
+                    `✅ Simulação completa!\n\n` +
+                    `1. Wallet da empresa: ${walletData.wallet_id}\n` +
+                    `2. Cobrança simulada: ${chargeData.payment_id}\n` +
+                    `3. Webhook enviado: ${webhookResponse.ok ? 'Sucesso' : 'Falha'}\n` +
+                    `4. Status webhook: ${webhookResponse.status}\n` +
+                    `5. Resposta webhook: ${webhookResult}\n\n` +
+                    `Dados do webhook:\n${JSON.stringify(webhookData, null, 2)}`, 
+                    'success'
+                );
+                
+            } catch (error) {
+                log('charge-result', 
+                    `Erro na simulação:\n${error.message}`, 
+                    'error'
+                );
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '../lib/prisma.js';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -101,18 +101,23 @@ export const authorizeCompanyAccess = async (
 
     const { companyId } = req.params;
     
-    // Master company pode acessar qualquer empresa
-    if (req.user.role === 'master_company') {
+    // Superadmin pode acessar qualquer empresa
+    if (req.user.role === 'Superadmin') {
       return next();
     }
 
-    // Dispatcher só pode acessar sua própria empresa
-    if (req.user.role === 'dispatcher' && req.user.companyId === companyId) {
+    // ICETRAN pode acessar qualquer empresa (gerencia despachantes)
+    if (req.user.role === 'ICETRAN') {
       return next();
     }
 
-    // Cliente só pode acessar dados relacionados a ele
-    if (req.user.role === 'client') {
+    // Despachante só pode acessar sua própria empresa
+    if (req.user.role === 'Despachante' && req.user.companyId === companyId) {
+      return next();
+    }
+
+    // Usuario/Cliente só pode acessar dados relacionados a ele
+    if (req.user.role === 'Usuario/Cliente') {
       const client = await prisma.client.findUnique({
         where: { id: req.user.clientId },
         select: { companyId: true },
@@ -142,8 +147,8 @@ export const authorizeClientAccess = async (
 
     const { clientId } = req.params;
     
-    // Master company e dispatcher podem acessar qualquer cliente de suas empresas
-    if (req.user.role === 'master_company' || req.user.role === 'dispatcher') {
+    // Superadmin, ICETRAN e Despachante podem acessar clientes de suas empresas
+    if (req.user.role === 'Superadmin' || req.user.role === 'ICETRAN' || req.user.role === 'Despachante') {
       const client = await prisma.client.findUnique({
         where: { id: clientId },
         select: { companyId: true },
@@ -153,16 +158,16 @@ export const authorizeClientAccess = async (
         return res.status(404).json({ error: 'Cliente não encontrado' });
       }
 
-      // Verificar se o cliente pertence à empresa do usuário
-      if (req.user.role === 'dispatcher' && client.companyId !== req.user.companyId) {
+      // Verificar se o cliente pertence à empresa do usuário (apenas para Despachante)
+      if (req.user.role === 'Despachante' && client.companyId !== req.user.companyId) {
         return res.status(403).json({ error: 'Acesso negado a este cliente' });
       }
 
       return next();
     }
 
-    // Cliente só pode acessar seus próprios dados
-    if (req.user.role === 'client' && req.user.clientId === clientId) {
+    // Usuario/Cliente só pode acessar seus próprios dados
+    if (req.user.role === 'Usuario/Cliente' && req.user.clientId === clientId) {
       return next();
     }
 
@@ -267,6 +272,68 @@ export const validateCompanyPlan = async (
     return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
+
+// Funções auxiliares para verificação de permissões baseadas nos 4 perfis
+export const hasPermission = {
+  // Superadmin tem acesso total ao sistema
+  isSuperadmin: (role: string) => role === 'Superadmin',
+  
+  // ICETRAN gerencia despachantes e tem acesso amplo
+  isICETRAN: (role: string) => role === 'ICETRAN',
+  
+  // Despachante gerencia clientes e multas
+  isDespachante: (role: string) => role === 'Despachante',
+  
+  // Usuario/Cliente tem acesso limitado aos próprios dados
+  isUsuarioCliente: (role: string) => role === 'Usuario/Cliente',
+  
+  // Verificações combinadas
+  canManageUsers: (role: string) => role === 'Superadmin' || role === 'ICETRAN',
+  canManageCompanies: (role: string) => role === 'Superadmin' || role === 'ICETRAN',
+  canManageClients: (role: string) => role === 'Superadmin' || role === 'ICETRAN' || role === 'Despachante',
+  canViewReports: (role: string) => role === 'Superadmin' || role === 'ICETRAN' || role === 'Despachante',
+  canManageSystem: (role: string) => role === 'Superadmin',
+};
+
+// Middleware para verificar se o usuário pode gerenciar usuários
+export const requireUserManagement = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user || !hasPermission.canManageUsers(req.user.role)) {
+    return res.status(403).json({ 
+      error: 'Acesso negado. Apenas Superadmin e ICETRAN podem gerenciar usuários.' 
+    });
+  }
+  next();
+};
+
+// Middleware para verificar se o usuário pode gerenciar empresas
+export const requireCompanyManagement = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user || !hasPermission.canManageCompanies(req.user.role)) {
+    return res.status(403).json({ 
+      error: 'Acesso negado. Apenas Superadmin e ICETRAN podem gerenciar empresas.' 
+    });
+  }
+  next();
+};
+
+// Middleware para verificar se o usuário pode gerenciar clientes
+export const requireClientManagement = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user || !hasPermission.canManageClients(req.user.role)) {
+    return res.status(403).json({ 
+      error: 'Acesso negado. Apenas Superadmin, ICETRAN e Despachante podem gerenciar clientes.' 
+    });
+  }
+  next();
+};
+
+// Middleware para verificar acesso de superadmin
+ export const requireSuperadmin = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+   if (!req.user || !hasPermission.isSuperadmin(req.user.role)) {
+     return res.status(403).json({ 
+       error: 'Acesso negado. Apenas Superadmin pode acessar esta funcionalidade.' 
+     });
+   }
+   next();
+ };
 
 // Middleware para log de atividades
 export const logActivity = async (

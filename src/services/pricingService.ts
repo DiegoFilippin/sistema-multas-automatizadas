@@ -373,7 +373,32 @@ class PricingService {
   }
 
   /**
-   * Calculate resource price for a specific company and dispatcher
+   * Calculate resource price based on multa type (new system)
+   */
+  async calculateMultaTypePrice(
+    multaType: 'leve' | 'media' | 'grave' | 'gravissima'
+  ): Promise<number> {
+    try {
+      const { data: multaTypeData, error } = await supabase
+        .from('multa_types')
+        .select('total_price')
+        .eq('type', multaType)
+        .eq('active', true)
+        .single();
+
+      if (error || !multaTypeData) {
+        throw new Error(`Price not found for multa type: ${multaType}`);
+      }
+
+      return multaTypeData.total_price;
+    } catch (error) {
+      console.error('Error calculating multa type price:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calculate resource price for a specific company and dispatcher (legacy system)
    */
   async calculateResourcePrice(
     resourceType: string,

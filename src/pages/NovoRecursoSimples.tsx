@@ -21,6 +21,7 @@ import { clientsService } from '@/services/clientsService';
 import HistoricoMultasModal from '@/components/HistoricoMultasModal';
 import { ClienteModal } from '@/components/ClienteModal';
 import { isMultaLeve, podeConverterEmAdvertencia, getTextoConversaoAdvertencia, type MultaData } from '@/utils/multaUtils';
+import { asaasService } from '@/services/asaasService';
 
 // Interfaces para compatibilidade com ClienteModal
 interface Email {
@@ -156,9 +157,42 @@ export default function NovoRecursoSimples() {
       };
       
       // Salvar através do store
-      await addClient(clienteData);
+      const clienteCriado = await addClient(clienteData);
       
-      toast.success('Cliente cadastrado com sucesso!');
+      // Criar customer no Asaas
+      if (clienteCriado?.id) {
+        try {
+          const asaasCustomerData = {
+            name: novoCliente.nome || '',
+            cpfCnpj: novoCliente.cpf || '',
+            email: primeiroEmail,
+            phone: primeiroTelefone,
+            address: primeiroEndereco?.logradouro,
+            addressNumber: primeiroEndereco?.numero,
+            complement: primeiroEndereco?.complemento,
+            province: primeiroEndereco?.bairro,
+            city: primeiroEndereco?.cidade,
+            state: primeiroEndereco?.estado,
+            postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          
+          // Atualizar cliente com asaas_customer_id através do clientsService
+          await clientsService.updateClient(clienteCriado.id, {
+            asaas_customer_id: asaasCustomer.id
+          });
+
+          console.log('Customer criado no Asaas:', asaasCustomer.id);
+          toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+        } catch (asaasError) {
+          console.error('Erro ao criar customer no Asaas:', asaasError);
+          toast.warning('Cliente criado, mas houve erro na integração com Asaas.');
+        }
+      } else {
+        toast.success('Cliente cadastrado com sucesso!');
+      }
+      
       setShowNovoClienteModal(false);
       
       // Recarregar lista de clientes
@@ -177,50 +211,18 @@ export default function NovoRecursoSimples() {
   }, [currentStep, user?.company_id]);
   
   const loadClientes = async () => {
-    // Super admin pode acessar sem company_id específico
-    if (!user?.company_id && user?.role !== 'admin_master') {
+    if (!user?.company_id) {
       toast.error('Empresa do usuário não encontrada. Faça login novamente.');
       return;
     }
 
     try {
-      if (user?.role === 'admin_master') {
-        // Para admin_master, usar clientsService diretamente sem filtros para ver todos os clientes
-        const allClients = await clientsService.getClientsWithStats();
-        
-        // Atualizar o store manualmente com todos os clientes
-        // Como o store espera o formato Client[], vamos converter
-        const clientsForStore = allClients.map(client => ({
-          id: client.id,
-          nome: client.nome,
-          cpf_cnpj: client.cpf_cnpj,
-          email: client.email,
-          telefone: client.telefone,
-          company_id: client.company_id,
-          status: client.status,
-          endereco: client.endereco,
-          cidade: client.cidade,
-          estado: client.estado,
-          cep: client.cep,
-          created_at: client.created_at,
-          updated_at: client.updated_at
-        }));
-        
-        // Atualizar o store diretamente
-        const { clients: currentClients, ...storeActions } = useClientsStore.getState();
-        useClientsStore.setState({ clients: clientsForStore });
-        
-        if (clientsForStore.length === 0) {
-          toast.info('Nenhum cliente encontrado no sistema. Cadastre clientes primeiro.');
-        }
-      } else {
-        // Para outros usuários, usar o store normalmente com filtros
-        const filters = { status: 'ativo' as const, companyId: user.company_id };
-        await fetchClients(filters);
-        
-        if (clients.length === 0) {
-          toast.info('Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.');
-        }
+      // Carregar clientes da empresa do usuário
+      const filters = { status: 'ativo' as const, companyId: user.company_id };
+      await fetchClients(filters);
+      
+      if (clients.length === 0) {
+        toast.info('Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.');
       }
     } catch (error) {
       console.error('Erro ao carregar clientes:', error);
@@ -377,18 +379,12 @@ export default function NovoRecursoSimples() {
     }
     
     console.log('✅ Validação final aprovada. Gerando recurso com valor:', valorNormalizado);
-    // Super admin pode gerar recursos sem company_id específico
-    if (!user?.company_id && user?.role !== 'admin_master') {
+    if (!user?.company_id) {
       toast.error('Empresa do usuário não encontrada. Faça login novamente.');
       return;
     }
     
-    // Para super admin, usar company_id do usuário ou uma empresa padrão
-    const companyId = user?.company_id || 'default-company';
-    if (!companyId) {
-      toast.error('Não foi possível determinar a empresa para este recurso.');
-      return;
-    }
+    const companyId = user.company_id;
     
     setIsGeneratingRecurso(true);
     

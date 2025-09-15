@@ -51,7 +51,79 @@ class BillingService {
   private pricingService = pricingService;
 
   /**
-   * Cria uma cobrança para geração de recurso
+   * Cria uma cobrança para geração de recurso baseado no tipo de multa
+   */
+  async createResourceBillingByMultaType(
+    billingData: BillingData & { multa_type: 'leve' | 'media' | 'grave' | 'gravissima' }
+  ): Promise<PaymentResult> {
+    try {
+      // 1. Calcular o preço baseado no tipo de multa
+      const pricing = await this.pricingService.calculateMultaTypePrice(billingData.multa_type);
+
+      if (!pricing || pricing <= 0) {
+        throw new Error(`Preço não configurado para o tipo de multa: ${billingData.multa_type}`);
+      }
+
+      // 2. Criar ou buscar cliente no Asaas
+      const asaasCustomer = await this.getOrCreateAsaasCustomer({
+        name: billingData.client_name,
+        email: billingData.client_email,
+        cpfCnpj: billingData.client_cpf,
+        phone: billingData.client_phone
+      });
+
+      // 3. Criar cobrança no Asaas
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 7); // Vencimento em 7 dias
+
+      const paymentData = {
+        customer: asaasCustomer.id,
+        billingType: 'UNDEFINED' as const, // Permite múltiplas formas de pagamento
+        value: pricing,
+        dueDate: dueDate.toISOString().split('T')[0],
+        description: `Recurso de Multa ${billingData.multa_type.charAt(0).toUpperCase() + billingData.multa_type.slice(1)}`,
+        externalReference: billingData.multa_id,
+        postalService: false
+      };
+
+      const asaasPayment = await this.asaasService.createPayment(paymentData);
+
+      // 4. Salvar transação no banco de dados
+      const transaction = await this.saveTransaction({
+        user_id: billingData.user_id,
+        company_id: billingData.company_id,
+        dispatcher_id: billingData.dispatcher_id,
+        multa_id: billingData.multa_id,
+        resource_type: `recurso_multa_${billingData.multa_type}`,
+        amount: pricing,
+        asaas_payment_id: asaasPayment.id,
+        asaas_customer_id: asaasCustomer.id,
+        status: 'pending',
+        invoice_url: asaasPayment.invoiceUrl,
+        bank_slip_url: asaasPayment.bankSlipUrl,
+        pix_qr_code: asaasPayment.pix?.qrCode,
+        pix_copy_paste: asaasPayment.pix?.payload,
+        due_date: paymentData.dueDate
+      });
+
+      return {
+        payment_id: asaasPayment.id,
+        invoice_url: asaasPayment.invoiceUrl,
+        bank_slip_url: asaasPayment.bankSlipUrl,
+        pix_qr_code: asaasPayment.pix?.qrCode,
+        pix_copy_paste: asaasPayment.pix?.payload,
+        amount: pricing,
+        due_date: paymentData.dueDate,
+        status: 'pending'
+      };
+    } catch (error) {
+      console.error('Erro ao criar cobrança por tipo de multa:', error);
+      throw new Error(`Falha ao criar cobrança: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+  /**
+   * Cria uma cobrança para geração de recurso (sistema legado)
    */
   async createResourceBilling(billingData: BillingData): Promise<PaymentResult> {
     try {

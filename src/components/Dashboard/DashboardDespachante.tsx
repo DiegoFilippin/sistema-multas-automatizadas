@@ -9,7 +9,9 @@ import {
   XCircle,
   AlertTriangle,
   Zap,
-  Plus
+  Plus,
+  Coins,
+  CreditCard
 } from 'lucide-react';
 import { useMultasStore } from '@/stores/multasStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -17,6 +19,8 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import TipoRecursoTag from '@/components/TipoRecursoTag';
+import { CreditPurchaseModal } from '@/components/CreditPurchaseModal';
+import { useNavigate } from 'react-router-dom';
 
 interface StatCardProps {
   title: string;
@@ -69,8 +73,82 @@ export default function DashboardDespachante() {
   const { multas, recursos, getEstatisticas, criarRecurso, isLoading } = useMultasStore();
   const [timeRange, setTimeRange] = useState('30d');
   const [isCreatingResource, setIsCreatingResource] = useState(false);
+  const [companyCredits, setCompanyCredits] = useState<number>(0);
+  const [loadingCredits, setLoadingCredits] = useState(false);
+  const [showCreditModal, setShowCreditModal] = useState(false);
+  const navigate = useNavigate();
 
   const stats = getEstatisticas();
+
+  // Função para carregar créditos da empresa
+  const fetchCompanyCredits = async () => {
+    if (!user?.company_id) return;
+    
+    try {
+      setLoadingCredits(true);
+      console.log('🔍 Buscando créditos da empresa...');
+      
+      const response = await fetch(`/api/credits/balance?ownerType=company&ownerId=${user.company_id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response ok:', response.ok);
+      
+      // Verificar se resposta tem conteúdo JSON válido
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.error('❌ Resposta não é JSON válido, content-type:', contentType);
+        setCompanyCredits(0);
+        return;
+      }
+      
+      // Ler como texto primeiro para verificar se não está vazio
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        console.error('❌ Resposta vazia da API');
+        setCompanyCredits(0);
+        return;
+      }
+      
+      console.log('📄 Response text:', text.substring(0, 200) + '...');
+      
+      // Tentar parsear JSON com tratamento de erro
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error('❌ Erro ao parsear JSON:', parseError);
+        console.error('📄 Texto da resposta completo:', text);
+        setCompanyCredits(0);
+        return;
+      }
+      
+      console.log('✅ Dados parseados:', data);
+      
+      if (response.ok && data.success) {
+        const credits = data.data?.currentBalance || 0;
+        console.log('💰 Créditos encontrados:', credits);
+        setCompanyCredits(credits);
+      } else {
+        console.error('❌ Erro na API:', data.error || 'Erro desconhecido');
+        setCompanyCredits(0);
+      }
+      
+    } catch (error) {
+      console.error('❌ Erro ao carregar créditos da empresa:', error);
+      setCompanyCredits(0);
+    } finally {
+      setLoadingCredits(false);
+    }
+  };
+
+  // Carregar créditos ao montar o componente
+  useEffect(() => {
+    fetchCompanyCredits();
+  }, [user?.company_id]);
 
   // Mock data para gráficos
   const recursosUltimos30Dias = [
@@ -142,7 +220,7 @@ export default function DashboardDespachante() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <StatCard
           title="Total de Multas"
           value={stats.totalMultas}
@@ -171,7 +249,48 @@ export default function DashboardDespachante() {
           changeType="positive"
           icon={Zap}
         />
+        <StatCard
+          title="Créditos da Empresa"
+          value={loadingCredits ? '...' : `${companyCredits.toFixed(2)}`}
+          change={companyCredits <= 10 ? 'Saldo baixo!' : 'Saldo adequado'}
+          changeType={companyCredits <= 10 ? 'negative' : 'positive'}
+          icon={Coins}
+          className={companyCredits <= 10 ? 'border-yellow-300 bg-yellow-50' : ''}
+          onClick={() => navigate('/gerenciar-creditos')}
+        />
       </div>
+
+      {/* Alerta de Saldo Baixo */}
+      {companyCredits <= 10 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-600" />
+              <div>
+                <h3 className="font-medium text-yellow-900">Saldo de créditos baixo</h3>
+                <p className="text-sm text-yellow-700">
+                  Você tem apenas {companyCredits.toFixed(2)} créditos restantes. Compre mais créditos para continuar utilizando os serviços.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowCreditModal(true)}
+                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2"
+              >
+                <CreditCard className="h-4 w-4" />
+                Comprar Créditos
+              </button>
+              <button
+                onClick={() => navigate('/gerenciar-creditos')}
+                className="px-4 py-2 border border-yellow-600 text-yellow-700 rounded-lg hover:bg-yellow-100 transition-colors"
+              >
+                Gerenciar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -346,6 +465,18 @@ export default function DashboardDespachante() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Compra de Créditos */}
+      <CreditPurchaseModal
+        isOpen={showCreditModal}
+        onClose={() => setShowCreditModal(false)}
+        companyId={user?.company_id}
+        targetType="company"
+        onPurchaseComplete={() => {
+          fetchCompanyCredits();
+          toast.success('Créditos adicionados com sucesso!');
+        }}
+      />
     </div>
   );
 }

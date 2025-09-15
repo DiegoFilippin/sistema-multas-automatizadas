@@ -4,12 +4,12 @@ import type { User } from '@supabase/supabase-js'
 export interface AuthUser {
   id: string
   email: string
-  nome: string // Mapeado do campo 'name' da tabela user_profiles
-  role: 'admin' | 'user' | 'viewer' | 'admin_master' | 'expert'
-  company_id?: string // Campo opcional para compatibilidade
-  client_id?: string // Campo opcional para compatibilidade
-  ativo: boolean // Sempre true para user_profiles
-  ultimo_login?: string // Campo opcional para compatibilidade
+  nome: string
+  role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente'
+  company_id?: string
+  ativo: boolean
+  ultimo_login?: string
+  asaas_customer_id?: string
 }
 
 export interface LoginCredentials {
@@ -22,7 +22,7 @@ export interface RegisterData {
   password: string
   nome: string
   company_id?: string
-  role?: 'admin' | 'user' | 'viewer' | 'admin_master' | 'expert'
+  role?: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente'
 }
 
 class AuthService {
@@ -46,27 +46,28 @@ class AuthService {
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', authData.user.id)
+        .eq('email', credentials.email)
         .single()
 
       if (profileError) {
         throw new Error('User profile not found')
       }
 
-      // Update last login in users
+      // Update last login
       await supabase
         .from('users')
         .update({ ultimo_login: new Date().toISOString() })
-        .eq('id', authData.user.id)
+        .eq('id', userProfile.id)
 
       const user: AuthUser = {
         id: userProfile.id,
         email: userProfile.email,
-        nome: userProfile.nome, // Campo 'nome' da users
+        nome: userProfile.nome,
         role: userProfile.role,
         company_id: userProfile.company_id,
         ativo: userProfile.ativo,
         ultimo_login: userProfile.ultimo_login,
+        asaas_customer_id: userProfile.asaas_customer_id,
       }
 
       return { user, session: authData.session }
@@ -97,8 +98,8 @@ class AuthService {
         .insert({
           id: authData.user.id,
           email: data.email,
-          nome: data.nome, // Campo 'nome' na users
-          role: data.role || 'user',
+          nome: data.nome,
+          role: data.role || 'Usuario/Cliente',
           company_id: data.company_id,
           ativo: true,
         })
@@ -112,7 +113,7 @@ class AuthService {
       const user: AuthUser = {
         id: userProfile.id,
         email: userProfile.email,
-        nome: userProfile.nome, // Campo 'nome' da users
+        nome: userProfile.nome,
         role: userProfile.role,
         company_id: userProfile.company_id,
         ativo: userProfile.ativo,
@@ -143,7 +144,7 @@ class AuthService {
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', user.id)
+        .eq('email', user.email)
         .single()
 
       if (profileError) {
@@ -153,11 +154,12 @@ class AuthService {
       return {
         id: userProfile.id,
         email: userProfile.email,
-        nome: userProfile.nome, // Campo 'nome' da users
+        nome: userProfile.nome,
         role: userProfile.role,
         company_id: userProfile.company_id,
         ativo: userProfile.ativo,
         ultimo_login: userProfile.ultimo_login,
+        asaas_customer_id: userProfile.asaas_customer_id,
       }
     } catch (error) {
       return null
@@ -166,15 +168,12 @@ class AuthService {
 
   async updateProfile(userId: string, updates: Partial<Pick<AuthUser, 'nome' | 'email'>>): Promise<AuthUser> {
     try {
-      // Preparar updates para a tabela users
-      const mappedUpdates: any = {}
-      if (updates.nome) mappedUpdates.nome = updates.nome
-      if (updates.email) mappedUpdates.email = updates.email
-      mappedUpdates.updated_at = new Date().toISOString()
-
       const { data, error } = await supabase
         .from('users')
-        .update(mappedUpdates)
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', userId)
         .select()
         .single()
@@ -186,11 +185,12 @@ class AuthService {
       return {
         id: data.id,
         email: data.email,
-        nome: data.nome, // Campo 'nome' da users
+        nome: data.nome,
         role: data.role,
         company_id: data.company_id,
         ativo: data.ativo,
         ultimo_login: data.ultimo_login,
+        asaas_customer_id: data.asaas_customer_id,
       }
     } catch (error) {
       throw new Error(`Failed to update profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -223,11 +223,32 @@ class AuthService {
     }
   }
 
-  // Método temporariamente desabilitado - user_profiles não tem company_id
-  // async getUsersByCompany(companyId: string): Promise<AuthUser[]> {
-  //   // Este método precisa ser reimplementado quando houver relação entre user_profiles e companies
-  //   throw new Error('Method not implemented for user_profiles table')
-  // }
+  async getUsersByCompany(companyId: string): Promise<AuthUser[]> {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('ativo', true)
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      return data.map(user => ({
+        id: user.id,
+        email: user.email,
+        nome: user.nome,
+        role: user.role,
+        company_id: user.company_id,
+        ativo: user.ativo,
+        ultimo_login: user.ultimo_login,
+        asaas_customer_id: user.asaas_customer_id,
+      }))
+    } catch (error) {
+      throw new Error(`Failed to get users by company: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
 
   // Listen to auth state changes
   onAuthStateChange(callback: (user: AuthUser | null) => void) {

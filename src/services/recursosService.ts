@@ -149,7 +149,57 @@ class RecursosService {
   }
 
   /**
-   * Cria recurso com cobrança integrada
+   * Cria recurso com cobrança integrada baseado no tipo de multa
+   */
+  async createRecursoWithMultaTypeBilling(
+    recurso: RecursoInsert, 
+    billingData: BillingData & { multa_type: 'leve' | 'media' | 'grave' | 'gravissima' }
+  ): Promise<{ recurso: Recurso; payment: PaymentResult }> {
+    try {
+      // 1. Verificar se já existe pagamento para esta multa
+      const existingPayment = await billingService.getTransactionByMultaId(recurso.multa_id);
+      
+      if (existingPayment && (existingPayment.status === 'confirmed' || existingPayment.status === 'received')) {
+        // Se já foi pago, criar recurso diretamente
+        const createdRecurso = await this.createRecurso(recurso);
+        return {
+          recurso: createdRecurso,
+          payment: {
+            payment_id: existingPayment.asaas_payment_id,
+            invoice_url: existingPayment.invoice_url,
+            bank_slip_url: existingPayment.bank_slip_url,
+            pix_qr_code: existingPayment.pix_qr_code,
+            pix_copy_paste: existingPayment.pix_copy_paste,
+            amount: existingPayment.amount,
+            due_date: existingPayment.due_date,
+            status: existingPayment.status as 'pending' | 'confirmed' | 'received'
+          }
+        };
+      }
+
+      // 2. Criar cobrança baseada no tipo de multa
+      const payment = await billingService.createResourceBillingByMultaType(billingData);
+
+      // 3. Criar recurso com status 'aguardando_pagamento'
+      const recursoWithPayment = {
+        ...recurso,
+        status: 'aguardando_pagamento' as const,
+        tipo_recurso: `recurso_multa_${billingData.multa_type}`
+      };
+
+      const createdRecurso = await this.createRecurso(recursoWithPayment);
+
+      return {
+        recurso: createdRecurso,
+        payment
+      };
+    } catch (error) {
+      throw new Error(`Failed to create recurso with multa type billing: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Cria recurso com cobrança integrada (sistema legado)
    */
   async createRecursoWithBilling(recurso: RecursoInsert, billingData: BillingData): Promise<{ recurso: Recurso; payment: PaymentResult }> {
     try {

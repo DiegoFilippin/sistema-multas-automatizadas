@@ -6,6 +6,13 @@ import { clientsService } from '../services/clientsService.js';
 import { companiesService } from '../services/companiesService.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
+// Importar rotas de créditos, webhooks, payments, leads e force-sync
+import creditsRouter from '../../api/routes/credits.js';
+import webhooksRouter from '../../api/routes/webhooks.js';
+import paymentsRouter from '../../api/routes/payments.js';
+import leadsRouter from '../../api/routes/leads.js';
+import forceSyncRouter from '../../api/routes/force-sync.js';
+
 const router = express.Router();
 
 // Rotas de Autenticação
@@ -138,9 +145,51 @@ router.post('/recursos', authenticateToken, authorizeRoles(['master_company', 'd
   try {
     const companyId = req.user.companyId;
     const recursoData = req.body;
+    
+    // Validação de segurança: verificar se existe paymentId e se está pago
+    if (recursoData.paymentId) {
+      console.log('🔒 Validando pagamento para criação de recurso:', recursoData.paymentId);
+      
+      // Buscar dados do pagamento
+      const paymentResponse = await fetch(`${process.env.API_BASE_URL || 'http://localhost:3001'}/api/payments/${recursoData.paymentId}/recurso`, {
+        headers: {
+          'Authorization': req.headers.authorization || ''
+        }
+      });
+      
+      if (!paymentResponse.ok) {
+        return res.status(400).json({ 
+          error: 'Pagamento não encontrado ou inválido',
+          code: 'PAYMENT_NOT_FOUND'
+        });
+      }
+      
+      const paymentData = await paymentResponse.json();
+      
+      // Verificar se o pagamento permite criação de recurso
+      if (!paymentData.canCreateRecurso) {
+        return res.status(400).json({ 
+          error: `Recurso não pode ser criado. Status do pagamento: ${paymentData.status}`,
+          code: 'PAYMENT_NOT_PAID'
+        });
+      }
+      
+      // Verificar se já existe recurso para este pagamento
+      if (paymentData.existingRecurso) {
+        return res.status(409).json({ 
+          error: 'Já existe um recurso para este pagamento',
+          code: 'RECURSO_ALREADY_EXISTS',
+          existingRecurso: paymentData.existingRecurso
+        });
+      }
+      
+      console.log('✅ Pagamento validado com sucesso para criação de recurso');
+    }
+    
     const recurso = await recursosService.createRecurso(recursoData);
     res.status(201).json(recurso);
   } catch (error) {
+    console.error('❌ Erro ao criar recurso:', error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -283,6 +332,16 @@ router.get('/clients/:clientId/vehicles', authenticateToken, async (req, res) =>
 });
 
 // Rotas de Empresas
+router.get('/companies/all', authenticateToken, authorizeRoles(['superadmin']), async (req, res) => {
+  try {
+    // Superadmin pode ver todas as empresas
+    const companies = await companiesService.getCompanies({});
+    res.json({ companies });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/companies', authenticateToken, authorizeRoles(['master_company']), async (req, res) => {
   try {
     const filter = {
@@ -493,5 +552,20 @@ router.get('/cep/:cep', authenticateToken, async (req, res) => {
 router.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+// Rotas de créditos e pagamentos
+router.use('/credits', creditsRouter);
+
+// Rotas de webhooks
+router.use('/webhooks', webhooksRouter);
+
+// Rotas de cobranças/pagamentos
+router.use('/payments', paymentsRouter);
+
+// Rotas de leads
+router.use('/leads', leadsRouter);
+
+// Rotas de sincronização forçada
+router.use('/force-sync', forceSyncRouter);
 
 export default router;

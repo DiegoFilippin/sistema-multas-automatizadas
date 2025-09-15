@@ -15,7 +15,7 @@ interface ClientsState {
   
   // Client actions
   fetchClients: (filters?: ClientFilters) => Promise<void>
-  addClient: (client: ClientInsert) => Promise<void>
+  addClient: (client: ClientInsert) => Promise<Client>
   updateClient: (id: string, updates: Partial<Client>) => Promise<void>
   deleteClient: (id: string) => Promise<void>
   getClientStats: (companyId: string) => Promise<ClientStats>
@@ -53,8 +53,10 @@ export const useClientsStore = create<ClientsState>((set, get) => ({
         clients: [newClient, ...state.clients], 
         isLoading: false 
       }))
+      return newClient
     } catch (error) {
       set({ error: error instanceof Error ? error.message : 'Erro ao criar cliente', isLoading: false })
+      throw error
     }
   },
 

@@ -14,12 +14,21 @@ export default function Dashboard() {
   useEffect(() => {
     if (user) {
       // Carregar dados baseado no tipo de usuário
-      if (user.role === 'admin') { // 'admin' no banco = 'master' na interface
+      if (user.role === 'Superadmin' || user.role === 'ICETRAN') {
         fetchEmpresas();
         fetchPlanos();
-      } else if (user.role === 'user') { // 'user' no banco = 'despachante' na interface
+      } else if (user.role === 'Despachante') {
         fetchMultas();
-      } else if (user.role === 'viewer') { // 'viewer' no banco = 'cliente' na interface
+      } else if (user.role === 'Usuario/Cliente') {
+        fetchMultas({ clientId: user.id });
+      }
+      // Manter compatibilidade com roles antigos durante transição
+      else if (user.role === 'admin') {
+        fetchEmpresas();
+        fetchPlanos();
+      } else if (user.role === 'user') {
+        fetchMultas();
+      } else if (user.role === 'viewer') {
         fetchMultas({ clientId: user.id });
       }
     }
@@ -37,18 +46,18 @@ export default function Dashboard() {
   }
 
   // Renderizar dashboard baseado no tipo de usuário
-  switch (user.role) {
-    case 'admin': // 'admin' no banco = 'master' na interface
-      return <DashboardMaster />;
-    case 'user': // 'user' no banco = 'despachante' na interface
-      return <DashboardDespachante />;
-    case 'viewer': // 'viewer' no banco = 'cliente' na interface
-      return <DashboardCliente />;
-    default:
-      return (
-        <div className="text-center py-12">
-          <p className="text-gray-600">Tipo de usuário não reconhecido.</p>
-        </div>
-      );
+  const userRole = user.role as string;
+  if (userRole === 'Superadmin' || userRole === 'ICETRAN' || userRole === 'admin') {
+    return <DashboardMaster />;
+  } else if (userRole === 'Despachante' || userRole === 'user') {
+    return <DashboardDespachante />;
+  } else if (userRole === 'Usuario/Cliente' || userRole === 'viewer') {
+    return <DashboardCliente />;
+  } else {
+    return (
+      <div className="text-center py-12">
+        <p className="text-gray-600">Tipo de usuário não reconhecido: {user.role}</p>
+      </div>
+    );
   }
 }

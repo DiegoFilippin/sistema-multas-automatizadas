@@ -212,6 +212,7 @@ export interface Database {
           estado: string | null
           cep: string | null
           status: 'ativo' | 'inativo'
+          asaas_customer_id: string | null
           created_at: string
           updated_at: string
         }
@@ -227,6 +228,7 @@ export interface Database {
           estado?: string | null
           cep?: string | null
           status?: 'ativo' | 'inativo'
+          asaas_customer_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -242,6 +244,7 @@ export interface Database {
           estado?: string | null
           cep?: string | null
           status?: 'ativo' | 'inativo'
+          asaas_customer_id?: string | null
           updated_at?: string
         }
       }

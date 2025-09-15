@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { splitService, type PaymentSplit } from './splitService'
 
 // Tipos baseados na documentação do Asaas
 export interface AsaasCustomer {
@@ -309,6 +310,81 @@ class AsaasService {
   // Métodos para Cobranças
   async createPayment(payment: AsaasPaymentCreate): Promise<AsaasPayment> {
     return this.makeRequest<AsaasPayment>('/payments', 'POST', payment)
+  }
+
+  /**
+   * Criar pagamento com split automático
+   */
+  async createPaymentWithSplit(
+    paymentData: AsaasPaymentCreate,
+    despachanteCompanyId: string,
+    serviceType: string
+  ): Promise<AsaasPayment> {
+    try {
+      // 1. Calcular splits
+      const splits = await splitService.calculateSplits(
+        paymentData.value,
+        serviceType,
+        'leve', // tipo de multa padrão
+        despachanteCompanyId
+      );
+
+      // 2. Adicionar splits ao pagamento
+      const paymentWithSplit: AsaasPaymentCreate = {
+        ...paymentData,
+        split: splits.map(split => ({
+          walletId: split.wallet_id,
+          fixedValue: split.split_amount
+        }))
+      };
+
+      // 3. Criar pagamento no Asaas
+      const payment = await this.createPayment(paymentWithSplit);
+
+      // 4. Processar splits no sistema
+      await splitService.processSplits(payment.id, splits);
+
+      return payment;
+    } catch (error) {
+      console.error('Erro ao criar pagamento com split:', error);
+      throw new Error(`Falha ao criar pagamento com split: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+  /**
+   * Criar assinatura com split automático
+   */
+  async createSubscriptionWithSplit(
+    subscriptionData: AsaasSubscription,
+    despachanteCompanyId: string,
+    serviceType: string
+  ): Promise<AsaasSubscription> {
+    try {
+      // 1. Calcular splits
+      const splits = await splitService.calculateSplits(
+        subscriptionData.value,
+        serviceType,
+        'leve', // tipo de multa padrão
+        despachanteCompanyId
+      );
+
+      // 2. Adicionar splits à assinatura
+      const subscriptionWithSplit: AsaasSubscription = {
+        ...subscriptionData,
+        split: splits.map(split => ({
+          walletId: split.wallet_id,
+          fixedValue: split.split_amount
+        }))
+      };
+
+      // 3. Criar assinatura no Asaas
+      const subscription = await this.createSubscription(subscriptionWithSplit);
+
+      return subscription;
+    } catch (error) {
+      console.error('Erro ao criar assinatura com split:', error);
+      throw new Error(`Falha ao criar assinatura com split: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
   }
 
   async getPayment(paymentId: string): Promise<AsaasPayment> {

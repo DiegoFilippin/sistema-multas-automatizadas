@@ -3,8 +3,10 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { useAuthStore } from './stores/authStore';
+import ErrorBoundary from './components/ErrorBoundary';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
+import ContatoLead from './pages/ContatoLead';
 import Dashboard from './pages/Dashboard';
 import Empresas from './pages/Empresas';
 import EmpresaDetalhes from './pages/EmpresaDetalhes';
@@ -15,11 +17,19 @@ import Recursos from './pages/Recursos';
 import NovoRecurso from './pages/NovoRecursoSimples';
 import Clientes from './pages/Clientes';
 import ClienteDetalhes from './pages/ClienteDetalhes';
+import CobrancasGerais from './pages/CobrancasGerais';
 import RelatoriosFinanceiros from './pages/RelatoriosFinanceiros';
 import Configuracoes from './pages/Configuracoes';
 import CentroAutomacao from './pages/CentroAutomacao';
 import SistemaCobranca from './pages/SistemaCobranca';
 import AsaasConfig from './pages/AsaasConfig';
+import SubcontasAdmin from './pages/SubcontasAdmin';
+import ServicosEsplits from './pages/ServicosEsplits';
+import MeusServicos from './pages/MeusServicos';
+import GerenciarCreditos from './pages/GerenciarCreditos';
+import DashboardIcetran from './pages/DashboardIcetran';
+import GerenciarLeads from './pages/GerenciarLeads';
+import SubcontasSplitTest from './components/SubcontasSplitTest';
 import AppLayout from './components/Layout/AppLayout';
 
 // Componentes de rota movidos para dentro do contexto do Router
@@ -84,6 +94,15 @@ function AppContent() {
             element={
               <PublicRoute>
                 <Login />
+              </PublicRoute>
+            } 
+          />
+          
+          <Route 
+            path="/contato" 
+            element={
+              <PublicRoute>
+                <ContatoLead />
               </PublicRoute>
             } 
           />
@@ -180,6 +199,15 @@ function AppContent() {
           />
           
           <Route 
+            path="/cobrancas" 
+            element={
+              <ProtectedRoute>
+                <CobrancasGerais />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
             path="/relatorios-financeiros" 
             element={
               <ProtectedRoute>
@@ -193,6 +221,24 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Configuracoes />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/subcontas-admin" 
+            element={
+              <ProtectedRoute>
+                <SubcontasAdmin />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/subcontas-test" 
+            element={
+              <ProtectedRoute>
+                <SubcontasSplitTest />
               </ProtectedRoute>
             } 
           />
@@ -224,6 +270,51 @@ function AppContent() {
             } 
           />
           
+          <Route 
+            path="/servicos-splits" 
+            element={
+              <ProtectedRoute>
+                <ServicosEsplits />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/meus-servicos" 
+            element={
+              <ProtectedRoute>
+                <MeusServicos />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/gerenciar-creditos" 
+            element={
+              <ProtectedRoute>
+                <GerenciarCreditos />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/dashboard-icetran" 
+            element={
+              <ProtectedRoute>
+                <DashboardIcetran />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/gerenciar-leads" 
+            element={
+              <ProtectedRoute>
+                <GerenciarLeads />
+              </ProtectedRoute>
+            } 
+          />
+          
           {/* Rota 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
@@ -246,9 +337,11 @@ function AppContent() {
 
 function App() {
   return (
-    <Router>
-      <AppContent />
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <AppContent />
+      </Router>
+    </ErrorBoundary>
   );
 }
 

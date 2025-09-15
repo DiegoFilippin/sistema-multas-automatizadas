@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Phone, Mail, MapPin, Car, Edit, Trash2, Plus, MoreVertical, DollarSign, FileText, Calendar, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, User, Phone, Mail, MapPin, Car, Edit, Trash2, Plus, MoreVertical, DollarSign, FileText, Calendar, AlertTriangle, CreditCard, Coins, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { multasService } from '@/services/multasService';
 import { clientsService } from '@/services/clientsService';
+import { CreditPurchaseModal } from '@/components/CreditPurchaseModal';
+import { CobrancasCliente } from '@/components/CobrancasCliente';
+import { useAuthStore } from '@/stores/authStore';
 import type { Database } from '@/lib/supabase';
 
 type Multa = Database['public']['Tables']['multas']['Row']
@@ -63,6 +66,7 @@ interface Cliente {
   valorEconomizado: number;
   dataCadastro: string;
   status: 'ativo' | 'inativo';
+  asaas_customer_id?: string;
 }
 
 
@@ -74,6 +78,11 @@ export default function ClienteDetalhes() {
   const [multas, setMultas] = useState<Multa[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMultas, setLoadingMultas] = useState(false);
+  const [creditBalance, setCreditBalance] = useState<number>(0);
+  const [loadingCredits, setLoadingCredits] = useState(false);
+  const [showCreditModal, setShowCreditModal] = useState(false);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const { user } = useAuthStore();
 
   // Função para carregar multas do cliente
   const fetchMultasCliente = async (clienteId: string) => {
@@ -86,6 +95,64 @@ export default function ClienteDetalhes() {
       toast.error('Erro ao carregar multas do cliente');
     } finally {
       setLoadingMultas(false);
+    }
+  };
+
+  // Função para carregar saldo de créditos do cliente
+  const fetchCreditBalance = async (clienteId: string) => {
+    try {
+      setLoadingCredits(true);
+      const response = await fetch(`/api/credits/balance?ownerType=client&ownerId=${clienteId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setCreditBalance(data.data.balance || 0);
+      }
+    } catch (error) {
+      console.error('Erro ao carregar saldo de créditos:', error);
+    } finally {
+      setLoadingCredits(false);
+    }
+  };
+
+  // Função para criar customer no Asaas para o cliente
+  const handleCreateCustomer = async () => {
+    if (!cliente?.id) {
+      toast.error('Cliente não encontrado');
+      return;
+    }
+
+    setCreatingCustomer(true);
+    try {
+      const response = await fetch('/api/users/create-client-customer', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ clientId: cliente.id }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        toast.success('Customer criado no Asaas com sucesso!');
+        // Atualizar dados do cliente localmente
+        setCliente(prev => prev ? {
+          ...prev,
+          asaas_customer_id: result.data.asaasCustomerId
+        } : null);
+      } else {
+        toast.error(result.error || 'Erro ao criar customer no Asaas');
+      }
+    } catch (error) {
+      console.error('Erro ao criar customer:', error);
+      toast.error('Erro ao criar customer no Asaas');
+    } finally {
+      setCreatingCustomer(false);
     }
   };
 
@@ -148,11 +215,14 @@ export default function ClienteDetalhes() {
           multas: clienteCompleto.multas_count,
           recursosAtivos: clienteCompleto.recursos_count,
           valorEconomizado: clienteCompleto.valor_economizado,
-          dataCadastro: clienteCompleto.created_at
+          dataCadastro: clienteCompleto.created_at,
+          asaas_customer_id: clienteCompleto.asaas_customer_id
         };
         setCliente(clienteConvertido);
         // Carregar multas do cliente
         fetchMultasCliente(clienteCompleto.id);
+        // Carregar saldo de créditos do cliente
+        fetchCreditBalance(clienteCompleto.id);
       } catch (error) {
         console.error('Erro ao carregar cliente:', error);
         toast.error('Erro ao carregar dados do cliente');
@@ -334,6 +404,129 @@ export default function ClienteDetalhes() {
               <p className="text-gray-900">
                 {format(new Date(cliente.dataCadastro), 'dd/MM/yyyy', { locale: ptBR })}
               </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Informações de Cobrança */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              Informações de Cobrança
+            </h2>
+          </div>
+          <div className="p-6 space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Status da Integração</label>
+              <div className="flex items-center gap-2 mt-1">
+                <div className={`w-2 h-2 rounded-full ${
+                  cliente.asaas_customer_id ? 'bg-green-500' : 'bg-gray-400'
+                }`}></div>
+                <p className={`text-sm font-medium ${
+                  cliente.asaas_customer_id ? 'text-green-700' : 'text-gray-600'
+                }`}>
+                  {cliente.asaas_customer_id ? 'Integrado com Asaas' : 'Não integrado com Asaas'}
+                </p>
+              </div>
+            </div>
+            {!cliente.asaas_customer_id && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm text-yellow-800 mb-3">
+                      Customer não encontrado. Para poder comprar créditos e utilizar os serviços de cobrança, é necessário criar um customer no Asaas para este cliente.
+                    </p>
+                    <button
+                      onClick={handleCreateCustomer}
+                      disabled={creatingCustomer}
+                      className="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      <UserPlus className={`w-4 h-4 mr-2 ${creatingCustomer ? 'animate-spin' : ''}`} />
+                      {creatingCustomer ? 'Criando Customer...' : 'Criar Customer no Asaas'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {cliente.asaas_customer_id && (
+              <div>
+                <label className="text-sm font-medium text-gray-700">Customer ID</label>
+                <p className="text-gray-900 font-mono text-sm bg-gray-50 px-2 py-1 rounded">
+                  {cliente.asaas_customer_id}
+                </p>
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium text-gray-700">Sistema de Pagamento</label>
+              <p className="text-gray-900">
+                {cliente.asaas_customer_id ? 'Asaas Gateway' : 'Não configurado'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Créditos do Cliente */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <Coins className="h-5 w-5" />
+                Créditos
+              </h2>
+              {user?.role === 'Despachante' && cliente.asaas_customer_id && (
+                <button 
+                  onClick={() => setShowCreditModal(true)}
+                  className="flex items-center gap-2 px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Comprar Créditos
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Saldo Atual</label>
+                <div className="flex items-center gap-2 mt-1">
+                  {loadingCredits ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
+                  ) : (
+                    <>
+                      <Coins className="h-4 w-4 text-green-600" />
+                      <p className="text-lg font-semibold text-green-700">
+                        {creditBalance.toFixed(2)} créditos
+                      </p>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-gray-600">Status</p>
+                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                  creditBalance > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  {creditBalance > 0 ? 'Com saldo' : 'Sem saldo'}
+                </span>
+              </div>
+            </div>
+            
+            {creditBalance <= 0 && user?.role === 'Despachante' && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                  <p className="text-sm text-yellow-800">
+                    Cliente sem créditos. Compre créditos para que ele possa utilizar os serviços.
+                  </p>
+                </div>
+              </div>
+            )}
+            
+            <div className="text-xs text-gray-500">
+              <p>• Créditos são necessários para utilizar os serviços</p>
+              <p>• Apenas despachantes podem comprar créditos para clientes</p>
             </div>
           </div>
         </div>
@@ -550,6 +743,28 @@ export default function ClienteDetalhes() {
           </div>
         </div>
       </div>
+
+      {/* Seção de Cobranças */}
+      <div className="mt-8">
+        <CobrancasCliente 
+          clientId={cliente.id}
+        />
+      </div>
+
+      {/* Modal de Compra de Créditos */}
+      <CreditPurchaseModal
+        isOpen={showCreditModal}
+        onClose={() => setShowCreditModal(false)}
+        clientId={cliente?.id}
+        targetType="client"
+        onPurchaseComplete={() => {
+          // Recarregar saldo após compra
+          if (cliente?.id) {
+            fetchCreditBalance(cliente.id);
+          }
+          toast.success('Créditos adicionados com sucesso!');
+        }}
+      />
     </div>
   );
 }

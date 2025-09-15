@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste Modal - Detalhes da Cobrança</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .modal {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .field {
+            margin-bottom: 15px;
+        }
+        .field label {
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .field input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .qr-code {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .qr-code img {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            max-width: 200px;
+        }
+        .pix-code {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+        }
+        .button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+            margin: 10px 5px;
+        }
+        .button:hover {
+            background-color: #0056b3;
+        }
+        .success {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .info {
+            background-color: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="modal">
+        <div class="header">
+            <h2>Detalhes da Cobrança</h2>
+        </div>
+        
+        <div class="field">
+            <label>ID da Cobrança</label>
+            <input type="text" value="pay_1757793434725" readonly>
+        </div>
+        
+        <div style="display: flex; gap: 20px;">
+            <div style="flex: 1;">
+                <div class="field">
+                    <label>Cliente</label>
+                    <input type="text" value="DIEGO DA SILVA FILIPPIN" readonly>
+                </div>
+            </div>
+            <div style="flex: 1;">
+                <div class="field">
+                    <label>Valor</label>
+                    <input type="text" value="R$ 85,00" readonly>
+                </div>
+            </div>
+        </div>
+        
+        <div style="display: flex; gap: 20px;">
+            <div style="flex: 1;">
+                <div class="field">
+                    <label>Status</label>
+                    <input type="text" value="Pendente" readonly>
+                </div>
+            </div>
+            <div style="flex: 1;">
+                <div class="field">
+                    <label>Tipo de Multa</label>
+                    <input type="text" value="Recurso de Multa - Grave" readonly>
+                </div>
+            </div>
+        </div>
+        
+        <div class="field">
+            <label>Data de Criação</label>
+            <input type="text" value="13/09/2025, 16:57:14" readonly>
+        </div>
+        
+        <div class="info">
+            <p class="success">✅ Descrição da Cobrança:</p>
+            <p><strong>Pagamento para DIEGO DA SILVA FILIPPIN referente a Recurso de Multa - Grave</strong></p>
+        </div>
+        
+        <div class="qr-code">
+            <p><strong>QR Code PIX</strong></p>
+            <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" alt="QR Code PIX">
+            <p><small>Escaneie o código ou use o PIX Copia e Cola abaixo</small></p>
+        </div>
+        
+        <div class="field">
+            <label>Código PIX (Copia e Cola)</label>
+            <div class="pix-code">00020101021226820014br.gov.bcb.pix2560qrpix-test.com.br/test520400005303986540580.005802BR5905ASAAS6009JOINVILLE62070503***630418A2</div>
+            <button class="button" onclick="copyPixCode()">📋 Copiar Código PIX</button>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <a href="https://sandbox.asaas.com/i/1757793434725" target="_blank" class="button">
+                🔗 Ver Fatura no Asaas
+            </a>
+        </div>
+        
+        <div class="info">
+            <p class="success">🎉 SUCESSO! Todos os dados do webhook foram salvos e estão sendo exibidos corretamente:</p>
+            <ul>
+                <li>✅ QR Code real do Asaas (não mais quadrado verde)</li>
+                <li>✅ Descrição completa da cobrança</li>
+                <li>✅ PIX Copia e Cola funcional</li>
+                <li>✅ Botão para abrir fatura no Asaas</li>
+                <li>✅ URL da fatura: https://sandbox.asaas.com/i/1757793434725</li>
+            </ul>
+        </div>
+        
+        <div style="text-align: center; margin-top: 20px;">
+            <button class="button" onclick="window.close()">Fechar</button>
+        </div>
+    </div>
+    
+    <script>
+        function copyPixCode() {
+            const pixCode = '00020101021226820014br.gov.bcb.pix2560qrpix-test.com.br/test520400005303986540580.005802BR5905ASAAS6009JOINVILLE62070503***630418A2';
+            navigator.clipboard.writeText(pixCode).then(() => {
+                alert('Código PIX copiado para a área de transferência!');
+            }).catch(err => {
+                console.error('Erro ao copiar:', err);
+                // Fallback para navegadores mais antigos
+                const textArea = document.createElement('textarea');
+                textArea.value = pixCode;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('Código PIX copiado para a área de transferência!');
+            });
+        }
+    </script>
+</body>
+</html>

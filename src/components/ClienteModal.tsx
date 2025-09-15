@@ -341,15 +341,16 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
         setCpfConsultado(true);
         
         if (dados.source === 'fallback') {
-          toast.warning(dados.warning || 'Usando dados simulados - API temporariamente indisponível');
+          toast.warning(dados.warning || 'CPF não encontrado na base de dados. Usando dados simulados para continuar o cadastro.');
         } else {
           toast.success('Dados do CPF carregados com sucesso!');
         }
       }
       
     } catch (error) {
-      console.error('Erro ao consultar CPF:', error);
-      toast.error(error.message || 'Erro ao consultar CPF. Tente novamente.');
+      // Apenas erros realmente inesperados chegam aqui
+      console.error('Erro inesperado ao consultar CPF:', error);
+      toast.error('Erro inesperado. Tente novamente ou preencha os dados manualmente.');
     } finally {
       setIsLoadingCPF(false);
     }

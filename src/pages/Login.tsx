@@ -66,6 +66,12 @@ export default function Login() {
       description: 'Gestão de clientes e recursos'
     },
     {
+      type: 'ICETRAN',
+      email: 'icetran@icetran.com.br',
+      password: 'Icetran@123',
+      description: 'Acesso ICETRAN - Visualização de splits e recebimentos'
+    },
+    {
       type: 'Administrador',
       email: 'admin@icetran.com.br',
       password: 'Admin@123',
@@ -236,6 +242,16 @@ export default function Login() {
               </p>
             </div>
           </div>
+        </div>
+
+        {/* Footer com link para contato */}
+        <div className="text-center mt-8">
+          <p className="text-sm text-gray-500">
+            Não tem acesso ainda? {' '}
+            <Link to="/contato" className="text-slate-600 hover:text-slate-800 font-medium transition-colors">
+              Solicite acesso à plataforma
+            </Link>
+          </p>
         </div>
 
       </div>

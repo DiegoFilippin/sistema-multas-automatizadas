@@ -37,6 +37,7 @@ import { clientsService } from '@/services/clientsService';
 import GeminiOcrService from '@/services/geminiOcrService';
 import { datawashService } from '@/services/datawashService';
 import DataWashService from '@/services/datawashService';
+import { asaasService } from '@/services/asaasService';
 
 interface Endereco {
   id: string;
@@ -473,15 +474,16 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
         setCpfConsultado(true);
         
         if (dados.source === 'fallback') {
-          toast.warning(dados.warning || 'Usando dados simulados - API temporariamente indisponível');
+          toast.warning(dados.warning || 'CPF não encontrado na base de dados. Usando dados simulados para continuar o cadastro.');
         } else {
           toast.success('Dados do CPF carregados com sucesso!');
         }
       }
       
     } catch (error) {
-      console.error('Erro ao consultar CPF:', error);
-      toast.error(error.message || 'Erro ao consultar CPF. Tente novamente.');
+      // Apenas erros realmente inesperados chegam aqui
+      console.error('Erro inesperado ao consultar CPF:', error);
+      toast.error('Erro inesperado. Tente novamente ou preencha os dados manualmente.');
     } finally {
       setIsLoadingCPF(false);
     }
@@ -1472,8 +1474,16 @@ export default function Clientes() {
     try {
       setIsLoading(true);
       
+      // Preparar filtros baseados no perfil do usuário
+      let filters = {};
+      
+      // Se o usuário não é Superadmin, filtrar por company_id
+      if (user?.role !== 'Superadmin' && user?.company_id) {
+        filters = { companyId: user.company_id };
+      }
+      
       // Usar a nova função que inclui contagem de multas e recursos
-      const clientesComStats = await clientsService.getClientsWithStats();
+      const clientesComStats = await clientsService.getClientsWithStats(filters);
 
       // Converter dados do Supabase para o formato local
       const clientesConvertidos: Cliente[] = clientesComStats.map(cliente => ({
@@ -1800,15 +1810,16 @@ export default function Clientes() {
         toast.success('Cliente atualizado com sucesso!');
       } else {
         // Criar novo cliente
+        const primeiroEndereco = clienteData.enderecos?.[0];
         const novoClienteData = {
           nome: clienteData.nome,
           cpf_cnpj: clienteData.cpf,
           email: clienteData.emails?.[0]?.endereco || '',
           telefone: clienteData.telefones?.[0]?.numero || '',
-          endereco: clienteData.enderecos?.[0]?.logradouro || '',
-          cidade: clienteData.enderecos?.[0]?.cidade || '',
-          estado: clienteData.enderecos?.[0]?.estado || '',
-          cep: clienteData.enderecos?.[0]?.cep || '',
+          endereco: primeiroEndereco?.logradouro || '',
+          cidade: primeiroEndereco?.cidade || '',
+          estado: primeiroEndereco?.estado || '',
+          cep: primeiroEndereco?.cep || '',
           status: clienteData.status || 'ativo',
           company_id: user?.company_id,
           created_at: new Date().toISOString(),
@@ -1825,6 +1836,43 @@ export default function Clientes() {
           console.error('Erro ao criar cliente:', error);
           toast.error('Erro ao criar cliente: ' + error.message);
           return;
+        }
+
+        // Criar customer no Asaas
+        let asaasCustomerId = null;
+        try {
+          const asaasCustomerData = {
+            name: clienteData.nome || '',
+            cpfCnpj: clienteData.cpf || '',
+            email: clienteData.emails?.[0]?.endereco,
+            phone: clienteData.telefones?.[0]?.numero,
+            address: primeiroEndereco?.logradouro,
+            addressNumber: primeiroEndereco?.numero,
+            complement: primeiroEndereco?.complemento,
+            province: primeiroEndereco?.bairro,
+            city: primeiroEndereco?.cidade,
+            state: primeiroEndereco?.estado,
+            postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          asaasCustomerId = asaasCustomer.id;
+
+          // Atualizar cliente no banco com o asaas_customer_id
+          const { error: updateError } = await supabase
+            .from('clients')
+            .update({ asaas_customer_id: asaasCustomerId })
+            .eq('id', data.id);
+
+          if (updateError) {
+            console.error('Erro ao atualizar asaas_customer_id:', updateError);
+            // Não falha a criação do cliente, apenas loga o erro
+          }
+
+          console.log('Customer criado no Asaas:', asaasCustomerId);
+        } catch (asaasError) {
+          console.error('Erro ao criar customer no Asaas:', asaasError);
+          toast.warning('Cliente criado, mas houve erro na integração com Asaas. Verifique a configuração.');
         }
 
         // Converter dados do Supabase para o formato local
@@ -1846,7 +1894,7 @@ export default function Clientes() {
         };
 
         setClientes([...clientes, novoCliente]);
-        toast.success('Cliente criado com sucesso!');
+        toast.success('Cliente criado com sucesso!' + (asaasCustomerId ? ' Customer Asaas: ' + asaasCustomerId : ''));
       }
     } catch (error) {
       console.error('Erro inesperado:', error);

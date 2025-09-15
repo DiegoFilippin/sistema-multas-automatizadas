@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Upload, 
@@ -22,6 +22,8 @@ import HistoricoMultasModal from '@/components/HistoricoMultasModal';
 import { isMultaLeve, podeConverterEmAdvertencia, getTextoConversaoAdvertencia, MultaData } from '@/utils/multaUtils';
 import { useClientsStore } from '@/stores/clientsStore';
 import { useAuthStore } from '@/stores/authStore';
+import { asaasService } from '@/services/asaasService';
+import { clientsService } from '@/services/clientsService';
 
 interface DocumentoProcessado {
   numeroAuto: string;
@@ -183,6 +185,7 @@ function NovoClienteModal({ isOpen, onClose, onSave }: NovoClienteModalProps) {
 
 export default function NovoRecurso() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuthStore();
   const { clients, fetchClients, addClient, isLoading: loadingClientes } = useClientsStore();
   const [etapaAtual, setEtapaAtual] = useState(1);
@@ -191,6 +194,8 @@ export default function NovoRecurso() {
   const [processandoOCR, setProcessandoOCR] = useState(false);
   const [clienteSelecionado, setClienteSelecionado] = useState<Cliente | null>(null);
   const [veiculoSelecionado, setVeiculoSelecionado] = useState<Veiculo | null>(null);
+  const [tipoMultaSelecionado, setTipoMultaSelecionado] = useState<'leve' | 'media' | 'grave' | 'gravissima' | null>(null);
+  const [multaTypes, setMultaTypes] = useState<any[]>([]);
   const [documentoUpload, setDocumentoUpload] = useState<File | null>(null);
   const [dadosExtraidos, setDadosExtraidos] = useState<DadosInfracao | null>(null);
   const [contextoJuridico, setContextoJuridico] = useState<ContextoJuridico | null>(null);
@@ -206,32 +211,103 @@ export default function NovoRecurso() {
 
   // Carregar clientes quando acessar etapa 1
   useEffect(() => {
-    if (etapaAtual === 1 && (user?.company_id || user?.role === 'admin_master')) {
+    if (etapaAtual === 1 && user?.company_id) {
       loadClientes();
+      fetchMultaTypes();
     }
   }, [etapaAtual, user?.company_id, user?.role]);
+
+  // Verificar se há paymentId na URL para pré-preencher o recurso
+  useEffect(() => {
+    const paymentId = searchParams.get('paymentId');
+    if (paymentId && clients.length > 0) {
+      fetchPaymentData(paymentId);
+    }
+  }, [searchParams, clients]);
+
+  const fetchPaymentData = async (paymentId: string) => {
+    try {
+      console.log('🔍 Buscando dados do pagamento:', paymentId);
+      
+      const response = await fetch(`/api/payments/${paymentId}/recurso`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Erro ao buscar dados do pagamento');
+      }
+      
+      const data = await response.json();
+      console.log('📋 Dados do pagamento recebidos:', data);
+      
+      // Verificar se o pagamento está pago
+      if (!data.canCreateRecurso) {
+        toast.error('Este pagamento não permite criação de recurso. Status: ' + data.status);
+        navigate('/recursos');
+        return;
+      }
+      
+      // Verificar se já existe recurso
+      if (data.existingRecurso) {
+        toast.info('Já existe um recurso para este pagamento. Redirecionando...');
+        navigate(`/recursos/${data.existingRecurso.id}`);
+        return;
+      }
+      
+      // Buscar cliente pelos dados do pagamento
+      if (data.client_id) {
+        const cliente = clients.find(c => c.id === data.client_id);
+        if (cliente) {
+          setClienteSelecionado(cliente);
+          toast.success(`Recurso iniciado para pagamento ${paymentId}`);
+          toast.info(`Cliente: ${data.client_name} - Valor: R$ ${data.amount}`);
+          
+          // Avançar para próxima etapa automaticamente
+          setEtapaAtual(2);
+        } else {
+          toast.error('Cliente não encontrado para este pagamento');
+        }
+      }
+      
+    } catch (error) {
+      console.error('Erro ao buscar dados do pagamento:', error);
+      toast.error('Erro ao carregar dados do pagamento');
+      navigate('/recursos');
+    }
+  };
+
+  const fetchMultaTypes = async () => {
+    try {
+      const response = await fetch('/api/multa-types', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setMultaTypes(data.data || []);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar tipos de multa:', error);
+    }
+  };
   
   const loadClientes = async () => {
-    // Super admin pode acessar sem company_id específico
-    if (!user?.company_id && user?.role !== 'admin_master') {
-      toast.error('Empresa do usuário não encontrada. Faça login novamente.');
+    if (!user?.company_id) {
+      toast.error('Usuário não possui empresa associada');
+      navigate('/dashboard');
       return;
     }
 
     try {
-      // Para admin_master, não passar filtro de companyId para ver todos os clientes
-      // Para outros usuários, filtrar pela empresa
-      const filters = user?.role === 'admin_master' 
-        ? { status: 'ativo' as const }
-        : { status: 'ativo' as const, companyId: user.company_id };
-      
+      const filters = { status: 'ativo' as const, companyId: user.company_id };
       await fetchClients(filters);
       
       if (clients.length === 0) {
-        const message = user?.role === 'admin_master' 
-          ? 'Nenhum cliente encontrado no sistema. Cadastre clientes primeiro.'
-          : 'Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.';
-        toast.info(message);
+        toast.info('Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.');
       }
     } catch (error) {
       console.error('Erro ao carregar clientes:', error);
@@ -258,8 +334,35 @@ export default function NovoRecurso() {
         status: 'ativo' as const
       };
       
-      await addClient(novoCliente);
-      toast.success('Cliente cadastrado com sucesso!');
+      const clienteCriado = await addClient(novoCliente);
+      
+      // Criar customer no Asaas
+      if (clienteCriado?.id) {
+        try {
+          const asaasCustomerData = {
+            name: dadosCliente.nome || '',
+            cpfCnpj: dadosCliente.cpf_cnpj || '',
+            email: dadosCliente.email,
+            phone: dadosCliente.telefone
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          
+          // Atualizar cliente com asaas_customer_id
+          await clientsService.updateClient(clienteCriado.id, {
+            asaas_customer_id: asaasCustomer.id
+          });
+
+          console.log('Customer criado no Asaas:', asaasCustomer.id);
+          toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+        } catch (asaasError) {
+          console.error('Erro ao criar customer no Asaas:', asaasError);
+          toast.warning('Cliente criado, mas houve erro na integração com Asaas.');
+        }
+      } else {
+        toast.success('Cliente cadastrado com sucesso!');
+      }
+      
       setShowNovoClienteModal(false);
       
       // Recarregar clientes
@@ -275,9 +378,14 @@ export default function NovoRecurso() {
     setEtapaAtual(2);
   };
 
-  const handleSelecionarVeiculo = (veiculo: Veiculo) => {
+  const handleSelecionarVeiculo = (veiculo: any) => {
     setVeiculoSelecionado(veiculo);
     setEtapaAtual(3);
+  };
+
+  const handleSelecionarTipoMulta = (tipo: 'leve' | 'media' | 'grave' | 'gravissima') => {
+    setTipoMultaSelecionado(tipo);
+    setEtapaAtual(4);
   };
 
   const handleUploadDocumento = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -349,7 +457,7 @@ export default function NovoRecurso() {
       setContextoJuridico(contexto);
       
       toast.success('Documento processado e contexto jurídico carregado!');
-      setEtapaAtual(4);
+      setEtapaAtual(5);
     } catch (error) {
       console.error('Erro ao processar OCR:', error);
       toast.error('Erro ao processar documento');
@@ -428,7 +536,7 @@ export default function NovoRecurso() {
       setRecursoGerado(recurso.conteudo_recurso);
       setRecursoId(recurso.id);
       toast.success('Recurso gerado com sucesso!');
-      setEtapaAtual(5);
+      setEtapaAtual(6);
     } catch (error) {
       console.error('Erro ao gerar recurso:', error);
       toast.error('Erro ao gerar recurso');
@@ -569,6 +677,81 @@ export default function NovoRecurso() {
   const renderEtapa3 = () => (
     <div className="space-y-6">
       <div className="text-center">
+        <Scale className="h-16 w-16 text-blue-600 mx-auto mb-4" />
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Selecionar Tipo de Multa</h2>
+        <p className="text-gray-600">Escolha o tipo de multa para calcular o valor do recurso</p>
+      </div>
+
+      {/* Resumo da Seleção */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="font-semibold text-blue-900 mb-2">Seleção Atual:</h3>
+        <p className="text-blue-800">{clienteSelecionado?.nome}</p>
+        <p className="text-sm text-blue-700">{veiculoSelecionado?.marca} {veiculoSelecionado?.modelo} - {veiculoSelecionado?.placa}</p>
+      </div>
+
+      {/* Lista de Tipos de Multa */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {multaTypes.map((tipo) => {
+          const tipoLabels = {
+            leve: { name: 'Leve', color: 'green', description: 'Infrações de menor gravidade' },
+            media: { name: 'Média', color: 'yellow', description: 'Infrações de gravidade média' },
+            grave: { name: 'Grave', color: 'orange', description: 'Infrações de natureza grave' },
+            gravissima: { name: 'Gravíssima', color: 'red', description: 'Infrações de natureza gravíssima' }
+          };
+          
+          const label = tipoLabels[tipo.type as keyof typeof tipoLabels];
+          
+          return (
+            <div
+              key={tipo.id}
+              onClick={() => handleSelecionarTipoMulta(tipo.type)}
+              className={`p-6 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
+                label.color === 'green' ? 'border-green-200 hover:border-green-400 hover:bg-green-50' :
+                label.color === 'yellow' ? 'border-yellow-200 hover:border-yellow-400 hover:bg-yellow-50' :
+                label.color === 'orange' ? 'border-orange-200 hover:border-orange-400 hover:bg-orange-50' :
+                'border-red-200 hover:border-red-400 hover:bg-red-50'
+              }`}
+            >
+              <div className="text-center">
+                <div className={`w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center ${
+                  label.color === 'green' ? 'bg-green-100' :
+                  label.color === 'yellow' ? 'bg-yellow-100' :
+                  label.color === 'orange' ? 'bg-orange-100' :
+                  'bg-red-100'
+                }`}>
+                  <Scale className={`h-6 w-6 ${
+                    label.color === 'green' ? 'text-green-600' :
+                    label.color === 'yellow' ? 'text-yellow-600' :
+                    label.color === 'orange' ? 'text-orange-600' :
+                    'text-red-600'
+                  }`} />
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-2">{label.name}</h3>
+                <p className="text-sm text-gray-600 mb-3">{label.description}</p>
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500">ACSM: R$ {tipo.acsm_value?.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">Icetran: R$ {tipo.icetran_value?.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">Fixo: R$ {tipo.fixed_value?.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-gray-900">Total: R$ {tipo.total_price?.toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={() => setEtapaAtual(2)}
+        className="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+      >
+        Voltar para Seleção de Veículo
+      </button>
+    </div>
+  );
+
+  const renderEtapa4 = () => (
+    <div className="space-y-6">
+      <div className="text-center">
         <Upload className="h-16 w-16 text-blue-600 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload do Documento</h2>
         <p className="text-gray-600">Faça upload do auto de infração ou notificação</p>
@@ -579,6 +762,10 @@ export default function NovoRecurso() {
         <h3 className="font-semibold text-gray-900 mb-2">Resumo:</h3>
         <p className="text-sm"><strong>Cliente:</strong> {clienteSelecionado?.nome}</p>
         <p className="text-sm"><strong>Veículo:</strong> {veiculoSelecionado?.marca} {veiculoSelecionado?.modelo} - {veiculoSelecionado?.placa}</p>
+        <p className="text-sm"><strong>Tipo de Multa:</strong> {tipoMultaSelecionado?.charAt(0).toUpperCase() + tipoMultaSelecionado?.slice(1)}</p>
+        {tipoMultaSelecionado && (
+          <p className="text-sm"><strong>Valor do Recurso:</strong> R$ {multaTypes.find(t => t.type === tipoMultaSelecionado)?.total_price?.toFixed(2)}</p>
+        )}
       </div>
 
       {/* Upload Area */}
@@ -617,7 +804,7 @@ export default function NovoRecurso() {
 
       <div className="flex gap-3">
         <button
-          onClick={() => setEtapaAtual(2)}
+          onClick={() => setEtapaAtual(3)}
           className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
         >
           Voltar
@@ -633,7 +820,7 @@ export default function NovoRecurso() {
     </div>
   );
 
-  const renderEtapa4 = () => (
+  const renderEtapa5 = () => (
     <div className="space-y-6">
       <div className="text-center">
         <CheckCircle className="h-16 w-16 text-green-600 mx-auto mb-4" />
@@ -708,7 +895,7 @@ export default function NovoRecurso() {
 
       <div className="flex gap-3">
         <button
-          onClick={() => setEtapaAtual(3)}
+          onClick={() => setEtapaAtual(4)}
           className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
           disabled={gerandoRecurso}
         >
@@ -735,7 +922,7 @@ export default function NovoRecurso() {
     </div>
   );
   
-  const renderEtapa5 = () => (
+  const renderEtapa6 = () => (
     <div className="space-y-6">
       <div className="text-center">
         <Sparkles className="h-16 w-16 text-green-600 mx-auto mb-4" />
@@ -764,7 +951,7 @@ export default function NovoRecurso() {
 
       <div className="flex gap-3">
          <button
-           onClick={() => setEtapaAtual(4)}
+           onClick={() => setEtapaAtual(5)}
            className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
          >
            Voltar
@@ -804,9 +991,10 @@ export default function NovoRecurso() {
   const etapas = [
     { numero: 1, titulo: 'Cliente', ativo: etapaAtual >= 1, completo: etapaAtual > 1 },
     { numero: 2, titulo: 'Veículo', ativo: etapaAtual >= 2, completo: etapaAtual > 2 },
-    { numero: 3, titulo: 'Documento', ativo: etapaAtual >= 3, completo: etapaAtual > 3 },
-    { numero: 4, titulo: 'Análise IA', ativo: etapaAtual >= 4, completo: etapaAtual > 4 },
-    { numero: 5, titulo: 'Recurso', ativo: etapaAtual >= 5, completo: false }
+    { numero: 3, titulo: 'Tipo Multa', ativo: etapaAtual >= 3, completo: etapaAtual > 3 },
+    { numero: 4, titulo: 'Documento', ativo: etapaAtual >= 4, completo: etapaAtual > 4 },
+    { numero: 5, titulo: 'Análise IA', ativo: etapaAtual >= 5, completo: etapaAtual > 5 },
+    { numero: 6, titulo: 'Recurso', ativo: etapaAtual >= 6, completo: false }
   ];
 
   return (
@@ -868,6 +1056,7 @@ export default function NovoRecurso() {
         {etapaAtual === 3 && renderEtapa3()}
         {etapaAtual === 4 && renderEtapa4()}
         {etapaAtual === 5 && renderEtapa5()}
+        {etapaAtual === 6 && renderEtapa6()}
       </div>
       
       {/* Modal de Histórico de Multas */}

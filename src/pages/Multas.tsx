@@ -41,7 +41,14 @@ function MultaCard({ multa, onEdit, onDelete, onCreateRecurso, onViewDetails, sh
   const [showMenu, setShowMenu] = useState(false);
   const { user } = useAuthStore();
   
-  const canCreateRecurso = multa.status === 'pendente' && (user?.role === 'user' || user?.role === 'admin');
+  // Função auxiliar para verificar se o usuário pode gerenciar multas
+  const canManageMultas = (userRole: string | undefined) => {
+    if (!userRole) return false;
+    return userRole === 'Despachante' || userRole === 'ICETRAN' || userRole === 'Superadmin' || 
+           userRole === 'user' || userRole === 'admin'; // Compatibilidade com roles antigos
+  };
+  
+  const canCreateRecurso = multa.status === 'pendente' && canManageMultas(user?.role);
   
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
@@ -90,7 +97,7 @@ function MultaCard({ multa, onEdit, onDelete, onCreateRecurso, onViewDetails, sh
                   <span>Ver Detalhes</span>
                 </button>
                 
-                {(user?.role === 'user' || user?.role === 'admin') && (
+                {canManageMultas(user?.role) && (
                   <>
                     <button
                       onClick={() => {
@@ -532,15 +539,36 @@ export default function Multas() {
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [editingMulta, setEditingMulta] = useState<any>(null);
   const [selectedMulta, setSelectedMulta] = useState<any>(null);
-  
+
+  // Carregar multas com filtro por empresa para despachantes
   useEffect(() => {
-    fetchMultas();
-  }, [fetchMultas]);
+    const loadMultas = async () => {
+      if (!user) return;
+      
+      let filters = {};
+      
+      // Superadmin vê todas as multas
+      if (user.role === 'Superadmin') {
+        filters = {};
+      } else {
+        // Despachantes e ICETRAN veem apenas multas da sua empresa
+        if (!user.company_id) {
+          console.error('Usuário não possui empresa associada');
+          return;
+        }
+        filters = { companyId: user.company_id };
+      }
+      
+      await fetchMultas(filters);
+    };
+    
+    loadMultas();
+  }, [user, fetchMultas]);
   
   // Filtrar multas baseado no papel do usuário
   const filteredMultas = multas.filter(multa => {
     // Se for cliente, mostrar apenas suas multas
-    if (user?.role === 'viewer' && multa.client_id !== user.id) {
+    if (user?.role === 'Usuario/Cliente' && multa.client_id !== user.id) {
       return false;
     }
     
@@ -557,7 +585,7 @@ export default function Multas() {
   const handleCreateMulta = (data: any) => {
     addMulta({
       ...data,
-      client_id: user?.role === 'viewer' ? user.id : data.clienteId
+      client_id: user?.role === 'Usuario/Cliente' ? user.id : data.clienteId
     });
     toast.success('Multa criada com sucesso!');
   };
@@ -604,7 +632,14 @@ export default function Multas() {
     setShowModal(true);
   };
   
-  const canCreateMulta = user?.role === 'user' || user?.role === 'admin';
+  // Função auxiliar para verificar se o usuário pode gerenciar multas
+  const canManageMultas = (userRole: string | undefined) => {
+    if (!userRole) return false;
+    return userRole === 'Despachante' || userRole === 'ICETRAN' || userRole === 'Superadmin' || 
+           userRole === 'user' || userRole === 'admin'; // Compatibilidade com roles antigos
+  };
+  
+  const canCreateMulta = canManageMultas(user?.role);
   
   if (isLoading) {
     return (
@@ -623,10 +658,10 @@ export default function Multas() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
-            {user?.role === 'viewer' ? 'Minhas Multas' : 'Gestão de Multas'}
+            {user?.role === 'Usuario/Cliente' ? 'Minhas Multas' : 'Gestão de Multas'}
           </h1>
           <p className="text-gray-600 mt-1">
-            {user?.role === 'viewer' 
+            {user?.role === 'Usuario/Cliente'
               ? 'Visualize e acompanhe suas multas e recursos'
               : 'Gerencie multas e recursos dos clientes'
             }
