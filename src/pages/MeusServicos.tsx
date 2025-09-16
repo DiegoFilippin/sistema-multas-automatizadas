@@ -1023,23 +1023,35 @@ const MeusServicos: React.FC = () => {
     }
     
     try {
-      // Navegar para página de criação de recurso com dados do pagamento
-      const recursoData = {
-        payment_id: cobranca.payment_id,
-        multa_type: cobranca.multa_type,
-        amount_paid: cobranca.amount,
-        client_name: cobranca.client_name
+      // Extrair dados do cliente da cobrança
+      const clienteData = {
+        nome: getClientDisplay(cobranca),
+        cpf_cnpj: cobranca.webhook_data?.customer?.cpf_cnpj || cobranca.processed_data?.customer_cpf || '',
+        endereco: cobranca.webhook_data?.customer?.endereco || cobranca.processed_data?.customer_endereco || '',
+        email: cobranca.webhook_data?.customer?.email || '',
+        telefone: cobranca.webhook_data?.customer?.telefone || ''
       };
       
-      console.log('💾 Salvando dados do recurso no localStorage:', recursoData);
+      console.log('👤 Dados do cliente extraídos:', clienteData);
       
-      // Salvar dados no localStorage para usar na página de recurso
-      localStorage.setItem('recurso_payment_data', JSON.stringify(recursoData));
+      // Criar parâmetros de URL com dados do cliente
+      const params = new URLSearchParams({
+        payment_id: cobranca.payment_id || '',
+        client_name: clienteData.nome,
+        client_cpf: clienteData.cpf_cnpj,
+        client_endereco: clienteData.endereco,
+        client_email: clienteData.email,
+        client_telefone: clienteData.telefone,
+        amount_paid: cobranca.amount?.toString() || '0',
+        multa_type: cobranca.multa_type || ''
+      });
       
-      console.log('🔄 Navegando para /recursos/novo');
+      console.log('🔄 Navegando para TesteRecursoIA com parâmetros:', params.toString());
       
-      // Navegar para página de novo recurso (rota correta)
-      navigate('/recursos/novo');
+      // Navegar para página de teste recurso IA com dados do cliente
+      navigate(`/teste-recurso-ia?${params.toString()}`);
+      
+      toast.success('Direcionando para criação de recurso com IA...');
       
     } catch (error) {
       console.error('❌ Erro ao iniciar recurso:', error);
@@ -1336,16 +1348,16 @@ const MeusServicos: React.FC = () => {
                         Ver Detalhes
                       </Button>
                       
-                      {/* Botão Criar Recurso - apenas para cobranças pagas */}
+                      {/* Botão Iniciar Recurso - apenas para cobranças pagas */}
                       {isPaid && (
                         <Button
                           size="sm"
                           variant="default"
                           onClick={() => handleCreateRecurso(cobranca)}
-                          className="bg-blue-600 hover:bg-blue-700"
+                          className="bg-green-600 hover:bg-green-700"
                         >
                           <FileText className="h-4 w-4 mr-1" />
-                          Criar Recurso
+                          Iniciar Recurso
                         </Button>
                       )}
                       

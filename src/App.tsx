@@ -31,6 +31,7 @@ import DashboardIcetran from './pages/DashboardIcetran';
 import GerenciarLeads from './pages/GerenciarLeads';
 import SubcontasSplitTest from './components/SubcontasSplitTest';
 import TesteRecursoIA from './pages/TesteRecursoIA';
+import TesteN8nDemo from './pages/TesteN8nDemo';
 import AppLayout from './components/Layout/AppLayout';
 
 // Componentes de rota movidos para dentro do contexto do Router
@@ -314,6 +315,15 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <TesteRecursoIA />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/teste-n8n-demo" 
+            element={
+              <ProtectedRoute>
+                <TesteN8nDemo />
               </ProtectedRoute>
             } 
           />

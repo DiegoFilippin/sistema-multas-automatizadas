@@ -175,8 +175,58 @@ function RecursoActions({ cobranca }: { cobranca: Cobranca }) {
   }, [cobranca]);
 
   const handleCreateRecurso = () => {
+    console.log('🚀 === INICIANDO CRIAÇÃO DE RECURSO ===');
+    console.log('📋 Dados completos da cobrança:', cobranca);
+    
     const paymentId = cobranca.asaas_payment_id || cobranca.id;
-    navigate(`/recursos/novo?paymentId=${paymentId}`);
+    
+    // Extrair dados do cliente da cobrança - verificar múltiplas fontes
+    const clienteNome = cobranca.client_name || 
+                       cobranca.customer_name || 
+                       cobranca.webhook_data?.customer?.name ||
+                       cobranca.webhook_response?.customer?.name ||
+                       cobranca.processed_data?.customer_name ||
+                       '';
+                       
+    const clienteId = cobranca.client_id || 
+                     cobranca.customer_id || 
+                     cobranca.webhook_data?.customer?.id ||
+                     cobranca.webhook_response?.customer?.id ||
+                     '';
+                     
+    const clienteCpfCnpj = cobranca.webhook_data?.customer?.cpf_cnpj ||
+                          cobranca.webhook_response?.customer?.cpfCnpj ||
+                          cobranca.processed_data?.customer_cpf ||
+                          cobranca.payment_data?.customer?.cpfCnpj ||
+                          '';
+                          
+    const clienteEndereco = cobranca.webhook_data?.customer?.endereco ||
+                           cobranca.webhook_response?.customer?.endereco ||
+                           cobranca.processed_data?.customer_endereco ||
+                           cobranca.payment_data?.customer?.endereco ||
+                           '';
+    
+    console.log('👤 Dados extraídos do cliente:');
+    console.log('  - Nome:', clienteNome);
+    console.log('  - ID:', clienteId);
+    console.log('  - CPF/CNPJ:', clienteCpfCnpj);
+    console.log('  - Endereço:', clienteEndereco);
+    console.log('  - Payment ID:', paymentId);
+    
+    // Construir URL com parâmetros para TesteRecursoIA
+    const params = new URLSearchParams();
+    
+    if (paymentId) params.set('serviceOrderId', paymentId);
+    if (clienteId) params.set('clienteId', clienteId);
+    if (clienteNome) params.set('nome', clienteNome);
+    if (clienteCpfCnpj) params.set('cpfCnpj', clienteCpfCnpj);
+    if (clienteEndereco) params.set('endereco', clienteEndereco);
+    
+    const urlFinal = `/teste-recurso-ia?${params.toString()}`;
+    console.log('🔗 URL final construída:', urlFinal);
+    console.log('📤 Parâmetros enviados:', Object.fromEntries(params));
+    
+    navigate(urlFinal);
   };
 
   const handleViewRecurso = () => {

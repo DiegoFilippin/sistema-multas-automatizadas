@@ -312,6 +312,27 @@ export interface Database {
           local_infracao: string | null
           descricao_infracao: string | null
           data_pagamento: string | null
+          // Campos expandidos - Dados do equipamento
+          numero_equipamento: string | null
+          tipo_equipamento: string | null
+          localizacao_equipamento: string | null
+          velocidade_permitida: string | null
+          velocidade_aferida: string | null
+          // Campos expandidos - Dados do proprietário
+          nome_proprietario: string | null
+          cpf_cnpj_proprietario: string | null
+          endereco_proprietario: string | null
+          // Campos expandidos - Observações detalhadas
+          observacoes_gerais: string | null
+          observacoes_condutor: string | null
+          observacoes_veiculo: string | null
+          mensagem_senatran: string | null
+          // Campos expandidos - Registro fotográfico
+          transcricao_registro_fotografico: string | null
+          motivo_nao_abordagem: string | null
+          // Campos expandidos - Dados do equipamento e notificação
+          dados_equipamento: string | null
+          notificacao_autuacao: string | null
           created_at: string
           updated_at: string
         }
@@ -332,6 +353,27 @@ export interface Database {
           local_infracao?: string | null
           descricao_infracao?: string | null
           data_pagamento?: string | null
+          // Campos expandidos - Dados do equipamento
+          numero_equipamento?: string | null
+          tipo_equipamento?: string | null
+          localizacao_equipamento?: string | null
+          velocidade_permitida?: string | null
+          velocidade_aferida?: string | null
+          // Campos expandidos - Dados do proprietário
+          nome_proprietario?: string | null
+          cpf_cnpj_proprietario?: string | null
+          endereco_proprietario?: string | null
+          // Campos expandidos - Observações detalhadas
+          observacoes_gerais?: string | null
+          observacoes_condutor?: string | null
+          observacoes_veiculo?: string | null
+          mensagem_senatran?: string | null
+          // Campos expandidos - Registro fotográfico
+          transcricao_registro_fotografico?: string | null
+          motivo_nao_abordagem?: string | null
+          // Campos expandidos - Dados do equipamento e notificação
+          dados_equipamento?: string | null
+          notificacao_autuacao?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -352,6 +394,27 @@ export interface Database {
           local_infracao?: string | null
           descricao_infracao?: string | null
           data_pagamento?: string | null
+          // Campos expandidos - Dados do equipamento
+          numero_equipamento?: string | null
+          tipo_equipamento?: string | null
+          localizacao_equipamento?: string | null
+          velocidade_permitida?: string | null
+          velocidade_aferida?: string | null
+          // Campos expandidos - Dados do proprietário
+          nome_proprietario?: string | null
+          cpf_cnpj_proprietario?: string | null
+          endereco_proprietario?: string | null
+          // Campos expandidos - Observações detalhadas
+          observacoes_gerais?: string | null
+          observacoes_condutor?: string | null
+          observacoes_veiculo?: string | null
+          mensagem_senatran?: string | null
+          // Campos expandidos - Registro fotográfico
+          transcricao_registro_fotografico?: string | null
+          motivo_nao_abordagem?: string | null
+          // Campos expandidos - Dados do equipamento e notificação
+          dados_equipamento?: string | null
+          notificacao_autuacao?: string | null
           updated_at?: string
         }
       }
@@ -411,6 +474,166 @@ export interface Database {
           geradoPorIA?: boolean
           probabilidadeSucesso?: number
           updated_at?: string
+        }
+      }
+      chat_sessions: {
+        Row: {
+          id: string
+          company_id: string
+          user_id: string
+          multa_id: string | null
+          session_id: string
+          webhook_url: string
+          webhook_payload: any
+          status: 'active' | 'completed' | 'error'
+          created_at: string
+          updated_at: string
+          completed_at: string | null
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          user_id: string
+          multa_id?: string | null
+          session_id: string
+          webhook_url: string
+          webhook_payload: any
+          status?: 'active' | 'completed' | 'error'
+          created_at?: string
+          updated_at?: string
+          completed_at?: string | null
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          user_id?: string
+          multa_id?: string | null
+          session_id?: string
+          webhook_url?: string
+          webhook_payload?: any
+          status?: 'active' | 'completed' | 'error'
+          updated_at?: string
+          completed_at?: string | null
+        }
+      }
+      chat_messages: {
+        Row: {
+          id: string
+          chat_session_id: string
+          message_type: 'user' | 'assistant' | 'system'
+          content: string
+          metadata: any | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          chat_session_id: string
+          message_type: 'user' | 'assistant' | 'system'
+          content: string
+          metadata?: any | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          chat_session_id?: string
+          message_type?: 'user' | 'assistant' | 'system'
+          content?: string
+          metadata?: any | null
+        }
+      }
+      recursos_gerados: {
+        Row: {
+          id: string
+          company_id: string
+          user_id: string
+          multa_id: string | null
+          chat_session_id: string | null
+          recurso_id: string | null
+          titulo: string
+          conteudo_recurso: string
+          fundamentacao_legal: string | null
+          argumentos_principais: string[] | null
+          tipo_recurso: string
+          status: 'gerado' | 'revisado' | 'aprovado' | 'protocolado' | 'rejeitado'
+          metadata: any | null
+          versao: number
+          created_at: string
+          updated_at: string
+          approved_at: string | null
+          approved_by: string | null
+        }
+        Insert: {
+          id?: string
+          company_id: string
+          user_id: string
+          multa_id?: string | null
+          chat_session_id?: string | null
+          recurso_id?: string | null
+          titulo: string
+          conteudo_recurso: string
+          fundamentacao_legal?: string | null
+          argumentos_principais?: string[] | null
+          tipo_recurso: string
+          status?: 'gerado' | 'revisado' | 'aprovado' | 'protocolado' | 'rejeitado'
+          metadata?: any | null
+          versao?: number
+          created_at?: string
+          updated_at?: string
+          approved_at?: string | null
+          approved_by?: string | null
+        }
+        Update: {
+          id?: string
+          company_id?: string
+          user_id?: string
+          multa_id?: string | null
+          chat_session_id?: string | null
+          recurso_id?: string | null
+          titulo?: string
+          conteudo_recurso?: string
+          fundamentacao_legal?: string | null
+          argumentos_principais?: string[] | null
+          tipo_recurso?: string
+          status?: 'gerado' | 'revisado' | 'aprovado' | 'protocolado' | 'rejeitado'
+          metadata?: any | null
+          versao?: number
+          updated_at?: string
+          approved_at?: string | null
+          approved_by?: string | null
+        }
+      }
+      recursos_gerados_versions: {
+        Row: {
+          id: string
+          recurso_gerado_id: string
+          versao: number
+          conteudo_recurso: string
+          fundamentacao_legal: string | null
+          argumentos_principais: string[] | null
+          alteracoes_realizadas: string | null
+          created_by: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          recurso_gerado_id: string
+          versao: number
+          conteudo_recurso: string
+          fundamentacao_legal?: string | null
+          argumentos_principais?: string[] | null
+          alteracoes_realizadas?: string | null
+          created_by: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          recurso_gerado_id?: string
+          versao?: number
+          conteudo_recurso?: string
+          fundamentacao_legal?: string | null
+          argumentos_principais?: string[] | null
+          alteracoes_realizadas?: string | null
+          created_by?: string
         }
       }
     }

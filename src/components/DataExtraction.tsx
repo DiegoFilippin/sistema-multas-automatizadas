@@ -3,6 +3,7 @@ import { FileText, Edit3, Save, X, AlertCircle, CheckCircle } from 'lucide-react
 import { toast } from 'sonner';
 
 interface MultaData {
+  // Dados básicos
   numero?: string;
   infracao?: string;
   local?: string;
@@ -14,6 +15,34 @@ interface MultaData {
   codigoInfracao?: string;
   pontos?: string;
   observacoes?: string;
+  
+  // Dados do equipamento
+  numeroEquipamento?: string;
+  dadosEquipamento?: string;
+  tipoEquipamento?: string;
+  dataAfericao?: string;
+  
+  // Dados do proprietário
+  nomeProprietario?: string;
+  cpfCnpjProprietario?: string;
+  identificacaoProprietario?: string;
+  
+  // Observações detalhadas
+  observacoesCompletas?: string;
+  mensagemSenatran?: string;
+  motivoNaoAbordagem?: string;
+  
+  // Registro fotográfico
+  temRegistroFotografico?: boolean;
+  descricaoFoto?: string;
+  placaFoto?: string;
+  caracteristicasVeiculo?: string;
+  dataHoraFoto?: string;
+  
+  // Notificação de autuação
+  codigoAcesso?: string;
+  linkNotificacao?: string;
+  protocoloNotificacao?: string;
 }
 
 interface DataExtractionProps {
@@ -63,12 +92,53 @@ const DataExtraction: React.FC<DataExtractionProps> = ({
 
   const isDataComplete = () => {
     const requiredFields = ['numero', 'infracao', 'local', 'data', 'valor'];
-    return requiredFields.every(field => localData[field as keyof MultaData]);
+    const completedFields = requiredFields.filter(field => localData[field as keyof MultaData]);
+    const isComplete = requiredFields.every(field => localData[field as keyof MultaData]);
+    
+    console.log('🔍 Verificação de dados completos:', {
+      requiredFields,
+      completedFields,
+      isComplete,
+      localDataKeys: Object.keys(localData)
+    });
+    
+    // Ser menos restritivo - permitir se pelo menos número e infração estiverem preenchidos
+    const minimalComplete = localData.numero && localData.infracao;
+    
+    console.log('📋 Verificação mínima:', {
+      numero: localData.numero,
+      infracao: localData.infracao,
+      minimalComplete
+    });
+    
+    return minimalComplete || isComplete;
   };
 
   const renderField = (label: string, field: keyof MultaData, required: boolean = false) => {
-    const value = localData[field] || '';
+    const value = localData[field];
+    const displayValue = typeof value === 'boolean' ? (value ? 'Sim' : 'Não') : (value || '');
     const isEditing = editingField === field;
+
+    // Não renderizar campos boolean como editáveis
+    if (typeof value === 'boolean') {
+      return (
+        <div key={field} className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">
+            {label}
+            {required && <span className="text-red-500 ml-1">*</span>}
+          </label>
+          <div className="flex items-center space-x-2">
+            <input
+              type="text"
+              value={displayValue}
+              readOnly
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-900"
+              placeholder={`${label} não informado`}
+            />
+          </div>
+        </div>
+      );
+    }
 
     return (
       <div key={field} className="space-y-2">
@@ -104,13 +174,13 @@ const DataExtraction: React.FC<DataExtractionProps> = ({
           <div className="flex items-center space-x-2">
             <input
               type="text"
-              value={value}
+              value={displayValue as string}
               readOnly
               className="flex-1 border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-900"
               placeholder={required ? `${label} é obrigatório` : `${label} não informado`}
             />
             <button
-              onClick={() => handleEdit(field, value)}
+              onClick={() => handleEdit(field, displayValue as string)}
               className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
             >
               <Edit3 className="w-4 h-4" />
@@ -184,7 +254,7 @@ const DataExtraction: React.FC<DataExtractionProps> = ({
           
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              Observações
+              Observações Básicas
             </label>
             {editingField === 'observacoes' ? (
               <div className="space-y-2">
@@ -231,38 +301,108 @@ const DataExtraction: React.FC<DataExtractionProps> = ({
           </div>
         </div>
 
-        {/* Status e Ação */}
+        {/* Dados do Equipamento */}
+        {(localData.numeroEquipamento || localData.dadosEquipamento || localData.tipoEquipamento || localData.dataAfericao) && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
+              Dados do Equipamento
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {renderField('Número do Equipamento', 'numeroEquipamento')}
+              {renderField('Tipo de Equipamento', 'tipoEquipamento')}
+            </div>
+            
+            {renderField('Dados do Equipamento', 'dadosEquipamento')}
+            {renderField('Data de Aferição', 'dataAfericao')}
+          </div>
+        )}
+
+        {/* Dados do Proprietário */}
+        {(localData.nomeProprietario || localData.cpfCnpjProprietario || localData.identificacaoProprietario) && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
+              Dados do Proprietário
+            </h3>
+            
+            {renderField('Nome do Proprietário', 'nomeProprietario')}
+            {renderField('CPF/CNPJ do Proprietário', 'cpfCnpjProprietario')}
+            {renderField('Identificação do Proprietário', 'identificacaoProprietario')}
+          </div>
+        )}
+
+        {/* Observações Detalhadas */}
+        {(localData.observacoesCompletas || localData.mensagemSenatran || localData.motivoNaoAbordagem) && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
+              Observações Detalhadas
+            </h3>
+            
+            {renderField('Observações Completas', 'observacoesCompletas')}
+            {renderField('Mensagem SENATRAN', 'mensagemSenatran')}
+            {renderField('Motivo da Não Abordagem', 'motivoNaoAbordagem')}
+          </div>
+        )}
+
+        {/* Registro Fotográfico */}
+        {(localData.temRegistroFotografico || localData.descricaoFoto || localData.placaFoto || localData.caracteristicasVeiculo || localData.dataHoraFoto) && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
+              Registro Fotográfico
+            </h3>
+            
+            {localData.temRegistroFotografico && (
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <span className="text-sm text-blue-800 font-medium">
+                  ✓ Registro fotográfico disponível
+                </span>
+              </div>
+            )}
+            
+            {renderField('Descrição da Foto', 'descricaoFoto')}
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {renderField('Placa na Foto', 'placaFoto')}
+              {renderField('Data/Hora da Foto', 'dataHoraFoto')}
+            </div>
+            
+            {renderField('Características do Veículo', 'caracteristicasVeiculo')}
+          </div>
+        )}
+
+        {/* Notificação de Autuação */}
+        {(localData.codigoAcesso || localData.linkNotificacao || localData.protocoloNotificacao) && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900 border-b border-gray-200 pb-2">
+              Notificação de Autuação
+            </h3>
+            
+            {renderField('Código de Acesso', 'codigoAcesso')}
+            {renderField('Link da Notificação', 'linkNotificacao')}
+            {renderField('Protocolo da Notificação', 'protocoloNotificacao')}
+          </div>
+        )}
+
+        {/* Status */}
         <div className="border-t border-gray-200 pt-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-center">
             <div className="flex items-center space-x-2">
               {isDataComplete() ? (
                 <>
                   <CheckCircle className="w-5 h-5 text-green-600" />
                   <span className="text-sm text-green-800 font-medium">
-                    Dados completos - Pronto para continuar
+                    ✅ Dados extraídos com sucesso - Chat iniciado automaticamente
                   </span>
                 </>
               ) : (
                 <>
                   <AlertCircle className="w-5 h-5 text-amber-600" />
                   <span className="text-sm text-amber-800 font-medium">
-                    Preencha os campos obrigatórios (*)
+                    Aguardando extração de dados do documento...
                   </span>
                 </>
               )}
             </div>
-            
-            <button
-              onClick={onStartChat}
-              disabled={!isDataComplete()}
-              className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                isDataComplete()
-                  ? 'bg-green-600 text-white hover:bg-green-700'
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              }`}
-            >
-              Iniciar Chat com IA
-            </button>
           </div>
         </div>
       </div>

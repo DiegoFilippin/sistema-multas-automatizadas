@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 interface DocumentoProcessado {
+  // Dados básicos (existentes)
   numeroAuto: string;
   dataInfracao: string;
   horaInfracao: string;
@@ -13,6 +14,34 @@ interface DocumentoProcessado {
   orgaoAutuador: string;
   agente?: string;
   observacoes?: string;
+  
+  // Dados do equipamento
+  numeroEquipamento?: string;
+  dadosEquipamento?: string;
+  tipoEquipamento?: string;
+  dataAfericao?: string;
+  
+  // Dados do proprietário
+  nomeProprietario?: string;
+  cpfCnpjProprietario?: string;
+  identificacaoProprietario?: string;
+  
+  // Observações detalhadas
+  observacoesCompletas?: string;
+  mensagemSenatran?: string;
+  motivoNaoAbordagem?: string;
+  
+  // Registro fotográfico
+  temRegistroFotografico?: boolean;
+  descricaoFoto?: string;
+  placaFoto?: string;
+  caracteristicasVeiculo?: string;
+  dataHoraFoto?: string;
+  
+  // Notificação de autuação
+  codigoAcesso?: string;
+  linkNotificacao?: string;
+  protocoloNotificacao?: string;
 }
 
 interface DocumentoVeiculoProcessado {
@@ -96,7 +125,7 @@ class GeminiOcrService {
         
         const imagePart = await this.fileToGenerativePart(file);
         
-        const prompt = `Analise esta imagem de um auto de infração de trânsito brasileiro e extraia as informações em formato JSON.
+        const prompt = `Analise esta imagem de um auto de infração de trânsito brasileiro e extraia TODAS as informações disponíveis em formato JSON.
 
 Retorne APENAS um objeto JSON válido com os seguintes campos:
 {
@@ -111,12 +140,44 @@ Retorne APENAS um objeto JSON válido com os seguintes campos:
   "condutor": "nome do condutor",
   "orgaoAutuador": "órgão autuador",
   "agente": "nome do agente",
-  "observacoes": "observações"
+  "observacoes": "observações básicas",
+  
+  "numeroEquipamento": "número do equipamento ou instrumento de aferição",
+  "dadosEquipamento": "dados técnicos do equipamento",
+  "tipoEquipamento": "tipo de equipamento (radar, lombada, etc.)",
+  "dataAfericao": "data de aferição do equipamento",
+  
+  "nomeProprietario": "nome do proprietário/arrendatário",
+  "cpfCnpjProprietario": "CPF/CNPJ do proprietário",
+  "identificacaoProprietario": "identificação completa do proprietário",
+  
+  "observacoesCompletas": "campo observações completo",
+  "mensagemSenatran": "mensagem SENATRAN",
+  "motivoNaoAbordagem": "motivo da não abordagem",
+  
+  "temRegistroFotografico": true,
+  "descricaoFoto": "transcrição da imagem do registro fotográfico",
+  "placaFoto": "placa visível na foto",
+  "caracteristicasVeiculo": "características do veículo na foto",
+  "dataHoraFoto": "data/hora do registro fotográfico",
+  
+  "codigoAcesso": "código de acesso da notificação",
+  "linkNotificacao": "link ou informações de acesso",
+  "protocoloNotificacao": "protocolo da notificação"
 }
+
+INSTRUÇÕES ESPECÍFICAS:
+- DADOS DO EQUIPAMENTO: Procure por "EQUIPAMENTO", "INSTRUMENTO", "RADAR", "LOMBADA", "AFERIÇÃO"
+- DADOS DO PROPRIETÁRIO: Procure por "PROPRIETÁRIO", "ARRENDATÁRIO", seções com CPF/CNPJ
+- OBSERVAÇÕES: Extraia TODAS as observações, mensagens SENATRAN, motivos de não abordagem
+- REGISTRO FOTOGRÁFICO: Se houver foto do veículo, descreva detalhadamente o que vê
+- NOTIFICAÇÃO: Procure por códigos de acesso, links, protocolos de notificação
+- temRegistroFotografico: true se houver foto do veículo, false caso contrário
 
 IMPORTANTE:
 - Retorne APENAS o JSON, sem texto adicional
-- Se não conseguir ler um campo, use "" para strings ou 0 para números
+- Se não conseguir ler um campo, use "" para strings, 0 para números, false para boolean
+- Extraia o MÁXIMO de informações possível
 - Não adicione explicações ou comentários`;
 
         const result = await model.generateContent([
@@ -156,6 +217,7 @@ IMPORTANTE:
       
       // Validar e converter tipos se necessário
       return {
+        // Dados básicos
         numeroAuto: dadosExtraidos.numeroAuto || '',
         dataInfracao: dadosExtraidos.dataInfracao || '',
         horaInfracao: dadosExtraidos.horaInfracao || '',
@@ -167,7 +229,35 @@ IMPORTANTE:
         condutor: dadosExtraidos.condutor || '',
         orgaoAutuador: dadosExtraidos.orgaoAutuador || '',
         agente: dadosExtraidos.agente || '',
-        observacoes: dadosExtraidos.observacoes || ''
+        observacoes: dadosExtraidos.observacoes || '',
+        
+        // Dados do equipamento
+        numeroEquipamento: dadosExtraidos.numeroEquipamento || '',
+        dadosEquipamento: dadosExtraidos.dadosEquipamento || '',
+        tipoEquipamento: dadosExtraidos.tipoEquipamento || '',
+        dataAfericao: dadosExtraidos.dataAfericao || '',
+        
+        // Dados do proprietário
+        nomeProprietario: dadosExtraidos.nomeProprietario || '',
+        cpfCnpjProprietario: dadosExtraidos.cpfCnpjProprietario || '',
+        identificacaoProprietario: dadosExtraidos.identificacaoProprietario || '',
+        
+        // Observações detalhadas
+        observacoesCompletas: dadosExtraidos.observacoesCompletas || '',
+        mensagemSenatran: dadosExtraidos.mensagemSenatran || '',
+        motivoNaoAbordagem: dadosExtraidos.motivoNaoAbordagem || '',
+        
+        // Registro fotográfico
+        temRegistroFotografico: dadosExtraidos.temRegistroFotografico || false,
+        descricaoFoto: dadosExtraidos.descricaoFoto || '',
+        placaFoto: dadosExtraidos.placaFoto || '',
+        caracteristicasVeiculo: dadosExtraidos.caracteristicasVeiculo || '',
+        dataHoraFoto: dadosExtraidos.dataHoraFoto || '',
+        
+        // Notificação de autuação
+        codigoAcesso: dadosExtraidos.codigoAcesso || '',
+        linkNotificacao: dadosExtraidos.linkNotificacao || '',
+        protocoloNotificacao: dadosExtraidos.protocoloNotificacao || ''
       };
 
       } catch (error: any) {
@@ -205,6 +295,7 @@ IMPORTANTE:
             
             // Fallback: retornar dados vazios se não conseguir parsear
             return {
+              // Dados básicos
               numeroAuto: '',
               dataInfracao: '',
               horaInfracao: '',
@@ -216,7 +307,35 @@ IMPORTANTE:
               condutor: '',
               orgaoAutuador: '',
               agente: '',
-              observacoes: 'Falha na extração automática após múltiplas tentativas. Verifique se a imagem está nítida.'
+              observacoes: 'Falha na extração automática após múltiplas tentativas. Verifique se a imagem está nítida.',
+              
+              // Dados do equipamento
+              numeroEquipamento: '',
+              dadosEquipamento: '',
+              tipoEquipamento: '',
+              dataAfericao: '',
+              
+              // Dados do proprietário
+              nomeProprietario: '',
+              cpfCnpjProprietario: '',
+              identificacaoProprietario: '',
+              
+              // Observações detalhadas
+              observacoesCompletas: '',
+              mensagemSenatran: '',
+              motivoNaoAbordagem: '',
+              
+              // Registro fotográfico
+              temRegistroFotografico: false,
+              descricaoFoto: '',
+              placaFoto: '',
+              caracteristicasVeiculo: '',
+              dataHoraFoto: '',
+              
+              // Notificação de autuação
+              codigoAcesso: '',
+              linkNotificacao: '',
+              protocoloNotificacao: ''
             };
           }
           
