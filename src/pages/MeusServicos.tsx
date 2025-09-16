@@ -54,8 +54,10 @@ interface Client {
   id: string;
   nome: string;
   cpf_cnpj: string;
+  cpf?: string; // Adicionar campo cpf separado
   email?: string;
   telefone?: string;
+  asaas_customer_id?: string; // Adicionar campo asaas_customer_id
 }
 
 interface MultaType {
@@ -194,7 +196,7 @@ const MeusServicos: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('clients')
-        .select('id, nome, cpf_cnpj, email, telefone')
+        .select('id, nome, cpf_cnpj, email, telefone, asaas_customer_id')
         .eq('company_id', user?.company_id)
         .eq('status', 'ativo')
         .order('nome');
@@ -576,12 +578,48 @@ const MeusServicos: React.FC = () => {
     try {
       setCreatingPayment(true);
 
-      // Construir payload para nova API simplificada
+      // Validar dados do cliente
+      console.log('\n🔍 VALIDAÇÃO DOS DADOS DO CLIENTE:');
+      console.log('  - ID:', selectedClient.id);
+      console.log('  - Nome:', selectedClient.nome);
+      console.log('  - CPF/CNPJ:', selectedClient.cpf_cnpj);
+      console.log('  - Email:', selectedClient.email);
+      console.log('  - Asaas Customer ID:', selectedClient.asaas_customer_id);
+      
+      if (!selectedClient.cpf_cnpj) {
+        console.error('❌ ERRO: CPF/CNPJ do cliente não encontrado');
+        toast.error('CPF/CNPJ do cliente não encontrado. Verifique os dados do cliente.');
+        return;
+      }
+      
+      if (!selectedClient.asaas_customer_id) {
+         console.warn('⚠️ AVISO: Cliente não possui asaas_customer_id, será criado automaticamente');
+         toast.warning('Cliente não possui integração com Asaas. O customer será criado automaticamente.');
+       }
+
+      // Construir payload no formato que funcionava antes
       const requestBody = {
-        customer_id: selectedClient.id,
-        service_id: selectedType.id, // ID do serviço específico selecionado
-        company_id: user?.company_id,
-        valor_cobranca: customAmount // Valor total que o despachante quer cobrar
+        wallet_icetran: "eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0", // Wallet fixo ICETRAN
+        wallet_despachante: "2bb1d7d-7530-45ac-953d-b9f7a980c4af", // Wallet da empresa (fixo por enquanto)
+        Customer_cliente: {
+          id: selectedClient.id,
+          nome: selectedClient.nome,
+          cpf_cnpj: selectedClient.cpf_cnpj, // Usar cpf_cnpj que é o campo correto
+          email: selectedClient.email,
+          asaas_customer_id: selectedClient.asaas_customer_id || null // Usar o ID real do Asaas ou null
+        },
+        "Valor_cobrança": customAmount || selectedType.suggested_price,
+        "Idserviço": selectedType.id,
+        "descricaoserviço": selectedType.name,
+        valoracsm: selectedType.acsm_value || 12,
+        valoricetran: selectedType.icetran_value || 12,
+        taxa: serviceSplitConfig?.taxa_cobranca || 3.5,
+        despachante: {
+          company_id: user?.company_id,
+          nome: "Empresa", // Nome fixo por enquanto
+          wallet_id: "2bb1d7d-7530-45ac-953d-b9f7a980c4af", // Wallet fixo por enquanto
+          margem: 52.5
+        }
       };
       
       console.log('📋 Dados do serviço:', {
@@ -592,44 +630,38 @@ const MeusServicos: React.FC = () => {
         custo_minimo: selectedType.total_price
       });
       
-      console.log('\n📦 PAYLOAD COMPLETO:');
+      console.log('\n📦 PAYLOAD PARA WEBHOOK N8N:');
       console.log('=====================================');
       console.log(JSON.stringify(requestBody, null, 2));
       console.log('=====================================');
       
-      console.log('\n📊 ANÁLISE DO PAYLOAD:');
-      console.log('  - Tamanho do JSON:', JSON.stringify(requestBody).length, 'bytes');
-      console.log('  - Propriedades:', Object.keys(requestBody).length);
-      console.log('  - Tipos de dados:');
-      Object.entries(requestBody).forEach(([key, value]) => {
-        console.log(`    ${key}: ${typeof value} = ${value}`);
-      });
-
-      console.log('\n📦 PAYLOAD COMPLETO:');
-      console.log('=====================================');
-      console.log(JSON.stringify(requestBody, null, 2));
-      console.log('=====================================');
+      // Validação final do payload
+      console.log('\n✅ VALIDAÇÃO FINAL DO PAYLOAD:');
+      console.log('  - CPF Cliente:', requestBody.Customer_cliente.cpf_cnpj);
+      console.log('  - Asaas Customer ID:', requestBody.Customer_cliente.asaas_customer_id);
+      console.log('  - Nome Cliente:', requestBody.Customer_cliente.nome);
+      console.log('  - Email Cliente:', requestBody.Customer_cliente.email);
+      
+      const webhookUrl = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
       
       const requestOptions = {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'X-Requested-With': 'XMLHttpRequest'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
       };
       
-      console.log('\n🌐 CONFIGURAÇÃO DA REQUISIÇÃO:');
-      console.log('  - URL:', '/api/payments/create-service-order');
+      console.log('\n🌐 CONFIGURAÇÃO DA REQUISIÇÃO DIRETA:');
+      console.log('  - URL:', webhookUrl);
       console.log('  - Method:', requestOptions.method);
       console.log('  - Headers:', requestOptions.headers);
       console.log('  - Body size:', requestOptions.body.length, 'bytes');
       
-      console.log('\n🚀 ENVIANDO REQUISIÇÃO...');
+      console.log('\n🚀 ENVIANDO REQUISIÇÃO DIRETA PARA N8N...');
       const startTime = Date.now();
       
-      const response = await fetch('/api/payments/create-service-order', requestOptions);
+      const response = await fetch(webhookUrl, requestOptions);
       
       const endTime = Date.now();
       const duration = endTime - startTime;
@@ -649,152 +681,167 @@ const MeusServicos: React.FC = () => {
         console.log(`  - ${key}: ${value}`);
       });
       
-      // Verificar content-type
-      const contentType = response.headers.get('content-type');
-      console.log('\n🔍 ANÁLISE DO CONTENT-TYPE:');
-      console.log('  - Content-Type:', contentType);
-      console.log('  - É JSON?', contentType && contentType.includes('application/json'));
-      
-      if (!contentType || !contentType.includes('application/json')) {
-        console.error('❌ ERRO: Resposta não é JSON válido');
-        console.log('  - Content-Type esperado: application/json');
-        console.log('  - Content-Type recebido:', contentType);
-        
-        // Tentar ler como texto para ver o que foi retornado
-        const responseText = await response.text();
-        console.log('\n📄 CONTEÚDO DA RESPOSTA (como texto):');
-        console.log('=====================================');
-        console.log(responseText);
-        console.log('=====================================');
-        
-        throw new Error('Servidor retornou resposta inválida (não JSON)');
+      if (!response.ok) {
+        console.error('❌ ERRO HTTP:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.log('  - Erro retornado:', errorText);
+        throw new Error(`Erro ao processar cobrança via webhook: ${response.status}`);
       }
-      
-      // Ler como texto primeiro
+
+      // Ler resposta do webhook N8N
       const responseText = await response.text();
-      console.log('\n📄 RESPOSTA BRUTA:');
-      console.log('  - Tamanho:', responseText.length, 'bytes');
-      console.log('  - Vazio?', responseText.trim() === '');
-      console.log('  - Conteúdo:');
+      console.log('\n📄 RESPOSTA DO WEBHOOK N8N:');
       console.log('=====================================');
       console.log(responseText);
       console.log('=====================================');
       
-      if (!responseText || responseText.trim() === '') {
-        console.error('❌ ERRO: Resposta vazia da API');
-        throw new Error('Servidor retornou resposta vazia');
-      }
+      let result: any = {};
       
-      // Tentar parsear JSON
-      let result: PaymentResponse;
-      try {
-        result = JSON.parse(responseText);
-        console.log('\n✅ JSON PARSEADO COM SUCESSO:');
-        console.log('=====================================');
-        console.log(JSON.stringify(result, null, 2));
-        console.log('=====================================');
-      } catch (parseError) {
-        console.error('❌ ERRO AO PARSEAR JSON:', parseError);
-        console.log('  - Erro:', parseError.message);
-        console.log('  - Posição:', parseError.stack);
-        console.log('  - Texto que causou erro:');
-        console.log('=====================================');
-        console.log(responseText);
-        console.log('=====================================');
-        throw new Error('Resposta do servidor não é um JSON válido');
-      }
-      
-      if (!response.ok) {
-        console.error('❌ ERRO HTTP:', response.status, response.statusText);
-        console.log('  - Erro retornado:', result.error);
-        throw new Error(result.error || `Erro HTTP ${response.status}`);
+      // Tentar parsear JSON se a resposta não estiver vazia
+      if (responseText && responseText.trim() !== '') {
+        try {
+          result = JSON.parse(responseText);
+          console.log('\n✅ JSON PARSEADO COM SUCESSO:');
+          console.log(JSON.stringify(result, null, 2));
+        } catch (parseError) {
+          console.log('⚠️ Resposta não é JSON, tratando como sucesso');
+          result = { success: true, message: responseText };
+        }
+      } else {
+        console.log('✅ Resposta vazia, tratando como sucesso');
+        result = { success: true };
       }
 
-      if (result.success) {
-        console.log('\n🎉 COBRANÇA CRIADA COM SUCESSO!');
-        console.log('  - Payment ID:', result.payment?.id);
-        console.log('  - Webhook ID:', result.payment?.webhook_id);
-        console.log('  - Amount:', result.payment?.amount);
-        console.log('  - QR Code disponível:', !!result.payment?.qr_code);
-        console.log('  - PIX Code disponível:', !!result.payment?.pix_code);
-        console.log('  - Webhook response:', result.payment?.webhook_response);
+      // ========== TRATAMENTO DE ERRO DO WEBHOOK ==========
+      // Verificar se a resposta contém erro
+      if (result && Array.isArray(result) && result[0] && result[0].erro) {
+        console.log('\n❌ ERRO DETECTADO NA RESPOSTA DO WEBHOOK:');
+        console.log('=====================================');
         
-        // Criar objeto da nova cobrança com dados corretos da API
-        const novaCobranca: PaymentResponse = {
-          service_order_id: result.payment?.id,
-          payment_id: result.payment?.webhook_id || result.payment?.id,
-          asaas_payment_id: result.payment?.webhook_id,
-          client_name: selectedClient.nome,
-          customer_name: selectedClient.nome,
-          amount: result.payment?.amount || customAmount,
-          status: 'pending', // Status correto para cobrança recém-criada
-          created_at: new Date().toISOString(),
-          description: result.payment?.description || `${selectedType.name} - ${selectedClient.nome}`,
-          payment_method: 'PIX',
-          customer_id: selectedClient.id,
-          qr_code: result.payment?.qr_code, // QR code do webhook
-          pix_copy_paste: result.payment?.pix_code, // PIX copia e cola do webhook
-          payment_url: result.payment?.webhook_response?.payment_url, // URL de pagamento se disponível
-          multa_type: selectedType.name,
-          due_date: result.payment?.due_date,
-          success: true
-        };
-        
-        // Adicionar à lista de cobranças (no início da lista)
-        setCobrancas(prev => [novaCobranca, ...prev]);
-        console.log('✅ Cobrança adicionada à lista local');
-        
-        // Verificar se temos dados completos, senão buscar do banco
-        let cobrancaCompleta = novaCobranca;
-        if (!novaCobranca.qr_code || !novaCobranca.pix_copy_paste) {
-          console.log('⚠️ Dados incompletos, buscando dados atualizados...');
-          try {
-            // Aguardar um pouco para o webhook processar
-            await new Promise(resolve => setTimeout(resolve, 2000));
+        try {
+          // Parsear o JSON aninhado do erro
+          const errorData = JSON.parse(result[0].erro);
+          console.log('📋 Dados do erro parseados:', errorData);
+          
+          if (errorData.error && errorData.error.message) {
+            // Extrair mensagem de erro do Asaas
+            const errorMessage = errorData.error.message;
+            console.log('📄 Mensagem de erro completa:', errorMessage);
             
-            // Buscar dados atualizados da cobrança
-            const refreshResponse = await fetch(`/api/payments/company/${user?.company_id}`);
-            if (refreshResponse.ok) {
-              const refreshData = await refreshResponse.json();
-              const cobrancaAtualizada = refreshData.data?.find(
-                (p: any) => p.payment_id === novaCobranca.payment_id || p.id === novaCobranca.service_order_id
-              );
-              
-              if (cobrancaAtualizada) {
-                console.log('✅ Dados atualizados encontrados:', cobrancaAtualizada);
-                cobrancaCompleta = {
-                  ...novaCobranca,
-                  qr_code: cobrancaAtualizada.qr_code || novaCobranca.qr_code,
-                  pix_copy_paste: cobrancaAtualizada.pix_copy_paste || novaCobranca.pix_copy_paste,
-                  payment_url: cobrancaAtualizada.payment_url || novaCobranca.payment_url,
-                  status: cobrancaAtualizada.status || novaCobranca.status
-                };
+            // Tentar extrair o JSON de erro do Asaas da mensagem
+            const messageParts = errorMessage.split(' - ');
+            if (messageParts.length > 1) {
+              try {
+                const asaasErrorJson = messageParts[1];
+                console.log('🔍 JSON de erro do Asaas:', asaasErrorJson);
+                
+                // Fazer unescape das barras e parsear
+                const cleanJson = asaasErrorJson.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+                console.log('🧹 JSON limpo:', cleanJson);
+                
+                const asaasError = JSON.parse(cleanJson);
+                console.log('✅ Erro do Asaas parseado:', asaasError);
+                
+                if (asaasError.errors && asaasError.errors[0] && asaasError.errors[0].description) {
+                  const errorDescription = asaasError.errors[0].description;
+                  console.log('💥 Descrição do erro:', errorDescription);
+                  
+                  // Lançar erro com a mensagem específica do Asaas
+                  throw new Error(errorDescription);
+                }
+              } catch (parseError) {
+                console.error('❌ Erro ao parsear JSON do Asaas:', parseError);
+                // Usar mensagem de erro genérica
+                throw new Error('Erro no processamento da cobrança no Asaas');
               }
             }
-          } catch (error) {
-            console.warn('⚠️ Erro ao buscar dados atualizados:', error);
-            // Continuar com os dados originais
+            
+            // Se não conseguiu extrair erro específico, usar mensagem genérica
+            throw new Error('Erro no processamento da cobrança');
           }
+          
+          // Se não tem estrutura de erro esperada
+          throw new Error('Erro desconhecido no processamento da cobrança');
+          
+        } catch (jsonError) {
+          console.error('❌ Erro ao parsear JSON de erro:', jsonError);
+          
+          // Se o erro já foi lançado acima, re-lançar
+          if (jsonError.message.includes('Wallet') || jsonError.message.includes('Customer') || jsonError.message.includes('invalid')) {
+            throw jsonError;
+          }
+          
+          // Caso contrário, usar mensagem genérica
+          throw new Error('Erro no processamento da cobrança');
         }
-        
-        setPaymentResult(cobrancaCompleta);
-        setShowPaymentModal(true);
-        setSelectedClient(null);
-        setSelectedMultaType('');
-        setCustomAmount(0);
-        toast.success('Cobrança criada com sucesso!');
-      } else {
-        console.error('❌ ERRO: Success = false');
-        console.log('  - Resultado:', result);
-        throw new Error(result.error || 'Erro desconhecido ao criar cobrança');
       }
+      // ========== FIM DO TRATAMENTO DE ERRO ==========
+
+      console.log('\n🎉 COBRANÇA ENVIADA PARA WEBHOOK N8N!');
+      console.log('  - Status HTTP:', response.status);
+      console.log('  - Resposta:', result);
+      
+      // Criar objeto da nova cobrança para exibição local
+      const novaCobranca: PaymentResponse = {
+        service_order_id: `temp_${Date.now()}`,
+        payment_id: `webhook_${Date.now()}`,
+        asaas_payment_id: result.payment_id || `webhook_${Date.now()}`,
+        client_name: selectedClient.nome,
+        customer_name: selectedClient.nome,
+        amount: customAmount,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        description: `${selectedType.name} - ${selectedClient.nome}`,
+        payment_method: 'PIX',
+        customer_id: selectedClient.id,
+        qr_code: result.qr_code || '',
+        pix_copy_paste: result.pix_code || '',
+        payment_url: result.payment_url || '',
+        multa_type: selectedType.name,
+        due_date: result.due_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        success: true
+      };
+      
+      // Adicionar à lista de cobranças (no início da lista)
+      setCobrancas(prev => [novaCobranca, ...prev]);
+      console.log('✅ Cobrança adicionada à lista local');
+      
+      setPaymentResult(novaCobranca);
+      setShowPaymentModal(true);
+      setSelectedClient(null);
+      setSelectedMultaType('');
+      setCustomAmount(0);
+      toast.success('Cobrança enviada para processamento via webhook N8N!');
     } catch (error) {
       console.error('\n💥 ERRO GERAL:', error);
       console.log('  - Tipo:', error.constructor.name);
       console.log('  - Mensagem:', error.message);
       console.log('  - Stack:', error.stack);
+      
       const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-      toast.error(`Erro ao criar cobrança: ${errorMessage}`);
+      
+      // Exibir erro específico do Asaas com formatação melhorada
+      if (errorMessage.includes('Wallet') || errorMessage.includes('Customer') || errorMessage.includes('invalid')) {
+        console.log('\n🚨 ERRO ESPECÍFICO DO ASAAS DETECTADO:');
+        console.log('  - Mensagem:', errorMessage);
+        toast.error(`❌ Erro do Asaas: ${errorMessage}`, {
+          duration: 8000, // Mostrar por mais tempo
+          style: {
+            background: '#fee2e2',
+            border: '1px solid #fecaca',
+            color: '#dc2626'
+          }
+        });
+      } else {
+        // Erro genérico
+        toast.error(`❌ Erro ao criar cobrança: ${errorMessage}`);
+      }
+      
+      // IMPORTANTE: NÃO salvar dados quando há erro
+      console.log('\n⚠️ COBRANÇA NÃO FOI SALVA DEVIDO AO ERRO');
+      console.log('  - Lista de cobranças não foi atualizada');
+      console.log('  - Modal de pagamento não será exibido');
+      console.log('  - Formulário permanece aberto para correção');
     } finally {
       setCreatingPayment(false);
       console.log('\n🏁 FIM DO PROCESSO DE CRIAÇÃO');

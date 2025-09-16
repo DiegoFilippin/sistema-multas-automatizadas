@@ -110,13 +110,7 @@ const menuItems: MenuItem[] = [
     roles: ['Superadmin'],
     badge: 'IA'
   },
-  {
-    id: 'sistema-cobranca',
-    label: 'Sistema de Cobrança',
-    icon: Receipt,
-    href: '/sistema-cobranca',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante']
-  },
+
   {
     id: 'servicos-splits',
     label: 'Serviços e Splits',
@@ -166,6 +160,14 @@ const menuItems: MenuItem[] = [
     href: '/subcontas-admin',
     roles: ['Superadmin'],
     badge: 'ADMIN'
+  },
+  {
+    id: 'teste-recurso-ia',
+    label: 'Teste - Recurso IA',
+    icon: TestTube,
+    href: '/teste-recurso-ia',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante'],
+    badge: 'TESTE'
   },
 
 ];

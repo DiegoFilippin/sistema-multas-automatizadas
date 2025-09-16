@@ -21,7 +21,7 @@ import CobrancasGerais from './pages/CobrancasGerais';
 import RelatoriosFinanceiros from './pages/RelatoriosFinanceiros';
 import Configuracoes from './pages/Configuracoes';
 import CentroAutomacao from './pages/CentroAutomacao';
-import SistemaCobranca from './pages/SistemaCobranca';
+
 import AsaasConfig from './pages/AsaasConfig';
 import SubcontasAdmin from './pages/SubcontasAdmin';
 import ServicosEsplits from './pages/ServicosEsplits';
@@ -30,6 +30,7 @@ import GerenciarCreditos from './pages/GerenciarCreditos';
 import DashboardIcetran from './pages/DashboardIcetran';
 import GerenciarLeads from './pages/GerenciarLeads';
 import SubcontasSplitTest from './components/SubcontasSplitTest';
+import TesteRecursoIA from './pages/TesteRecursoIA';
 import AppLayout from './components/Layout/AppLayout';
 
 // Componentes de rota movidos para dentro do contexto do Router
@@ -252,14 +253,7 @@ function AppContent() {
             } 
           />
           
-          <Route 
-            path="/sistema-cobranca" 
-            element={
-              <ProtectedRoute>
-                <SistemaCobranca />
-              </ProtectedRoute>
-            } 
-          />
+
           
           <Route 
             path="/asaas-config" 
@@ -311,6 +305,15 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <GerenciarLeads />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/teste-recurso-ia" 
+            element={
+              <ProtectedRoute>
+                <TesteRecursoIA />
               </ProtectedRoute>
             } 
           />

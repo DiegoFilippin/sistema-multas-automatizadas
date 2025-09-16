@@ -133,7 +133,6 @@ function RecursoActions({ cobranca }: { cobranca: Cobranca }) {
             setRecursoStatus({ 
               canCreateRecurso: true, 
               hasExistingRecurso: false, 
-              paymentStatus: data.paymentStatus,
               loading: false 
             });
           } else if (data.hasRecurso) {
@@ -141,14 +140,12 @@ function RecursoActions({ cobranca }: { cobranca: Cobranca }) {
               canCreateRecurso: false, 
               hasExistingRecurso: true, 
               recurso: data.recurso,
-              paymentStatus: data.paymentStatus,
               loading: false 
             });
           } else {
             setRecursoStatus({ 
               canCreateRecurso: false, 
               hasExistingRecurso: false, 
-              paymentStatus: data.paymentStatus,
               loading: false 
             });
           }
@@ -554,12 +551,11 @@ export function CobrancaDetalhes({ cobranca, isOpen, onClose, onResend, onCancel
   const hasQrCode = !!(qrCodeData || qrCodeFromCobranca || qrCodeFromDetails);
   
   // ✅ SEMPRE MOSTRAR PIX PARA PAGAMENTOS PIX (independente do status)
-  const isPixPayment = (cobranca?.payment_method === 'PIX' || cobranca?.billing_type === 'PIX' || !cobranca?.payment_method);
+  const isPixPayment = (cobranca?.payment_method === 'PIX' || !cobranca?.payment_method);
   const shouldShowPix = isPixPayment || hasQrCode;
   
   console.log('🎯 === DECISÃO DE EXIBIÇÃO PIX ===');
   console.log('  - Payment Method:', cobranca?.payment_method);
-  console.log('  - Billing Type:', cobranca?.billing_type);
   console.log('  - Is PIX Payment:', isPixPayment);
   console.log('  - QR Code Data:', !!qrCodeData);
   console.log('  - QR Code da Cobrança:', !!qrCodeFromCobranca);

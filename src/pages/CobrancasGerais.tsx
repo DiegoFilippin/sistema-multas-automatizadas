@@ -38,6 +38,7 @@ interface Cobranca {
   paid_at?: string;
   invoice_url?: string;
   pix_qr_code?: string;
+  pix_code?: string;
   company_name?: string;
   company_id?: string;
 }
