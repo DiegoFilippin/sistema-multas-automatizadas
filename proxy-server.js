@@ -1303,6 +1303,248 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     
+    // POST /api/payments/save-service-order - Salvar dados do webhook no banco local
+    if (path === '/api/payments/save-service-order' && req.method === 'POST') {
+      console.log('💾 === SALVAR DADOS DO WEBHOOK ===');
+      console.log('Method:', req.method);
+      console.log('Path:', path);
+      
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk.toString();
+      });
+      
+      req.on('end', async () => {
+        try {
+          const requestData = JSON.parse(body);
+          console.log('📦 Dados recebidos do webhook:', requestData);
+          
+          const { 
+            webhook_data, 
+            customer_id, 
+            service_id, 
+            company_id,
+            valor_cobranca
+          } = requestData;
+          
+          // Validar dados obrigatórios
+          if (!webhook_data || !customer_id || !service_id || !company_id) {
+            res.writeHead(400, { 
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': 'http://localhost:5173'
+            });
+            res.end(JSON.stringify({ 
+              success: false,
+              error: 'Dados obrigatórios não fornecidos',
+              required: ['webhook_data', 'customer_id', 'service_id', 'company_id']
+            }));
+            return;
+          }
+          
+          // Buscar dados do cliente
+          console.log('🔍 Buscando cliente com ID:', customer_id);
+          const { data: clientData, error: clientError } = await supabase
+            .from('clients')
+            .select('id, nome, cpf_cnpj, email')
+            .eq('id', customer_id)
+            .single();
+          
+          let client = null;
+          if (clientError) {
+            console.error('❌ Erro ao buscar cliente:', clientError);
+            console.log('⚠️ Cliente não encontrado, criando cliente genérico');
+          } else if (clientData) {
+            client = clientData;
+            console.log('✅ Cliente encontrado:', client.nome, 'ID:', client.id);
+          } else {
+            console.log('⚠️ Cliente não encontrado, criando cliente genérico');
+          }
+          
+          // Se cliente não foi encontrado, retornar erro
+          if (!client) {
+            console.error('❌ ERRO CRÍTICO: Cliente não encontrado no banco de dados!');
+            console.error('  - customer_id fornecido:', customer_id);
+            console.error('  - Este cliente deve existir no banco antes de criar a cobrança');
+            
+            res.writeHead(404, { 
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': 'http://localhost:5173'
+            });
+            res.end(JSON.stringify({ 
+              success: false,
+              error: 'Cliente não encontrado no banco de dados',
+              customer_id: customer_id,
+              message: 'O cliente deve ser criado antes de gerar a cobrança'
+            }));
+            return;
+          }
+          
+          // Buscar dados do serviço
+          console.log('🔍 Buscando serviço com ID:', service_id);
+          const { data: serviceData, error: serviceError } = await supabase
+            .from('services')
+            .select('name, category')
+            .eq('id', service_id);
+          
+          let service = null;
+          if (serviceError) {
+            console.error('❌ Erro ao buscar serviço:', serviceError);
+          } else if (!serviceData || serviceData.length === 0) {
+            console.log('⚠️ Serviço não encontrado, criando serviço genérico');
+          } else {
+            service = serviceData[0];
+            console.log('✅ Serviço encontrado:', service.name);
+          }
+          
+          // Se serviço não foi encontrado, criar um novo serviço
+          if (!service) {
+            console.log('📝 Serviço não encontrado, criando novo serviço...');
+            
+            const newServiceData = {
+              id: service_id, // Usar o ID fornecido
+              name: 'Recurso de Multa - Grave',
+              category: 'grave',
+              tipo_multa: 'grave',
+              suggested_price: 90,
+              acsm_value: 20,
+              icetran_value: 30,
+              taxa_cobranca: 5,
+              active: true,
+              company_id: company_id,
+              pricing_type: 'fixed', // Campo obrigatório
+              description: 'Serviço criado automaticamente para salvamento de cobrança'
+            };
+            
+            const { data: newService, error: createServiceError } = await supabase
+              .from('services')
+              .insert(newServiceData)
+              .select()
+              .single();
+            
+            if (createServiceError) {
+              console.error('❌ Erro ao criar serviço:', createServiceError);
+              // Usar dados genéricos se falhar
+              service = {
+                name: 'Recurso de Multa',
+                category: 'grave'
+              };
+            } else {
+              service = newService;
+              console.log('✅ Serviço criado automaticamente:', service.name);
+            }
+          }
+          
+          // Função para converter data brasileira para ISO
+          const convertDateToISO = (dateStr) => {
+            if (!dateStr) return null;
+            
+            // Se já está em formato ISO, retornar como está
+            if (dateStr.includes('T') || dateStr.includes('Z')) {
+              return dateStr;
+            }
+            
+            // Se está em formato brasileiro (DD/MM/YYYY), converter
+            if (dateStr.includes('/')) {
+              const [day, month, year] = dateStr.split('/');
+              return new Date(`${year}-${month}-${day}`).toISOString();
+            }
+            
+            // Caso contrário, tentar criar data válida
+            return new Date(dateStr).toISOString();
+          };
+          
+          // Preparar dados para inserção na tabela service_orders
+          const insertData = {
+            client_id: customer_id,
+            service_id: service_id,
+            company_id: company_id,
+            service_type: 'recurso_multa',
+            multa_type: requestData.multa_type || webhook_data.multa_type || (['leve', 'media', 'grave', 'gravissima'].includes(service.category) ? service.category : 'grave'),
+            amount: webhook_data.value || valor_cobranca,
+            status: webhook_data.status === 'PENDING' ? 'pending_payment' : 'paid',
+            description: webhook_data.description || `${service.name} - ${client.nome}`,
+            asaas_payment_id: webhook_data.id,
+            customer_id: customer_id, // Usar customer_id que existe na tabela
+            // Dados PIX do webhook (campos corretos do Asaas)
+            qr_code_image: webhook_data.encodedImage,
+            pix_payload: webhook_data.payload,
+            invoice_url: webhook_data.invoiceUrl,
+            invoice_number: webhook_data.invoiceNumber,
+            external_reference: webhook_data.externalReference,
+            billing_type: webhook_data.billingType || 'PIX',
+            date_created: webhook_data.dateCreated,
+            due_date: convertDateToISO(webhook_data.dueDate), // CONVERTER DATA BRASILEIRA
+            payment_description: webhook_data.description,
+            splits_details: webhook_data.split ? JSON.stringify(webhook_data.split) : null,
+            // Dados adicionais
+            payment_method: 'PIX',
+            webhook_response: webhook_data
+          };
+          
+          console.log('\n📋 MAPEAMENTO DOS CAMPOS DO WEBHOOK:');
+          console.log('  - ID Asaas:', webhook_data.id);
+          console.log('  - Valor:', webhook_data.value);
+          console.log('  - Status:', webhook_data.status);
+          console.log('  - QR Code (encodedImage):', webhook_data.encodedImage ? 'PRESENTE (' + webhook_data.encodedImage.length + ' chars)' : 'AUSENTE');
+          console.log('  - PIX Payload:', webhook_data.payload ? 'PRESENTE (' + webhook_data.payload.length + ' chars)' : 'AUSENTE');
+          console.log('  - Invoice URL:', webhook_data.invoiceUrl ? 'PRESENTE' : 'AUSENTE');
+          console.log('  - Description:', webhook_data.description ? 'PRESENTE' : 'AUSENTE');
+          console.log('  - Splits:', webhook_data.split ? webhook_data.split.length + ' splits' : 'NENHUM');
+          
+          console.log('📦 Dados preparados para inserção:');
+          console.log(JSON.stringify(insertData, null, 2));
+          
+          // Inserir na tabela service_orders
+          const { data: insertResult, error: insertError } = await supabase
+            .from('service_orders')
+            .insert(insertData)
+            .select()
+            .single();
+          
+          if (insertError) {
+            console.error('❌ Erro ao inserir no banco:', insertError);
+            res.writeHead(500, { 
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': 'http://localhost:5173'
+            });
+            res.end(JSON.stringify({ 
+              success: false,
+              error: 'Erro ao salvar no banco de dados',
+              details: insertError.message
+            }));
+            return;
+          }
+          
+          console.log('✅ Dados salvos no banco com sucesso!');
+          console.log('🆔 ID do registro:', insertResult.id);
+          
+          res.writeHead(200, { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': 'http://localhost:5173'
+          });
+          res.end(JSON.stringify({
+            success: true,
+            message: 'Dados salvos com sucesso',
+            service_order_id: insertResult.id,
+            payment_id: webhook_data.id
+          }));
+          
+        } catch (error) {
+          console.error('❌ Erro ao processar salvamento:', error);
+          res.writeHead(500, { 
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': 'http://localhost:5173'
+          });
+          res.end(JSON.stringify({
+            success: false,
+            error: 'Erro interno do servidor',
+            message: error instanceof Error ? error.message : 'Erro desconhecido'
+          }));
+        }
+      });
+      return;
+    }
+    
     // POST /api/payments/create-service-order - Criar cobrança de serviço
     if (path === '/api/payments/create-service-order' && req.method === 'POST') {
       console.log('🔍 === CRIAR COBRANÇA DE SERVIÇO ===');
@@ -1459,6 +1701,7 @@ const server = http.createServer(async (req, res) => {
             Valor_cobrança: valor_cobranca,
             Idserviço: service_id,
             descricaoserviço: service.name,
+            multa_type: requestData.multa_type || service.category || 'leve',
             valoracsm: service.acsm_value || 0,
             valoricetran: service.icetran_value || 0,
             taxa: service.taxa_cobranca || 3.50,

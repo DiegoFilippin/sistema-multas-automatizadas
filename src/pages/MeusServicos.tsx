@@ -71,6 +71,7 @@ interface MultaType {
   acsm_value: number;
   icetran_value: number;
   fixed_value: number;
+  taxa_cobranca: number;
   active: boolean;
   severity?: string; // Propriedade opcional para severidade
 }
@@ -637,40 +638,83 @@ const MeusServicos: React.FC = () => {
       
       // Configurar timeout para cancelar a requisição se necessário
       
-      console.log('\n🌐 CONFIGURAÇÃO DA REQUISIÇÃO PARA API LOCAL:');
-      console.log('  - URL: /api/payments/create-service-order');
+      console.log('\n🌐 CONFIGURAÇÃO DA REQUISIÇÃO PARA WEBHOOK N8N:');
+      console.log('  - URL: https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1');
       console.log('  - Method: POST');
       console.log('  - Timeout:', timeoutMs, 'ms (10s para aguardar resposta do Asaas)');
       console.log('  - Aguardando processamento completo do webhook e salvamento no banco...');
       
-      // Construir payload para a API local
-      const apiPayload = {
-        customer_id: selectedClient.id,
-        service_id: selectedType.id,
-        company_id: user?.company_id,
-        valor_cobranca: customAmount || selectedType.suggested_price
+      // Buscar dados da empresa para obter wallet_id
+      console.log('🔍 Buscando dados da empresa para wallet_id...');
+      const { data: company, error: companyError } = await supabase
+        .from('companies')
+        .select('id, nome, asaas_wallet_id')
+        .eq('id', user?.company_id)
+        .single();
+      
+      if (companyError || !company) {
+        console.error('❌ ERRO: Empresa não encontrada:', companyError);
+        throw new Error('Empresa não encontrada');
+      }
+      
+      console.log('✅ Empresa encontrada:', company.nome);
+      console.log('  - Wallet ID:', company.asaas_wallet_id);
+      
+      // Construir payload EXATO conforme especificado pelo usuário
+      const webhookPayload = {
+        wallet_icetran: "eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0",
+        wallet_despachante: company.asaas_wallet_id || "2bab1d7d-7558-45ac-953d-b9f7a980c4af",
+        Customer_cliente: {
+          id: selectedClient.id,
+          nome: selectedClient.nome,
+          cpf_cnpj: selectedClient.cpf_cnpj,
+          email: selectedClient.email,
+          asaas_customer_id: selectedClient.asaas_customer_id
+        },
+        "Valor_cobrança": customAmount || selectedType.suggested_price,
+        "Idserviço": selectedType.id,
+        "descricaoserviço": selectedType.name,
+        "multa_type": selectedType.type || "leve",
+        valoracsm: selectedType.acsm_value || 11,
+        valoricetran: selectedType.icetran_value || 11,
+        taxa: selectedType.taxa_cobranca || 3.5,
+        despachante: {
+          company_id: user?.company_id,
+          nome: company.nome,
+          wallet_id: company.asaas_wallet_id || "2bab1d7d-7558-45ac-953d-b9f7a980c4af",
+          margem: (customAmount || selectedType.suggested_price) - (selectedType.acsm_value || 11) - (selectedType.icetran_value || 11) - (selectedType.taxa_cobranca || 3.5)
+        }
       };
       
-      console.log('\n📦 PAYLOAD PARA API LOCAL:');
+      console.log('\n📦 PAYLOAD PARA WEBHOOK N8N:');
       console.log('=====================================');
-      console.log(JSON.stringify(apiPayload, null, 2));
+      console.log(JSON.stringify(webhookPayload, null, 2));
       console.log('=====================================');
       
-      console.log('\n🚀 ENVIANDO REQUISIÇÃO PARA API LOCAL...');
+      console.log('\n🚀 ENVIANDO REQUISIÇÃO PARA WEBHOOK N8N...');
       const startTime = Date.now();
       
       let response: Response;
       let responseText: string = '';
       
       try {
-        // Fazer a requisição para a API local e aguardar a resposta completa
-        response = await fetch('/api/payments/create-service-order', {
+        // Obter token de acesso do Supabase
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session?.access_token) {
+          console.error('❌ ERRO: Token de acesso não encontrado:', sessionError);
+          throw new Error('Token de acesso não encontrado. Faça login novamente.');
+        }
+        
+        console.log('🔑 Token de acesso obtido do Supabase:', session.access_token.substring(0, 20) + '...');
+        
+        // Fazer a requisição para o webhook N8N e aguardar a resposta completa
+        response = await fetch('https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Content-Type': 'application/json'
           },
-          body: JSON.stringify(apiPayload),
+          body: JSON.stringify(webhookPayload),
           signal: controller.signal
         });
         
@@ -698,7 +742,7 @@ const MeusServicos: React.FC = () => {
         
         // Aguardar e ler o corpo da resposta ANTES de verificar erros
         responseText = await response.text();
-        console.log('\n📄 RESPOSTA DA API LOCAL:');
+        console.log('\n📄 RESPOSTA DO WEBHOOK N8N:');
         console.log('=====================================');
         console.log(responseText);
         console.log('=====================================');
@@ -810,52 +854,115 @@ const MeusServicos: React.FC = () => {
       }
       // ========== FIM DO TRATAMENTO DE ERRO ==========
 
-      console.log('\n🎉 COBRANÇA CRIADA COM SUCESSO NA API LOCAL!');
+      console.log('\n🎉 COBRANÇA CRIADA COM SUCESSO NO WEBHOOK N8N!');
       console.log('  - Status HTTP:', response.status);
       console.log('  - Resposta:', result);
       console.log('  - Tempo total de processamento:', Date.now() - startTime, 'ms');
       
       // Verificar se a resposta contém os dados do pagamento
-      if (!result.success || !result.payment) {
-        console.error('❌ ERRO: Resposta da API não contém dados válidos');
-        console.log('  - result.success:', result.success);
-        console.log('  - result.payment:', result.payment);
-        throw new Error('Resposta da API não contém dados válidos do pagamento');
+      // O webhook N8N retorna um array com os dados da cobrança
+      let paymentData = null;
+      
+      console.log('\n🔍 ANALISANDO ESTRUTURA DA RESPOSTA:');
+      console.log('  - É array?', Array.isArray(result));
+      console.log('  - Tipo:', typeof result);
+      console.log('  - Keys/Length:', Array.isArray(result) ? result.length : Object.keys(result));
+      
+      if (Array.isArray(result) && result.length > 0) {
+        // Webhook retorna array, pegar o primeiro elemento
+        paymentData = result[0];
+        console.log('✅ Dados extraídos do array (primeiro elemento)');
+        console.log('  - ID do pagamento:', paymentData.id);
+        console.log('  - Valor:', paymentData.value);
+        console.log('  - Status:', paymentData.status);
+      } else if (result.payment) {
+        paymentData = result.payment;
+        console.log('✅ Dados extraídos de result.payment');
+      } else if (result.data && result.data.payment) {
+        paymentData = result.data.payment;
+        console.log('✅ Dados extraídos de result.data.payment');
+      } else if (result.id || result.asaas_payment_id) {
+        // Resposta direta do webhook com dados do pagamento
+        paymentData = result;
+        console.log('✅ Dados extraídos diretamente do result');
+      } else {
+        console.error('❌ ERRO: Resposta do webhook não contém dados válidos');
+        console.log('  - Estrutura da resposta:', Array.isArray(result) ? 'Array com ' + result.length + ' elementos' : Object.keys(result));
+        console.log('  - Resposta completa:', result);
+        throw new Error('Resposta do webhook não contém dados válidos do pagamento');
       }
       
       console.log('\n✅ DADOS DO PAGAMENTO VALIDADOS COM SUCESSO!');
-      console.log('  - API processou webhook do Asaas corretamente');
-      console.log('  - Dados foram salvos na tabela service_orders');
-      console.log('  - QR Code e PIX payload extraídos do webhook');
+      console.log('  - Webhook N8N processou cobrança no Asaas corretamente');
+      console.log('  - Dados foram retornados pelo webhook');
+      console.log('  - QR Code e PIX payload extraídos da resposta');
       
-      const paymentData = result.payment;
-      console.log('\n📋 DADOS DO PAGAMENTO SALVOS:');
+      console.log('\n📋 DADOS DO PAGAMENTO RECEBIDOS:');
       console.log('  - ID:', paymentData.id);
-      console.log('  - Asaas Payment ID:', paymentData.asaas_payment_id);
-      console.log('  - QR Code:', paymentData.qr_code ? 'PRESENTE' : 'AUSENTE');
-      console.log('  - PIX Payload:', paymentData.pix_code ? 'PRESENTE' : 'AUSENTE');
-      console.log('  - Invoice URL:', paymentData.invoice_url ? 'PRESENTE' : 'AUSENTE');
+      console.log('  - Customer:', paymentData.customer);
+      console.log('  - Value:', paymentData.value);
+      console.log('  - Status:', paymentData.status);
+      console.log('  - Due Date:', paymentData.dueDate);
+      console.log('  - Invoice URL:', paymentData.invoiceUrl ? 'PRESENTE' : 'AUSENTE');
+      console.log('  - Encoded Image (QR):', paymentData.encodedImage ? 'PRESENTE (' + paymentData.encodedImage.length + ' chars)' : 'AUSENTE');
+      console.log('  - PIX Payload:', paymentData.payload ? 'PRESENTE (' + paymentData.payload.length + ' chars)' : 'AUSENTE');
+      console.log('  - Description:', paymentData.description ? 'PRESENTE' : 'AUSENTE');
+      
+      // Agora salvar os dados no banco local via API
+      console.log('\n💾 SALVANDO DADOS NO BANCO LOCAL...');
+      try {
+        const saveResponse = await fetch('/api/payments/save-service-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            webhook_data: paymentData,
+            customer_id: selectedClient.id,
+            service_id: selectedType.id,
+            company_id: user?.company_id,
+            valor_cobranca: customAmount || selectedType.suggested_price
+          })
+        });
+        
+        if (saveResponse.ok) {
+          console.log('✅ Dados salvos no banco local com sucesso');
+        } else {
+          console.warn('⚠️ Falha ao salvar no banco local, mas cobrança foi criada no Asaas');
+        }
+      } catch (saveError) {
+        console.warn('⚠️ Erro ao salvar no banco local:', saveError);
+        console.log('  - Cobrança foi criada no Asaas, mas não foi salva localmente');
+      }
       
       // Criar objeto da nova cobrança para exibição local
       const novaCobranca: PaymentResponse = {
         service_order_id: paymentData.id,
-        payment_id: paymentData.asaas_payment_id,
-        asaas_payment_id: paymentData.asaas_payment_id,
+        payment_id: paymentData.id,
+        asaas_payment_id: paymentData.id,
         client_name: selectedClient.nome,
         customer_name: selectedClient.nome,
-        amount: paymentData.amount,
-        status: 'pending',
-        created_at: new Date().toISOString(),
-        description: paymentData.description,
+        amount: paymentData.value || (customAmount || selectedType.suggested_price),
+        status: paymentData.status?.toLowerCase() === 'pending' ? 'pending' : 'confirmed',
+        created_at: paymentData.dateCreated || new Date().toISOString(),
+        description: paymentData.description || `Recurso de Multa - ${selectedType.name} - ${selectedClient.nome}`,
         payment_method: 'PIX',
         customer_id: selectedClient.id,
-        qr_code: paymentData.qr_code || paymentData.qr_code_image || '',
-        pix_copy_paste: paymentData.pix_code || paymentData.pix_payload || '',
-        payment_url: paymentData.invoice_url || '',
+        qr_code: paymentData.encodedImage || '',
+        pix_copy_paste: paymentData.payload || '',
+        payment_url: paymentData.invoiceUrl || '',
         multa_type: selectedType.name,
-        due_date: paymentData.due_date,
+        due_date: paymentData.dueDate,
         success: true
       };
+      
+      console.log('\n✅ OBJETO DA COBRANÇA CRIADO:');
+      console.log('  - Payment ID:', novaCobranca.payment_id);
+      console.log('  - Amount:', novaCobranca.amount);
+      console.log('  - QR Code presente:', !!novaCobranca.qr_code);
+      console.log('  - PIX Payload presente:', !!novaCobranca.pix_copy_paste);
+      console.log('  - Invoice URL presente:', !!novaCobranca.payment_url);
       
       // Adicionar à lista de cobranças (no início da lista)
       setCobrancas(prev => [novaCobranca, ...prev]);

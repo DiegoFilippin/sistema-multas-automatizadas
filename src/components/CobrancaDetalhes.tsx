@@ -49,6 +49,7 @@ interface Cobranca {
   pix_qr_code?: string;
   qr_code_image?: string;
   pix_payload?: string;
+  pix_copy_paste?: string;
   // ✅ Campos adicionais para compatibilidade
   company_name?: string;
   company_id?: string;
@@ -63,6 +64,10 @@ interface Cobranca {
   payment_attempts?: PaymentAttempt[];
   // ✅ Dados extras do payment para fallback
   payment_data?: any;
+  // ✅ Campos de webhook e processamento
+  webhook_data?: any;
+  webhook_response?: any;
+  processed_data?: any;
 }
 
 interface PaymentAttempt {

@@ -1718,6 +1718,127 @@ router.post('/create-service-order', authenticateToken, async (req: Request, res
   }
 });
 
+// POST /api/payments/save-service-order - Salvar dados do webhook N8N no banco local
+router.post('/save-service-order', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    console.log('\n💾 === SALVANDO DADOS DO WEBHOOK N8N NO BANCO LOCAL ===');
+    
+    const { webhook_data, customer_id, service_id, company_id, valor_cobranca } = req.body;
+    
+    console.log('📦 Dados recebidos:');
+    console.log('  - Webhook Data:', webhook_data);
+    console.log('  - Customer ID:', customer_id);
+    console.log('  - Service ID:', service_id);
+    console.log('  - Company ID:', company_id);
+    console.log('  - Valor:', valor_cobranca);
+    
+    // Validar dados obrigatórios
+    if (!webhook_data || !customer_id || !service_id || !company_id) {
+      console.error('❌ Dados obrigatórios ausentes');
+      return res.status(400).json({ 
+        error: 'Dados obrigatórios ausentes',
+        required: ['webhook_data', 'customer_id', 'service_id', 'company_id']
+      });
+    }
+    
+    console.log('✅ USANDO DIRETAMENTE O CLIENT_ID DO WEBHOOK:', customer_id);
+    console.log('✅ PARANDO DE FAZER VERIFICAÇÕES DESNECESSÁRIAS!');
+    
+    // Função para converter data brasileira para ISO
+    const convertDateToISO = (dateStr: string) => {
+      if (!dateStr) return null;
+      
+      // Se já está em formato ISO, retornar como está
+      if (dateStr.includes('T') || dateStr.includes('Z')) {
+        return dateStr;
+      }
+      
+      // Se está em formato brasileiro (DD/MM/YYYY), converter
+      if (dateStr.includes('/')) {
+        const [day, month, year] = dateStr.split('/');
+        return new Date(`${year}-${month}-${day}`).toISOString();
+      }
+      
+      // Caso contrário, tentar criar data válida
+      return new Date(dateStr).toISOString();
+    };
+    
+    // Preparar dados para inserção na tabela service_orders
+    // USAR DIRETAMENTE O CLIENT_ID DO WEBHOOK - SEM VERIFICAÇÕES!
+    const insertData = {
+      client_id: customer_id, // USAR DIRETAMENTE DO WEBHOOK
+      service_id: service_id,
+      company_id: company_id,
+      service_type: 'recurso_multa',
+      multa_type: 'leve', // VALOR PADRÃO
+      amount: webhook_data.value || valor_cobranca,
+      status: webhook_data.status === 'PENDING' ? 'pending_payment' : 'paid',
+      description: webhook_data.description || `Serviço automatizado - Cliente ${customer_id}`,
+      asaas_payment_id: webhook_data.id,
+      customer_name: 'Cliente', // VALOR PADRÃO - NÃO PRECISA BUSCAR
+      // Dados PIX do webhook (campos corretos do Asaas)
+      qr_code_image: webhook_data.encodedImage,
+      pix_payload: webhook_data.payload,
+      invoice_url: webhook_data.invoiceUrl,
+      invoice_number: webhook_data.invoiceNumber,
+      external_reference: webhook_data.externalReference,
+      billing_type: webhook_data.billingType || 'PIX',
+      date_created: webhook_data.dateCreated,
+      due_date: convertDateToISO(webhook_data.dueDate), // CONVERTER DATA BRASILEIRA
+      payment_description: webhook_data.description,
+      splits_details: webhook_data.split ? JSON.stringify(webhook_data.split) : null,
+      // Dados adicionais
+      payment_method: 'PIX',
+      created_at: webhook_data.dateCreated || new Date().toISOString(),
+      webhook_response: webhook_data
+    };
+    
+    console.log('\n🚀 === SALVAMENTO DIRETO - SEM VERIFICAÇÕES ===');
+    console.log('  - Client ID (do webhook):', customer_id);
+    console.log('  - Service ID:', service_id);
+    console.log('  - Company ID:', company_id);
+    console.log('  - Payment ID:', webhook_data.id);
+    console.log('  - Valor:', webhook_data.value || valor_cobranca);
+    console.log('\n📦 DADOS PRONTOS PARA SALVAR:');
+    console.log('  - client_id:', insertData.client_id);
+    console.log('  - asaas_payment_id:', insertData.asaas_payment_id);
+    console.log('  - amount:', insertData.amount);
+    console.log('  - status:', insertData.status);
+    
+    // Inserir na tabela service_orders
+    const { data: savedOrder, error: insertError } = await supabase
+      .from('service_orders')
+      .insert(insertData)
+      .select()
+      .single();
+    
+    if (insertError) {
+      console.error('❌ Erro ao salvar no banco:', insertError);
+      return res.status(500).json({ 
+        error: 'Erro ao salvar no banco de dados',
+        details: insertError.message 
+      });
+    }
+    
+    console.log('✅ Dados salvos com sucesso!');
+    console.log('  - ID gerado:', savedOrder.id);
+    console.log('  - Asaas Payment ID:', savedOrder.asaas_payment_id);
+    
+    res.json({
+      success: true,
+      service_order: savedOrder,
+      message: 'Dados do webhook salvos com sucesso no banco local'
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao salvar dados do webhook:', error);
+    res.status(500).json({ 
+      error: 'Erro interno do servidor',
+      details: error instanceof Error ? error.message : 'Erro desconhecido'
+    });
+  }
+});
+
 // GET /api/payments/:paymentId/recurso - Verificar se existe recurso para um pagamento
 router.get('/:paymentId/recurso', authenticateToken, async (req: Request, res: Response) => {
   try {

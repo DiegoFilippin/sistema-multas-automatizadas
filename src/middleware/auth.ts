@@ -25,21 +25,74 @@ export const authenticateToken = async (
       return res.status(401).json({ error: 'Token de acesso requerido' });
     }
 
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      return res.status(500).json({ error: 'Configuração de JWT não encontrada' });
+    // Primeiro tentar validar como token do Supabase
+    let decoded: any;
+    let isSupabaseToken = false;
+    
+    try {
+      // Verificar se é um token do Supabase (JWT sem verificação de assinatura por enquanto)
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      
+      if (payload.iss && payload.iss.includes('supabase')) {
+        console.log('🔍 Token do Supabase detectado:', payload.sub);
+        decoded = payload;
+        isSupabaseToken = true;
+      }
+    } catch (supabaseError) {
+      console.log('⚠️ Não é um token do Supabase, tentando JWT personalizado');
     }
-
-    const decoded = jwt.verify(token, jwtSecret) as any;
+    
+    // Se não for token do Supabase, tentar JWT personalizado
+    if (!isSupabaseToken) {
+      const jwtSecret = process.env.JWT_SECRET;
+      if (!jwtSecret) {
+        return res.status(500).json({ error: 'Configuração de JWT não encontrada' });
+      }
+      decoded = jwt.verify(token, jwtSecret) as any;
+    }
     
     // Buscar usuário no banco de dados para verificar se ainda existe e está ativo
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      include: {
-        company: true,
-        client: true,
-      },
-    });
+    let user;
+    
+    if (isSupabaseToken) {
+      // Para tokens do Supabase, usar o sub (subject) como ID do usuário
+      console.log('🔍 Buscando usuário do Supabase com ID:', decoded.sub);
+      
+      // Importar supabase aqui para evitar dependência circular
+      const { supabase } = await import('../lib/supabase.js');
+      
+      const { data: supabaseUser, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', decoded.sub)
+        .eq('ativo', true)
+        .single();
+      
+      if (error || !supabaseUser) {
+        console.error('❌ Usuário do Supabase não encontrado:', error);
+        return res.status(401).json({ error: 'Usuário não encontrado ou inativo' });
+      }
+      
+      console.log('✅ Usuário do Supabase encontrado:', supabaseUser.nome);
+      
+      // Converter para formato esperado
+      user = {
+        id: supabaseUser.id,
+        email: supabaseUser.email,
+        role: supabaseUser.role,
+        companyId: supabaseUser.company_id,
+        status: supabaseUser.ativo ? 'active' : 'inactive'
+      };
+    } else {
+      // Para tokens JWT personalizados, usar Prisma
+      user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        include: {
+          company: true,
+          client: true,
+        },
+      });
+    }
 
     if (!user || user.status !== 'active') {
       return res.status(401).json({ error: 'Usuário não encontrado ou inativo' });
@@ -47,12 +100,31 @@ export const authenticateToken = async (
 
     // Verificar se a empresa está ativa (se aplicável)
     if (user.companyId) {
-      const company = await prisma.company.findUnique({
-        where: { id: user.companyId },
-      });
+      if (isSupabaseToken) {
+        // Para Supabase, verificar empresa via Supabase
+        const { supabase } = await import('../lib/supabase.js');
+        
+        const { data: company, error } = await supabase
+          .from('companies')
+          .select('*')
+          .eq('id', user.companyId)
+          .single();
+        
+        if (error || !company) {
+          console.error('❌ Empresa não encontrada:', error);
+          return res.status(401).json({ error: 'Empresa não encontrada' });
+        }
+        
+        console.log('✅ Empresa encontrada:', company.nome);
+      } else {
+        // Para JWT personalizado, usar Prisma
+        const company = await prisma.company.findUnique({
+          where: { id: user.companyId },
+        });
 
-      if (!company || company.status !== 'active') {
-        return res.status(401).json({ error: 'Empresa inativa' });
+        if (!company || company.status !== 'active') {
+          return res.status(401).json({ error: 'Empresa inativa' });
+        }
       }
     }
 

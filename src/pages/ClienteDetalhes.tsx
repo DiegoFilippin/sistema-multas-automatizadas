@@ -13,7 +13,21 @@ import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { useAuthStore } from '@/stores/authStore';
 import type { Database } from '@/lib/supabase';
 
-type Multa = Database['public']['Tables']['multas']['Row']
+type Multa = Database['public']['Tables']['multas']['Row'] & {
+  // Campos adicionais para service_orders
+  is_service_order?: boolean;
+  service_order_id?: string;
+  process_status?: 'pending_payment' | 'paid' | 'processing' | 'completed' | 'cancelled' | 'expired';
+  multa_type?: string;
+  // Campos PIX para compatibilidade
+  qr_code_image?: string;
+  pix_payload?: string;
+  pix_qr_code?: string;
+  pix_copy_paste?: string;
+  invoice_url?: string;
+  bank_slip_url?: string;
+  amount?: number;
+}
 
 interface Endereco {
   id: string;
@@ -809,10 +823,10 @@ export default function ClienteDetalhes() {
                           R$ {multa.valor_original?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          multa.status === 'pendente' || multa.status === 'pendente_pagamento' ? 'bg-yellow-100 text-yellow-800' :
-                          multa.status === 'pago' || multa.status === 'paid' ? 'bg-green-100 text-green-800' :
-                          multa.status === 'em_recurso' || multa.status === 'processing' ? 'bg-blue-100 text-blue-800' :
-                          multa.status === 'completed' ? 'bg-green-100 text-green-800' :
+                          multa.status === 'pendente' || (multa.is_service_order && multa.process_status === 'pending_payment') ? 'bg-yellow-100 text-yellow-800' :
+                          multa.status === 'pago' || (multa.is_service_order && multa.process_status === 'paid') ? 'bg-green-100 text-green-800' :
+                          multa.status === 'em_recurso' || (multa.is_service_order && multa.process_status === 'processing') ? 'bg-blue-100 text-blue-800' :
+                          (multa.is_service_order && multa.process_status === 'completed') ? 'bg-green-100 text-green-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
                           {multa.is_service_order ? (

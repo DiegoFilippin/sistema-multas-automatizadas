@@ -498,20 +498,9 @@ const TesteRecursoIA: React.FC = () => {
       console.log('🔍 === INICIANDO DETECÇÃO DE RECURSO ===');
       console.log('📝 Conteúdo recebido (primeiros 100 chars):', responseContent.substring(0, 100));
       
-      // Verificar se a resposta contém um recurso (indicadores comuns)
+      // Verificar se a resposta contém um recurso (apenas indicador específico)
       const indicadoresRecurso = [
-        '[RECURSO GERADO]',
-        'RECURSO GERADO',
-        '[RECURSO]',
-        'RECURSO',
-        'DEFESA',
-        'EXCELENTÍSSIMO',
-        'PEDIDO',
-        'FUNDAMENTAÇÃO',
-        'REQUER',
-        'DEFERIMENTO',
-        'ANULAÇÃO',
-        'AUTO DE INFRAÇÃO'
+        '[RECURSO GERADO]'  // APENAS este indicador exato
       ];
       
       const responseUpper = responseContent.toUpperCase();
@@ -1220,6 +1209,84 @@ const TesteRecursoIA: React.FC = () => {
     }
   };
 
+  // Função para buscar dados completos da multa no banco
+  const buscarDadosCompletosMulta = async (multaUUID: string) => {
+    console.log('🔍 === BUSCANDO DADOS COMPLETOS DA MULTA NO BANCO ===');
+    console.log('🆔 UUID da multa:', multaUUID);
+    
+    try {
+      // Importar supabase client
+      const { supabase } = await import('../lib/supabase');
+      
+      // Buscar dados da multa com informações do cliente (incluindo CNH)
+      const { data: multaBanco, error } = await supabase
+        .from('multas')
+        .select(`
+          *,
+          clients!inner(
+            id,
+            nome,
+            cpf_cnpj,
+            cnh,
+            endereco
+          )
+        `)
+        .eq('id', multaUUID)
+        .single();
+      
+      if (error) {
+        console.error('❌ Erro ao buscar multa no banco:', error);
+        throw new Error(`Erro ao buscar dados da multa: ${error.message}`);
+      }
+      
+      if (!multaBanco) {
+        console.error('❌ Multa não encontrada no banco');
+        throw new Error('Multa não encontrada no banco de dados');
+      }
+      
+      console.log('✅ Dados da multa encontrados no banco:', multaBanco);
+      console.log('👤 Dados do cliente encontrados:', multaBanco.clients);
+      
+      return {
+        numero_auto: multaBanco.numero_auto || multaData.numero || '',
+        placa_veiculo: multaBanco.placa_veiculo || multaData.veiculo || '',
+        data_hora_infracao: multaBanco.data_infracao || multaData.data || '',
+        local_infracao: multaBanco.local_infracao || multaData.local || '',
+        codigo_infracao: multaBanco.codigo_infracao || multaData.codigoInfracao || '',
+        orgao_autuador: multaBanco.orgao_autuador || multaData.orgaoAutuador || '',
+        descricao_infracao: multaBanco.descricao_infracao || multaData.infracao || '',
+        valor_multa: multaBanco.valor_original || multaBanco.valor_final || 0,
+        pontos: multaBanco.pontos || 0,
+        tipo_gravidade: multaBanco.tipo_gravidade || '',
+        renavam_veiculo: multaBanco.renavam_veiculo || '', // Buscar do banco se disponível
+        condutor: multaBanco.condutor || multaData.condutor || '',
+        observacoes: multaBanco.observacoes || multaData.observacoes || '',
+        cnh_requerente: multaBanco.clients?.cnh || 'CNH não informada' // NOVO CAMPO CNH
+      };
+      
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar dados da multa:', error);
+      // Em caso de erro, usar dados extraídos como fallback
+      console.log('⚠️ Usando dados extraídos como fallback');
+      return {
+        numero_auto: multaData.numero || '',
+        placa_veiculo: multaData.veiculo || '',
+        data_hora_infracao: multaData.data || '',
+        local_infracao: multaData.local || '',
+        codigo_infracao: multaData.codigoInfracao || '',
+        orgao_autuador: multaData.orgaoAutuador || '',
+        descricao_infracao: multaData.infracao || '',
+        valor_multa: 0,
+        pontos: 0,
+        tipo_gravidade: '',
+        renavam_veiculo: '',
+        condutor: multaData.condutor || '',
+        observacoes: multaData.observacoes || '',
+        cnh_requerente: 'CNH não informada' // FALLBACK PARA CNH
+      };
+    }
+  };
+
   // Nova função que recebe o UUID diretamente como parâmetro
   const startN8nChatWithValidUUID = async (mensagemInicial: string, validMultaUUID: string) => {
     console.log('🚀 === INICIANDO CHAT N8N COM UUID VÁLIDO ===');
@@ -1244,26 +1311,60 @@ const TesteRecursoIA: React.FC = () => {
       
       console.log('✅ UUID final a ser enviado:', validMultaUUID);
       
-      // Preparar dados para o webhook n8n - usar dados do cliente se disponível
+      // 🔥 BUSCAR DADOS COMPLETOS DA MULTA NO BANCO
+      console.log('📋 === BUSCANDO DADOS COMPLETOS NO BANCO ===');
+      const dadosCompletosMulta = await buscarDadosCompletosMulta(validMultaUUID);
+      
+      console.log('📊 Dados completos obtidos:', dadosCompletosMulta);
+      
+      // Preparar dados para o webhook n8n - USAR DADOS COMPLETOS DO BANCO
       const webhookData = {
         nome_requerente: clienteData?.nome || multaData.nomeProprietario || '',
+        cnh_requerente: dadosCompletosMulta.cnh_requerente, // NOVO CAMPO CNH
         cpf_cnpj: clienteData?.cpf_cnpj || multaData.cpfCnpjProprietario || '',
         endereco_requerente: clienteData?.endereco || multaData.enderecoProprietario || '',
-        placa_veiculo: multaData.veiculo || '',
-        renavam_veiculo: '', // Campo não disponível nos dados extraídos
-        numero_auto: multaData.numero || '',
-        data_hora_infracao: multaData.data || '',
-        local_infracao: multaData.local || '',
-        codigo_infracao: multaData.codigoInfracao || '',
-        orgao_autuador: multaData.orgaoAutuador || '',
+        placa_veiculo: dadosCompletosMulta.placa_veiculo,
+        renavam_veiculo: dadosCompletosMulta.renavam_veiculo,
+        numero_auto: dadosCompletosMulta.numero_auto,
+        data_hora_infracao: dadosCompletosMulta.data_hora_infracao,
+        local_infracao: dadosCompletosMulta.local_infracao,
+        codigo_infracao: dadosCompletosMulta.codigo_infracao,
+        orgao_autuador: dadosCompletosMulta.orgao_autuador,
+        descricao_infracao: dadosCompletosMulta.descricao_infracao,
+        valor_multa: dadosCompletosMulta.valor_multa,
+        pontos: dadosCompletosMulta.pontos,
+        tipo_gravidade: dadosCompletosMulta.tipo_gravidade,
+        condutor: dadosCompletosMulta.condutor,
+        observacoes: dadosCompletosMulta.observacoes,
         idmultabancodedados: validMultaUUID, // UUID real da multa salva no banco
         mensagem_usuario: mensagemInicial,
         company_id: user?.company_id || await getExistingCompanyId()
       };
       
+      // Validar campos obrigatórios
+      const camposObrigatorios = {
+        placa_veiculo: webhookData.placa_veiculo,
+        numero_auto: webhookData.numero_auto,
+        data_hora_infracao: webhookData.data_hora_infracao,
+        local_infracao: webhookData.local_infracao,
+        codigo_infracao: webhookData.codigo_infracao,
+        orgao_autuador: webhookData.orgao_autuador
+      };
+      
+      const camposVazios = Object.entries(camposObrigatorios)
+        .filter(([key, value]) => !value || value.trim() === '')
+        .map(([key]) => key);
+      
+      if (camposVazios.length > 0) {
+        console.warn('⚠️ Campos obrigatórios vazios:', camposVazios);
+        console.warn('📋 Dados que serão enviados mesmo assim:', webhookData);
+        toast.warning(`Alguns dados da multa estão incompletos: ${camposVazios.join(', ')}. O chat será iniciado com os dados disponíveis.`);
+      }
+      
       console.log('📤 === ENVIANDO DADOS PARA WEBHOOK N8N ===');
       console.log('🆔 UUID da multa enviado:', validMultaUUID);
       console.log('🏢 Company ID enviado:', webhookData.company_id);
+      console.log('🆔 CNH do requerente enviada:', webhookData.cnh_requerente);
       console.log('📋 Dados completos do webhook:', webhookData);
       console.log('🔍 Verificação final idmultabancodedados:', webhookData.idmultabancodedados);
       
@@ -1612,9 +1713,13 @@ const TesteRecursoIA: React.FC = () => {
       
       console.log('✅ UUID final a ser enviado:', multaUUID);
       
+      // Buscar dados completos da multa incluindo CNH
+      const dadosCompletosMulta = await buscarDadosCompletosMulta(multaUUID);
+      
       // Preparar dados para o webhook n8n
       const webhookData = {
         nome_requerente: clienteData?.nome || multaData.condutor || multaData.nomeProprietario || '',
+        cnh_requerente: dadosCompletosMulta.cnh_requerente, // NOVO CAMPO CNH
         cpf_cnpj: clienteData?.cpf_cnpj || multaData.cpfCnpjProprietario || '',
         endereco_requerente: clienteData?.endereco || multaData.enderecoProprietario || '',
         placa_veiculo: multaData.veiculo || '',
@@ -1634,6 +1739,7 @@ const TesteRecursoIA: React.FC = () => {
       console.log('💬 Mensagem do usuário:', message);
       console.log('🆔 UUID da multa enviado:', multaUUID);
       console.log('🏢 Company ID enviado:', webhookData.company_id);
+      console.log('🆔 CNH do requerente enviada:', webhookData.cnh_requerente);
       console.log('📋 Dados completos do webhook:', webhookData);
       console.log('🔍 Verificação final idmultabancodedados:', webhookData.idmultabancodedados);
       
