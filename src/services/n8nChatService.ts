@@ -28,7 +28,12 @@ export interface ChatHistoryResult {
  * @param multaId - ID da multa para buscar as mensagens
  * @returns Histórico de mensagens formatado para o chat
  */
-export const loadN8nChatHistory = async (multaId: string): Promise<{ messages: ChatMessage[], sessionId: string | null }> => {
+export const loadN8nChatHistory = async (multaId: string): Promise<{ messages: Array<{
+  id: string;
+  type: 'user' | 'ai';
+  content: string;
+  timestamp: Date;
+}>, sessionId: string | null }> => {
   try {
     console.log('🔍 === BUSCANDO HISTÓRICO DO CHAT N8N ===');
     console.log('🆔 Multa ID:', multaId);
@@ -92,9 +97,9 @@ export const loadN8nChatHistory = async (multaId: string): Promise<{ messages: C
         
         return {
           id: row.id || `msg-${index}`,
+          type: messageType === 'human' ? 'user' as const : 'ai' as const,
           content: messageContent,
-          sender: messageType === 'human' ? 'user' : 'assistant',
-          timestamp: new Date().toISOString() // Usar timestamp atual já que não há created_at na tabela
+          timestamp: new Date() // Usar timestamp atual já que não há created_at na tabela
         };
       });
       

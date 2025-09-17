@@ -114,7 +114,7 @@ class GeminiOcrService {
         console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
         
         const model = this.genAI.getGenerativeModel({ 
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.0-flash-exp',
           generationConfig: {
             temperature: 0.1,
             topK: 1,
@@ -167,7 +167,13 @@ Retorne APENAS um objeto JSON válido com os seguintes campos:
 }
 
 INSTRUÇÕES ESPECÍFICAS:
-- DADOS DO EQUIPAMENTO: Procure por "EQUIPAMENTO", "INSTRUMENTO", "RADAR", "LOMBADA", "AFERIÇÃO"
+- DADOS DO EQUIPAMENTO: Procure por "EQUIPAMENTO", "INSTRUMENTO", "RADAR", "LOMBADA", "MEDIÇÃO", "MODELO", "ÓRGÃO"
+- DATA DE AFERIÇÃO: ATENÇÃO ESPECIAL! Procure por:
+  * Termos: "AFERIÇÃO", "CALIBRAÇÃO", "VERIFICAÇÃO", "VALIDADE", "VÁLIDO ATÉ", "PRÓXIMA AFERIÇÃO", "ÚLTIMA CALIBRAÇÃO"
+  * Pode aparecer próximo aos dados do equipamento, modelo, número do equipamento
+  * Formatos possíveis: DD/MM/AAAA, DD-MM-AAAA, DD.MM.AAAA, DD/MM/AA
+  * Pode estar em seção separada ou junto com dados técnicos do equipamento
+  * Procure em TODA a área relacionada ao equipamento de medição
 - DADOS DO PROPRIETÁRIO: Procure por "PROPRIETÁRIO", "ARRENDATÁRIO", seções com CPF/CNPJ
 - OBSERVAÇÕES: Extraia TODAS as observações, mensagens SENATRAN, motivos de não abordagem
 - REGISTRO FOTOGRÁFICO: Se houver foto do veículo, descreva detalhadamente o que vê
@@ -178,6 +184,7 @@ IMPORTANTE:
 - Retorne APENAS o JSON, sem texto adicional
 - Se não conseguir ler um campo, use "" para strings, 0 para números, false para boolean
 - Extraia o MÁXIMO de informações possível
+- PRIORIZE a extração da data de aferição - é informação crítica!
 - Não adicione explicações ou comentários`;
 
         const result = await model.generateContent([
@@ -367,7 +374,7 @@ IMPORTANTE:
         console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento de veículo...`);
         
         const model = this.genAI.getGenerativeModel({ 
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.0-flash-exp',
           generationConfig: {
             temperature: 0.1,
             topK: 1,
@@ -537,7 +544,7 @@ IMPORTANTE:
         console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento pessoal...`);
         
         const model = this.genAI.getGenerativeModel({ 
-          model: 'gemini-1.5-flash',
+          model: 'gemini-2.0-flash-exp',
           generationConfig: {
             temperature: 0.1,
             topK: 1,

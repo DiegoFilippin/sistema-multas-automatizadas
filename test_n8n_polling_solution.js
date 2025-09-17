@@ -21,7 +21,8 @@ const testData = {
   codigo_infracao: "74550",
   orgao_autuador: "DETRAN-RJ - Departamento de Trânsito do Rio de Janeiro",
   idmultabancodedados: "123e4567-e89b-12d3-a456-426614174000",
-  mensagem_usuario: "Preciso contestar esta multa pois não estava no local no horário indicado. Tenho comprovantes de que estava em outro lugar."
+  mensagem_usuario: "Preciso contestar esta multa pois não estava no local no horário indicado. Tenho comprovantes de que estava em outro lugar.",
+  company_id: "550e8400-e29b-41d4-a716-446655440001"
 };
 
 /**
@@ -49,7 +50,8 @@ async function simulatePolling(webhookData, maxAttempts = 5) {
           ...webhookData,
           action: 'check_response', // Indicar que é uma verificação
           attempt: attempt,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          company_id: webhookData.company_id || "550e8400-e29b-41d4-a716-446655440001"
         })
       });
       

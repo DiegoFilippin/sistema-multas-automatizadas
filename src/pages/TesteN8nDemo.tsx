@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { loadN8nChatHistory } from '../services/n8nChatService';
-import { ChatMessage } from '../types/chat';
 
 const TesteN8nDemo: React.FC = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<Array<{
+    id: string;
+    type: 'user' | 'ai';
+    content: string;
+    timestamp: Date;
+  }>>([]);
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [testSessionId, setTestSessionId] = useState('cbc7588d-e8b1-49f6-b069-48babd2aa1ad');
@@ -132,14 +136,14 @@ const TesteN8nDemo: React.FC = () => {
                   <div
                     key={message.id || index}
                     className={`p-4 rounded-lg ${
-                      message.sender === 'user'
+                      message.type === 'user'
                         ? 'bg-blue-100 border-l-4 border-blue-500'
                         : 'bg-green-100 border-l-4 border-green-500'
                     }`}
                   >
                     <div className="flex justify-between items-start mb-2">
                       <span className="font-medium text-sm">
-                        {message.sender === 'user' ? '👤 Usuário' : '🤖 IA'}
+                        {message.type === 'user' ? '👤 Usuário' : '🤖 IA'}
                       </span>
                       <span className="text-xs text-gray-500">
                         ID: {message.id}

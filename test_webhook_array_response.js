@@ -21,7 +21,8 @@ const testData = {
   "codigo_infracao": "7455-0",
   "orgao_autuador": "PREFEITURA MUNICIPAL DE BLUMENAU - SETERB - LE",
   "idmultabancodedados": "10db676f-0d6f-4a5d-92ac-45c4b00c378c",
-  "mensagem_usuario": "Analise o auto de infração e verifique inconsistências conforme regras do MBFT e a justificativa minha justificativa para anular a autuação."
+  "mensagem_usuario": "Analise o auto de infração e verifique inconsistências conforme regras do MBFT e a justificativa minha justificativa para anular a autuação.",
+  "company_id": "550e8400-e29b-41d4-a716-446655440001"
 };
 
 // Resposta esperada (array com objeto response)

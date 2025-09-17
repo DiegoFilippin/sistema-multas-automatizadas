@@ -83,7 +83,7 @@ export class AiRecursoService {
     for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
       try {
         console.log(`🔄 TENTATIVA ${tentativa}: Usando Gemini como fallback para gerar recurso`);
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
       const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
       

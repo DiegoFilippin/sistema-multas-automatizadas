@@ -21,7 +21,8 @@ const testData = {
   codigo_infracao: "74550",
   orgao_autuador: "CET - Companhia de Engenharia de Tráfego",
   idmultabancodedados: "550e8400-e29b-41d4-a716-446655440001",
-  mensagem_usuario: "Olá! Preciso de ajuda para criar um recurso para esta multa de trânsito. Acredito que a autuação foi indevida pois estava respeitando o limite de velocidade."
+  mensagem_usuario: "Olá! Preciso de ajuda para criar um recurso para esta multa de trânsito. Acredito que a autuação foi indevida pois estava respeitando o limite de velocidade.",
+  company_id: "550e8400-e29b-41d4-a716-446655440001"
 };
 
 async function testarWebhookN8n() {

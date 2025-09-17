@@ -495,8 +495,14 @@ const TesteRecursoIA: React.FC = () => {
   // Função para detectar e salvar recursos gerados pelo n8n
   const detectarESalvarRecurso = async (responseContent: string, sessionId: string, multaIdParam: string) => {
     try {
+      console.log('🔍 === INICIANDO DETECÇÃO DE RECURSO ===');
+      console.log('📝 Conteúdo recebido (primeiros 100 chars):', responseContent.substring(0, 100));
+      
       // Verificar se a resposta contém um recurso (indicadores comuns)
       const indicadoresRecurso = [
+        '[RECURSO GERADO]',
+        'RECURSO GERADO',
+        '[RECURSO]',
         'RECURSO',
         'DEFESA',
         'EXCELENTÍSSIMO',
@@ -508,24 +514,50 @@ const TesteRecursoIA: React.FC = () => {
         'AUTO DE INFRAÇÃO'
       ];
       
-      const contemRecurso = indicadoresRecurso.some(indicador => 
-        responseContent.toUpperCase().includes(indicador)
+      const responseUpper = responseContent.toUpperCase();
+      const indicadoresEncontrados = indicadoresRecurso.filter(indicador => 
+        responseUpper.includes(indicador.toUpperCase())
       );
+      
+      console.log('🔍 Indicadores encontrados:', indicadoresEncontrados);
+      
+      const contemRecurso = indicadoresEncontrados.length > 0;
       
       // Verificar se tem estrutura de recurso (mais de 200 caracteres e contém indicadores)
       const isRecurso = contemRecurso && responseContent.length > 200;
       
+      console.log('📊 Resultado da detecção:', {
+        contemRecurso,
+        tamanhoConteudo: responseContent.length,
+        isRecurso,
+        indicadoresEncontrados
+      });
+      
       if (isRecurso) {
         console.log('🎯 === RECURSO DETECTADO NA RESPOSTA N8N ===');
         console.log('📝 Conteúdo:', responseContent.substring(0, 200) + '...');
+        console.log('🏷️ Indicadores que ativaram a detecção:', indicadoresEncontrados);
         
         // Extrair informações do recurso
         const infoRecurso = recursosGeradosService.extrairInformacoesRecurso(responseContent);
         console.log('📋 Informações extraídas:', infoRecurso);
         
         // Obter dados do usuário e empresa
-        const companyId = await getExistingCompanyId() || getValidUUID(clienteData?.cliente_id, 'Company ID (recurso)');
-        const userId = getValidUUID(clienteData?.cliente_id, 'User ID (recurso)');
+        const companyId = user?.company_id || await getExistingCompanyId();
+        const userId = user?.id;
+        
+        // Validar se temos dados obrigatórios
+        if (!companyId || !userId) {
+          console.error('❌ Dados obrigatórios não encontrados:', { companyId, userId, user });
+          toast.error('Erro: Usuário não autenticado ou dados da empresa não encontrados');
+          return null;
+        }
+        
+        console.log('👤 Dados do usuário autenticado:', {
+          userId,
+          companyId,
+          userEmail: user?.email
+        });
         
         // Preparar dados para salvamento
         const recursoData: RecursoGeradoInsert = {
@@ -564,7 +596,16 @@ const TesteRecursoIA: React.FC = () => {
           return recursoSalvo;
         }
       } else {
-        console.log('ℹ️ Resposta não contém recurso detectável');
+        console.log('ℹ️ === RECURSO NÃO DETECTADO ===');
+        console.log('❌ Motivos possíveis:');
+        if (!contemRecurso) {
+          console.log('  - Nenhum indicador encontrado no conteúdo');
+          console.log('  - Indicadores procurados:', indicadoresRecurso);
+        }
+        if (responseContent.length <= 200) {
+          console.log('  - Conteúdo muito curto:', responseContent.length, 'caracteres (mínimo: 200)');
+        }
+        console.log('📝 Conteúdo completo da resposta:', responseContent);
       }
       
       return null;
@@ -595,7 +636,8 @@ const TesteRecursoIA: React.FC = () => {
           body: JSON.stringify({
             ...webhookData,
             action: 'check_response', // Indicar que é uma verificação
-            attempt: attempt
+            attempt: attempt,
+            company_id: user?.company_id || await getExistingCompanyId()
           })
         });
         
@@ -1197,11 +1239,13 @@ const TesteRecursoIA: React.FC = () => {
         codigo_infracao: multaData.codigoInfracao || '',
         orgao_autuador: multaData.orgaoAutuador || '',
         idmultabancodedados: validMultaUUID, // UUID real da multa salva no banco
-        mensagem_usuario: mensagemInicial
+        mensagem_usuario: mensagemInicial,
+        company_id: user?.company_id || await getExistingCompanyId()
       };
       
       console.log('📤 === ENVIANDO DADOS PARA WEBHOOK N8N ===');
       console.log('🆔 UUID da multa enviado:', validMultaUUID);
+      console.log('🏢 Company ID enviado:', webhookData.company_id);
       console.log('📋 Dados completos do webhook:', webhookData);
       console.log('🔍 Verificação final idmultabancodedados:', webhookData.idmultabancodedados);
       
@@ -1284,7 +1328,13 @@ const TesteRecursoIA: React.FC = () => {
         }
         
         console.log('✅ Company ID válido encontrado:', companyId);
-        const userId = user?.id || getValidUUID(clienteData?.cliente_id, 'User ID (chat)');
+        const userId = user?.id;
+      
+      if (!userId) {
+        console.error('❌ Usuário não autenticado para criar sessão de chat');
+        toast.error('Erro: Usuário não autenticado');
+        return;
+      }
         const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         
         const chatSession = await chatService.createSession({
@@ -1371,7 +1421,8 @@ const TesteRecursoIA: React.FC = () => {
             ...webhookData,
             action: 'get_status',
             session_id: chatSessionId || processId,
-            check_attempt: pollAttempts
+            check_attempt: pollAttempts,
+            company_id: user?.company_id || await getExistingCompanyId()
           })
         });
         
@@ -1557,12 +1608,14 @@ const TesteRecursoIA: React.FC = () => {
         orgao_autuador: multaData.orgaoAutuador || '',
         idmultabancodedados: multaUUID, // UUID correto da multa
         mensagem_usuario: message,
-        session_id: chatSessionId || processId
+        session_id: chatSessionId || processId,
+        company_id: user?.company_id || await getExistingCompanyId()
       };
       
       console.log('📤 === ENVIANDO MENSAGEM PARA WEBHOOK N8N ===');
       console.log('💬 Mensagem do usuário:', message);
       console.log('🆔 UUID da multa enviado:', multaUUID);
+      console.log('🏢 Company ID enviado:', webhookData.company_id);
       console.log('📋 Dados completos do webhook:', webhookData);
       console.log('🔍 Verificação final idmultabancodedados:', webhookData.idmultabancodedados);
       
@@ -1619,7 +1672,8 @@ const TesteRecursoIA: React.FC = () => {
                  action: 'get_message_status',
                  session_id: chatSessionId || processId,
                  message_check_attempt: messagePollAttempts,
-                 original_message: message
+                 original_message: message,
+                 company_id: user?.company_id || await getExistingCompanyId()
                })
              });
              
@@ -1960,10 +2014,15 @@ const TesteRecursoIA: React.FC = () => {
       // Buscar company_id existente no banco
       let companyId = await getExistingCompanyId();
       
-      // Se não encontrou company existente, usar dados do cliente ou gerar UUID
+      // Se não encontrou company existente, usar dados do usuário autenticado
       if (!companyId) {
-        console.log('⚠️ Nenhuma company encontrada, usando fallback...');
-        companyId = getValidUUID(clienteData?.cliente_id, 'Company ID (multa)');
+        companyId = user?.company_id;
+        if (!companyId) {
+          console.error('❌ Company ID não encontrado para usuário autenticado');
+          toast.error('Erro: Dados da empresa não encontrados para o usuário');
+          return;
+        }
+        console.log('✅ Usando company_id do usuário autenticado:', companyId);
       }
       
       // Buscar client_id existente no banco
