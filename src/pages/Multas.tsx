@@ -18,7 +18,8 @@ import {
   AlertTriangle,
   Download,
   Upload,
-  Bot
+  Bot,
+  MessageSquare
 } from 'lucide-react';
 import { useMultasStore } from '@/stores/multasStore';
 import { useAuthStore } from '@/stores/authStore';
@@ -122,6 +123,24 @@ function MultaCard({ multa, onEdit, onDelete, onCreateRecurso, onViewDetails, sh
                         <span>Criar Recurso IA</span>
                       </button>
                     )}
+                    
+                    <button
+                      onClick={() => {
+                        onViewDetails(multa);
+                        setShowMenu(false);
+                        // Scroll para a seção de recursos N8N após navegar
+                        setTimeout(() => {
+                          const element = document.querySelector('[data-section="recursos-n8n"]');
+                          if (element) {
+                            element.scrollIntoView({ behavior: 'smooth' });
+                          }
+                        }, 500);
+                      }}
+                      className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-purple-700 hover:bg-purple-50"
+                    >
+                      <MessageSquare className="w-4 h-4" />
+                      <span>Ver Recursos N8N</span>
+                    </button>
                     
                     <button
                       onClick={() => {

@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useNavigate } from 'react-router-dom';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
+import { splitService } from '@/services/splitService';
 
 interface Service {
   id: string;
@@ -99,10 +100,16 @@ interface PaymentResponse {
   webhook_data?: {
     customer?: {
       name?: string;
+      cpf_cnpj?: string;
+      endereco?: string;
+      email?: string;
+      telefone?: string;
     };
   };
   processed_data?: {
     customer_name?: string;
+    customer_cpf?: string;
+    customer_endereco?: string;
   };
   // Novos campos da API
   payment?: {
@@ -548,6 +555,13 @@ const MeusServicos: React.FC = () => {
       return;
     }
 
+    // Verificar se já está processando para evitar cliques múltiplos
+    if (creatingPayment) {
+      console.log('⚠️ AVISO: Já existe uma requisição em andamento, ignorando clique');
+      toast.warning('Aguarde o processamento da cobrança atual.');
+      return;
+    }
+
     // Buscar dados do serviço/tipo de multa selecionado
     console.log('🔍 Procurando serviço por type:', selectedMultaType);
     console.log('📋 Tipos disponíveis:', multaTypes.map(t => ({ id: t.id, type: t.type, name: t.name })));
@@ -597,103 +611,122 @@ const MeusServicos: React.FC = () => {
          toast.warning('Cliente não possui integração com Asaas. O customer será criado automaticamente.');
        }
 
-      // Construir payload no formato que funcionava antes
-      const requestBody = {
-        wallet_icetran: "eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0", // Wallet fixo ICETRAN
-        wallet_despachante: "2bb1d7d-7530-45ac-953d-b9f7a980c4af", // Wallet da empresa (fixo por enquanto)
-        Customer_cliente: {
-          id: selectedClient.id,
-          nome: selectedClient.nome,
-          cpf_cnpj: selectedClient.cpf_cnpj, // Usar cpf_cnpj que é o campo correto
-          email: selectedClient.email,
-          asaas_customer_id: selectedClient.asaas_customer_id || null // Usar o ID real do Asaas ou null
-        },
-        "Valor_cobrança": customAmount || selectedType.suggested_price,
-        "Idserviço": selectedType.id,
-        "descricaoserviço": selectedType.name,
-        valoracsm: selectedType.acsm_value || 12,
-        valoricetran: selectedType.icetran_value || 12,
-        taxa: serviceSplitConfig?.taxa_cobranca || 3.5,
-        despachante: {
-          company_id: user?.company_id,
-          nome: "Empresa", // Nome fixo por enquanto
-          wallet_id: "2bb1d7d-7530-45ac-953d-b9f7a980c4af", // Wallet fixo por enquanto
-          margem: 52.5
-        }
-      };
+      console.log('✅ Dados validados, prosseguindo com criação da cobrança');
       
       console.log('📋 Dados do serviço:', {
         service_id: selectedType.id,
         service_name: selectedType.name,
         tipo_multa: selectedType.type,
-        valor_cobranca: customAmount,
+        valor_cobranca: customAmount || selectedType.suggested_price,
         custo_minimo: selectedType.total_price
       });
       
-      console.log('\n📦 PAYLOAD PARA WEBHOOK N8N:');
-      console.log('=====================================');
-      console.log(JSON.stringify(requestBody, null, 2));
-      console.log('=====================================');
+      console.log('\n✅ VALIDAÇÃO DOS DADOS:');
+      console.log('  - Cliente ID:', selectedClient.id);
+      console.log('  - Serviço ID:', selectedType.id);
+      console.log('  - Empresa ID:', user?.company_id);
+      console.log('  - Valor cobrança:', customAmount || selectedType.suggested_price);
       
-      // Validação final do payload
-      console.log('\n✅ VALIDAÇÃO FINAL DO PAYLOAD:');
-      console.log('  - CPF Cliente:', requestBody.Customer_cliente.cpf_cnpj);
-      console.log('  - Asaas Customer ID:', requestBody.Customer_cliente.asaas_customer_id);
-      console.log('  - Nome Cliente:', requestBody.Customer_cliente.nome);
-      console.log('  - Email Cliente:', requestBody.Customer_cliente.email);
+      // Configurar timeout para a requisição (10 segundos para aguardar resposta do Asaas)
+      const timeoutMs = 10000;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+        console.log('⏰ TIMEOUT: Requisição cancelada após', timeoutMs, 'ms');
+      }, timeoutMs);
       
-      const webhookUrl = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
+      // Configurar timeout para cancelar a requisição se necessário
       
-      const requestOptions = {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
+      console.log('\n🌐 CONFIGURAÇÃO DA REQUISIÇÃO PARA API LOCAL:');
+      console.log('  - URL: /api/payments/create-service-order');
+      console.log('  - Method: POST');
+      console.log('  - Timeout:', timeoutMs, 'ms (10s para aguardar resposta do Asaas)');
+      console.log('  - Aguardando processamento completo do webhook e salvamento no banco...');
+      
+      // Construir payload para a API local
+      const apiPayload = {
+        customer_id: selectedClient.id,
+        service_id: selectedType.id,
+        company_id: user?.company_id,
+        valor_cobranca: customAmount || selectedType.suggested_price
       };
       
-      console.log('\n🌐 CONFIGURAÇÃO DA REQUISIÇÃO DIRETA:');
-      console.log('  - URL:', webhookUrl);
-      console.log('  - Method:', requestOptions.method);
-      console.log('  - Headers:', requestOptions.headers);
-      console.log('  - Body size:', requestOptions.body.length, 'bytes');
+      console.log('\n📦 PAYLOAD PARA API LOCAL:');
+      console.log('=====================================');
+      console.log(JSON.stringify(apiPayload, null, 2));
+      console.log('=====================================');
       
-      console.log('\n🚀 ENVIANDO REQUISIÇÃO DIRETA PARA N8N...');
+      console.log('\n🚀 ENVIANDO REQUISIÇÃO PARA API LOCAL...');
       const startTime = Date.now();
       
-      const response = await fetch(webhookUrl, requestOptions);
+      let response: Response;
+      let responseText: string = '';
       
-      const endTime = Date.now();
-      const duration = endTime - startTime;
-      
-      console.log('\n📡 RESPOSTA RECEBIDA:');
-      console.log('  - Status:', response.status);
-      console.log('  - Status Text:', response.statusText);
-      console.log('  - OK:', response.ok);
-      console.log('  - Tempo de resposta:', duration, 'ms');
-      console.log('  - URL final:', response.url);
-      console.log('  - Redirected:', response.redirected);
-      
-      console.log('\n📋 HEADERS DA RESPOSTA:');
-      const responseHeaders = {};
-      response.headers.forEach((value, key) => {
-        responseHeaders[key] = value;
-        console.log(`  - ${key}: ${value}`);
-      });
-      
-      if (!response.ok) {
-        console.error('❌ ERRO HTTP:', response.status, response.statusText);
-        const errorText = await response.text();
-        console.log('  - Erro retornado:', errorText);
-        throw new Error(`Erro ao processar cobrança via webhook: ${response.status}`);
-      }
-
-      // Ler resposta do webhook N8N
-      const responseText = await response.text();
-      console.log('\n📄 RESPOSTA DO WEBHOOK N8N:');
-      console.log('=====================================');
-      console.log(responseText);
-      console.log('=====================================');
+      try {
+        // Fazer a requisição para a API local e aguardar a resposta completa
+        response = await fetch('/api/payments/create-service-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify(apiPayload),
+          signal: controller.signal
+        });
+        
+        // Limpar o timeout se a requisição foi bem-sucedida
+        clearTimeout(timeoutId);
+        console.log('✅ Timeout cancelado - requisição concluída');
+        
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        
+        console.log('\n📡 RESPOSTA RECEBIDA:');
+        console.log('  - Status:', response.status);
+        console.log('  - Status Text:', response.statusText);
+        console.log('  - OK:', response.ok);
+        console.log('  - Tempo de resposta:', duration, 'ms');
+        console.log('  - URL final:', response.url);
+        console.log('  - Redirected:', response.redirected);
+        
+        console.log('\n📋 HEADERS DA RESPOSTA:');
+        const responseHeaders = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+          console.log(`  - ${key}: ${value}`);
+        });
+        
+        // Aguardar e ler o corpo da resposta ANTES de verificar erros
+        responseText = await response.text();
+        console.log('\n📄 RESPOSTA DA API LOCAL:');
+        console.log('=====================================');
+        console.log(responseText);
+        console.log('=====================================');
+        
+        // Verificar erro HTTP após ler a resposta
+        if (!response.ok) {
+          console.error('❌ ERRO HTTP:', response.status, response.statusText);
+          console.log('  - Corpo da resposta:', responseText);
+          throw new Error(`Erro HTTP ${response.status}: ${response.statusText}${responseText ? ' - ' + responseText : ''}`);
+        }
+        
+      } catch (fetchError) {
+         console.error('❌ ERRO NA REQUISIÇÃO:', fetchError);
+         
+         // Limpar timeout em caso de erro
+         clearTimeout(timeoutId);
+         
+         // Verificar tipo de erro
+         if (fetchError.name === 'AbortError') {
+           console.log('⏰ ERRO: Requisição cancelada por timeout de 10 segundos');
+           throw new Error('Timeout: A requisição demorou mais que 10 segundos para processar no Asaas. Tente novamente.');
+         } else if (fetchError instanceof TypeError && fetchError.message.includes('fetch')) {
+           throw new Error('Erro de conexão com o servidor. Verifique sua internet e tente novamente.');
+         }
+         
+         // Re-lançar outros erros
+         throw fetchError;
+       }
       
       let result: any = {};
       
@@ -777,28 +810,50 @@ const MeusServicos: React.FC = () => {
       }
       // ========== FIM DO TRATAMENTO DE ERRO ==========
 
-      console.log('\n🎉 COBRANÇA ENVIADA PARA WEBHOOK N8N!');
+      console.log('\n🎉 COBRANÇA CRIADA COM SUCESSO NA API LOCAL!');
       console.log('  - Status HTTP:', response.status);
       console.log('  - Resposta:', result);
+      console.log('  - Tempo total de processamento:', Date.now() - startTime, 'ms');
+      
+      // Verificar se a resposta contém os dados do pagamento
+      if (!result.success || !result.payment) {
+        console.error('❌ ERRO: Resposta da API não contém dados válidos');
+        console.log('  - result.success:', result.success);
+        console.log('  - result.payment:', result.payment);
+        throw new Error('Resposta da API não contém dados válidos do pagamento');
+      }
+      
+      console.log('\n✅ DADOS DO PAGAMENTO VALIDADOS COM SUCESSO!');
+      console.log('  - API processou webhook do Asaas corretamente');
+      console.log('  - Dados foram salvos na tabela service_orders');
+      console.log('  - QR Code e PIX payload extraídos do webhook');
+      
+      const paymentData = result.payment;
+      console.log('\n📋 DADOS DO PAGAMENTO SALVOS:');
+      console.log('  - ID:', paymentData.id);
+      console.log('  - Asaas Payment ID:', paymentData.asaas_payment_id);
+      console.log('  - QR Code:', paymentData.qr_code ? 'PRESENTE' : 'AUSENTE');
+      console.log('  - PIX Payload:', paymentData.pix_code ? 'PRESENTE' : 'AUSENTE');
+      console.log('  - Invoice URL:', paymentData.invoice_url ? 'PRESENTE' : 'AUSENTE');
       
       // Criar objeto da nova cobrança para exibição local
       const novaCobranca: PaymentResponse = {
-        service_order_id: `temp_${Date.now()}`,
-        payment_id: `webhook_${Date.now()}`,
-        asaas_payment_id: result.payment_id || `webhook_${Date.now()}`,
+        service_order_id: paymentData.id,
+        payment_id: paymentData.asaas_payment_id,
+        asaas_payment_id: paymentData.asaas_payment_id,
         client_name: selectedClient.nome,
         customer_name: selectedClient.nome,
-        amount: customAmount,
+        amount: paymentData.amount,
         status: 'pending',
         created_at: new Date().toISOString(),
-        description: `${selectedType.name} - ${selectedClient.nome}`,
+        description: paymentData.description,
         payment_method: 'PIX',
         customer_id: selectedClient.id,
-        qr_code: result.qr_code || '',
-        pix_copy_paste: result.pix_code || '',
-        payment_url: result.payment_url || '',
+        qr_code: paymentData.qr_code || paymentData.qr_code_image || '',
+        pix_copy_paste: paymentData.pix_code || paymentData.pix_payload || '',
+        payment_url: paymentData.invoice_url || '',
         multa_type: selectedType.name,
-        due_date: result.due_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        due_date: paymentData.due_date,
         success: true
       };
       
@@ -811,7 +866,7 @@ const MeusServicos: React.FC = () => {
       setSelectedClient(null);
       setSelectedMultaType('');
       setCustomAmount(0);
-      toast.success('Cobrança enviada para processamento via webhook N8N!');
+      toast.success('Cobrança criada e salva no sistema com sucesso!');
     } catch (error) {
       console.error('\n💥 ERRO GERAL:', error);
       console.log('  - Tipo:', error.constructor.name);
@@ -832,9 +887,33 @@ const MeusServicos: React.FC = () => {
             color: '#dc2626'
           }
         });
+      } else if (errorMessage.includes('Timeout') || errorMessage.includes('timeout')) {
+        // Erro de timeout
+        console.log('\n⏰ ERRO DE TIMEOUT DETECTADO:');
+        toast.error(`⏰ ${errorMessage}`, {
+          duration: 8000,
+          style: {
+            background: '#fef3c7',
+            border: '1px solid #f59e0b',
+            color: '#92400e'
+          }
+        });
+      } else if (errorMessage.includes('conexão') || errorMessage.includes('rede') || errorMessage.includes('internet')) {
+        // Erro de conexão
+        console.log('\n🌐 ERRO DE CONEXÃO DETECTADO:');
+        toast.error(`🌐 ${errorMessage}`, {
+          duration: 6000,
+          style: {
+            background: '#fef3c7',
+            border: '1px solid #fbbf24',
+            color: '#92400e'
+          }
+        });
       } else {
         // Erro genérico
-        toast.error(`❌ Erro ao criar cobrança: ${errorMessage}`);
+        toast.error(`❌ Erro ao criar cobrança: ${errorMessage}`, {
+          duration: 5000
+        });
       }
       
       // IMPORTANTE: NÃO salvar dados quando há erro
@@ -842,8 +921,12 @@ const MeusServicos: React.FC = () => {
       console.log('  - Lista de cobranças não foi atualizada');
       console.log('  - Modal de pagamento não será exibido');
       console.log('  - Formulário permanece aberto para correção');
+      console.log('  - Estado creatingPayment será resetado no finally');
     } finally {
+      // SEMPRE resetar o estado, independente de sucesso ou erro
+      console.log('\n🔄 RESETANDO ESTADO DE LOADING...');
       setCreatingPayment(false);
+      console.log('✅ Estado creatingPayment resetado para false');
       console.log('\n🏁 FIM DO PROCESSO DE CRIAÇÃO');
     }
   };

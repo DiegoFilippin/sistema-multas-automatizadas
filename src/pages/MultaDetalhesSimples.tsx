@@ -8,6 +8,7 @@ import { pdfService } from '@/services/pdfService'
 import type { Database } from '@/lib/supabase'
 import FeedbackRecurso from '@/components/FeedbackRecurso'
 import TipoRecursoTag, { Art267Explanation } from '@/components/TipoRecursoTag'
+import RecursosGerados from '@/components/RecursosGerados'
 import { toast } from 'sonner'
 
 type Recurso = {
@@ -332,6 +333,25 @@ export default function MultaDetalhesSimples() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Recursos Gerados pelo N8N */}
+          {multa.id && (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6" data-section="recursos-n8n">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <MessageSquare className="w-4 h-4 text-blue-600" />
+                </div>
+                <h3 className="text-lg font-medium text-gray-900">Recursos Gerados pelo N8N</h3>
+              </div>
+              <RecursosGerados
+                multaId={multa.id}
+                onRecursoSelect={(recurso) => {
+                  console.log('📋 Recurso N8N selecionado:', recurso);
+                  toast.success(`Recurso "${recurso.titulo}" selecionado`);
+                }}
+              />
             </div>
           )}
 

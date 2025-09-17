@@ -506,75 +506,63 @@ export function CobrancaDetalhes({ cobranca, isOpen, onClose, onResend, onCancel
       // ✅ VERIFICAÇÃO DENTRO DO useEffect, não como condição
       if (!cobranca) return;
       
-      // ✅ USAR ID OU ASAAS_PAYMENT_ID
-      const paymentId = cobranca.asaas_payment_id || cobranca.id;
-      if (!paymentId) return;
-      
       setQrCodeLoading(true);
       try {
-        console.log('🔍 === DEBUG QR CODE - CARREGANDO DETALHES ===');
-        console.log('  - Payment ID:', paymentId);
-        console.log('  - Cobrança ID:', cobranca.asaas_payment_id);
-        console.log('  - Payment Method:', cobranca.payment_method);
+        console.log('🔍 === DEBUG QR CODE - PROCESSANDO DADOS ===');
         console.log('  - Cobrança completa:', cobranca);
+        console.log('  - Payment Method:', cobranca.payment_method);
+        console.log('  - QR Code fields disponíveis:', {
+          pix_qr_code: !!cobranca.pix_qr_code,
+          qr_code_image: !!cobranca.qr_code_image,
+          pix_code: !!cobranca.pix_code,
+          pix_payload: !!cobranca.pix_payload,
+          pix_copy_paste: !!cobranca.pix_copy_paste
+        });
         
-        const response = await fetch(`/api/payments/${paymentId}`);
-        console.log('  - URL da API:', `/api/payments/${paymentId}`);
-        console.log('  - Status da resposta:', response.status);
+        // ✅ USAR DADOS DIRETAMENTE DA COBRANÇA - SEM CHAMADA API
+        // Isso evita o erro 404 e usa os dados já disponíveis
+        setPaymentDetails(cobranca);
         
-        if (response.ok) {
-          const data = await response.json();
-          console.log('  - Dados da API:', data);
-          console.log('  - Payment object:', data.payment);
-          console.log('  - PIX QR Code da API:', data.payment?.pix_qr_code);
-          console.log('  - QR Code Image da API:', data.payment?.qr_code_image);
-          console.log('  - PIX Copy Paste da API:', data.payment?.pix_copy_paste);
-          console.log('  - PIX Payload da API:', data.payment?.pix_payload);
-          
-          setPaymentDetails(data.payment || data);
-          
-          // ✅ LÓGICA ROBUSTA PARA QR CODE - Múltiplas fontes
-          const qrCodeFromApi = data.payment?.pix_qr_code || data.payment?.qr_code_image || data.payment?.encodedImage;
-          const qrCodeFromCobranca = cobranca?.pix_code;
-          const finalQrCode = qrCodeFromApi || qrCodeFromCobranca;
-          
-          console.log('  - QR Code da API:', qrCodeFromApi);
-          console.log('  - QR Code da cobrança:', qrCodeFromCobranca);
-          console.log('  - QR Code final:', finalQrCode);
-          
-          if (finalQrCode) {
-            // Verificar se é base64 válido ou texto PIX
-            if (finalQrCode.startsWith('data:image/')) {
-              console.log('  ✅ QR Code é base64 válido');
-              setQrCodeData(finalQrCode);
-            } else if (finalQrCode.startsWith('iVBORw0KGgo') || finalQrCode.length > 100) {
-              console.log('  ✅ QR Code é base64 sem prefixo');
-              setQrCodeData(`data:image/png;base64,${finalQrCode}`);
-            } else {
-              console.log('  ⚠️ QR Code é texto PIX, gerando imagem...');
-              try {
-                const qrCodeImage = await QRCode.toDataURL(finalQrCode, {
-                  width: 256,
-                  margin: 2,
-                  color: {
-                    dark: '#000000',
-                    light: '#FFFFFF'
-                  }
-                });
-                setQrCodeData(qrCodeImage);
-                console.log('  ✅ QR Code gerado com sucesso');
-              } catch (qrError) {
-                console.error('  ❌ Erro ao gerar QR Code:', qrError);
-              }
-            }
+        // ✅ LÓGICA ROBUSTA PARA QR CODE - Múltiplas fontes da própria cobrança
+        const finalQrCode = cobranca.pix_qr_code || 
+                           cobranca.qr_code_image || 
+                           cobranca.pix_code || 
+                           cobranca.pix_payload;
+        
+        console.log('  - QR Code final encontrado:', !!finalQrCode);
+        console.log('  - Tipo do QR Code:', typeof finalQrCode);
+        
+        if (finalQrCode) {
+          // Verificar se é base64 válido ou texto PIX
+          if (finalQrCode.startsWith('data:image/')) {
+            console.log('  ✅ QR Code é base64 válido');
+            setQrCodeData(finalQrCode);
+          } else if (finalQrCode.startsWith('iVBORw0KGgo') || (finalQrCode.length > 100 && !finalQrCode.includes(' '))) {
+            console.log('  ✅ QR Code é base64 sem prefixo');
+            setQrCodeData(`data:image/png;base64,${finalQrCode}`);
           } else {
-            console.log('  ⚠️ Nenhum QR Code encontrado');
+            console.log('  ⚠️ QR Code é texto PIX, gerando imagem...');
+            try {
+              const qrCodeImage = await QRCode.toDataURL(finalQrCode, {
+                width: 256,
+                margin: 2,
+                color: {
+                  dark: '#000000',
+                  light: '#FFFFFF'
+                }
+              });
+              setQrCodeData(qrCodeImage);
+              console.log('  ✅ QR Code gerado com sucesso');
+            } catch (qrError) {
+              console.error('  ❌ Erro ao gerar QR Code:', qrError);
+            }
           }
         } else {
-          console.error('  ❌ Erro na API:', response.status);
+          console.log('  ⚠️ Nenhum QR Code encontrado na cobrança');
         }
+        
       } catch (error) {
-        console.error('  ❌ Erro ao carregar detalhes:', error);
+        console.error('  ❌ Erro ao processar dados:', error);
       } finally {
         setQrCodeLoading(false);
       }
@@ -838,32 +826,79 @@ export function CobrancaDetalhes({ cobranca, isOpen, onClose, onResend, onCancel
                 )}
               </div>
 
-              {/* External Links */}
-              {(cobranca.invoice_url || cobranca.bank_slip_url) && (
-                <div className="flex space-x-3 pb-2">
-                  {cobranca.invoice_url && (
-                    <a
-                      href={cobranca.invoice_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 flex items-center justify-center space-x-2 p-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>Ver Fatura</span>
-                    </a>
-                  )}
-
-                  {cobranca.bank_slip_url && (
-                    <a
-                      href={cobranca.bank_slip_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 flex items-center justify-center space-x-2 p-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-                    >
-                      <Download className="w-4 h-4" />
-                      <span>Baixar Boleto</span>
-                    </a>
-                  )}
+              {/* External Links - SEMPRE VISÍVEL QUANDO EXISTIR */}
+              {cobranca.invoice_url && (
+                <div className="pb-2">
+                  <a
+                    href={cobranca.invoice_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      backgroundColor: '#1F2937',
+                      color: '#FFFFFF',
+                      border: '2px solid #374151',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 16px',
+                      textDecoration: 'none',
+                      minHeight: '50px',
+                      width: '100%',
+                      opacity: '1',
+                      visibility: 'visible',
+                      position: 'relative',
+                      zIndex: '1000',
+                      fontWeight: '600',
+                      fontSize: '16px',
+                      borderRadius: '8px',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#111827';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1F2937';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <ExternalLink style={{ color: '#FFFFFF', width: '20px', height: '20px' }} />
+                    <span style={{ color: '#FFFFFF', fontWeight: '600', fontSize: '16px' }}>Ver Fatura</span>
+                  </a>
+                </div>
+              )}
+              
+              {cobranca.bank_slip_url && (
+                <div className="pb-2">
+                  <a
+                    href={cobranca.bank_slip_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      backgroundColor: '#4B5563',
+                      color: '#FFFFFF',
+                      border: '2px solid #6B7280',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 16px',
+                      textDecoration: 'none',
+                      minHeight: '50px',
+                      width: '100%',
+                      opacity: '1',
+                      visibility: 'visible',
+                      fontWeight: '600',
+                      fontSize: '16px',
+                      borderRadius: '8px',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                    }}
+                  >
+                    <Download style={{ color: '#FFFFFF', width: '20px', height: '20px' }} />
+                    <span style={{ color: '#FFFFFF', fontWeight: '600', fontSize: '16px' }}>Baixar Boleto</span>
+                  </a>
                 </div>
               )}
             </div>

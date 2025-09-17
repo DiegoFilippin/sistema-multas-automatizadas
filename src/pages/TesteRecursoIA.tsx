@@ -711,20 +711,38 @@ const TesteRecursoIA: React.FC = () => {
               console.log(`✅ Resposta do polling salva no banco (tentativa ${attempt})`);
               
               // Detectar e salvar recurso se presente
+              console.log('🔍 === VERIFICANDO DETECÇÃO DE RECURSO NO POLLING ===');
+              console.log('📋 Dados disponíveis:', {
+                multaId: multaId,
+                chatSessionId: chatSessionId,
+                responseContentLength: responseContent.length,
+                responsePreview: responseContent.substring(0, 100)
+              });
+              
               if (multaId) {
+                console.log('✅ MultaId disponível, iniciando detecção...');
                 try {
                   const recursoDetectado = await detectarESalvarRecurso(responseContent, chatSessionId, multaId);
                   if (recursoDetectado) {
-                    console.log('✅ Recurso detectado no polling:', recursoDetectado.id);
+                    console.log('🎯 === RECURSO DETECTADO E SALVO COM SUCESSO ===');
+                    console.log('📋 Recurso salvo:', {
+                      id: recursoDetectado.id,
+                      titulo: recursoDetectado.titulo,
+                      tipo: recursoDetectado.tipo_recurso
+                    });
                     toast.success('🎯 Resposta da IA recebida e recurso detectado!');
                   } else {
+                    console.log('ℹ️ Nenhum recurso detectado na resposta');
                     toast.success('✅ Resposta da IA recebida!');
                   }
                 } catch (recursoError: any) {
-                  console.error('❌ Erro ao detectar recurso no polling:', recursoError);
+                  console.error('❌ === ERRO AO DETECTAR RECURSO NO POLLING ===');
+                  console.error('📋 Detalhes do erro:', recursoError);
+                  console.error('📋 Stack trace:', recursoError.stack);
                   toast.success('✅ Resposta da IA recebida!');
                 }
               } else {
+                console.warn('⚠️ MultaId não disponível, pulando detecção de recurso');
                 toast.success('✅ Resposta da IA recebida!');
               }
               
@@ -2011,17 +2029,21 @@ const TesteRecursoIA: React.FC = () => {
       console.log('📋 Dados a serem salvos:', multaDataMapeada);
       console.log('👤 Dados do cliente:', clienteData);
       
-      // Buscar company_id existente no banco
-      let companyId = await getExistingCompanyId();
+      // Priorizar company_id do usuário autenticado
+      let companyId = user?.company_id;
       
-      // Se não encontrou company existente, usar dados do usuário autenticado
+      // Se o usuário não tiver company_id, buscar uma empresa existente no banco
       if (!companyId) {
-        companyId = user?.company_id;
+        console.log('⚠️ Usuário não possui company_id, buscando empresa existente...');
+        companyId = await getExistingCompanyId();
+        
         if (!companyId) {
-          console.error('❌ Company ID não encontrado para usuário autenticado');
-          toast.error('Erro: Dados da empresa não encontrados para o usuário');
+          console.error('❌ Company ID não encontrado nem para usuário nem no banco');
+          toast.error('Erro: Dados da empresa não encontrados');
           return;
         }
+        console.log('✅ Usando company_id encontrado no banco:', companyId);
+      } else {
         console.log('✅ Usando company_id do usuário autenticado:', companyId);
       }
       
@@ -2566,33 +2588,20 @@ const TesteRecursoIA: React.FC = () => {
             </div>
           </div>
 
-          {/* Seção 3.5: Recursos Iniciados */}
-          {(multaId || clienteData?.cliente_id) && (
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <RecursosIniciados
-                companyId={clienteData?.cliente_id}
-                onRecursoSelect={(recurso) => {
-                  console.log('📋 Recurso iniciado selecionado:', recurso);
-                  toast.success(`Recurso "${recurso.titulo}" selecionado`);
-                }}
-              />
-            </div>
-          )}
+
 
           {/* Seção 3.6: Recursos Gerados pelo n8n */}
-          {(recursosGerados.length > 0 || chatSessionId || multaId) && (
-            <div className="bg-white rounded-lg shadow-sm p-6">
-              <RecursosGerados
-                multaId={multaId || undefined}
-                chatSessionId={chatSessionId || undefined}
-                companyId={clienteData?.cliente_id}
-                onRecursoSelect={(recurso) => {
-                  console.log('📋 Recurso selecionado:', recurso);
-                  toast.success(`Recurso "${recurso.titulo}" selecionado`);
-                }}
-              />
-            </div>
-          )}
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <RecursosGerados
+              multaId={multaId || undefined}
+              chatSessionId={chatSessionId || undefined}
+              companyId={clienteData?.cliente_id}
+              onRecursoSelect={(recurso) => {
+                console.log('📋 Recurso selecionado:', recurso);
+                toast.success(`Recurso "${recurso.titulo}" selecionado`);
+              }}
+            />
+          </div>
 
           {/* Seção 4: Recurso Gerado */}
           <div className="bg-white rounded-lg shadow-sm p-6">

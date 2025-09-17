@@ -1607,49 +1607,76 @@ router.post('/create-service-order', authenticateToken, async (req: Request, res
     };
     
     // 7. Salvar no banco com TODOS os dados PIX extraídos
+    console.log('💾 SALVANDO NO BANCO DE DADOS...');
+    console.log('   - Tabela: service_orders');
+    console.log('   - QR Code para salvar:', qrCodeImage ? 'SIM (' + qrCodeImage.length + ' chars)' : 'NÃO');
+    console.log('   - PIX Payload para salvar:', pixPayload ? 'SIM (' + pixPayload.length + ' chars)' : 'NÃO');
+    console.log('   - Invoice URL para salvar:', invoiceUrl || 'NÃO');
+    console.log('   - Asaas Payment ID:', finalPaymentId);
+    
+    const insertData = {
+      client_id: customer_id,
+      service_id,
+      company_id,
+      service_type: 'recurso_multa',
+      multa_type: 'leve', // Valor padrão, pode ser ajustado conforme necessário
+      amount: valor_cobranca,
+      status: 'pending_payment',
+      description: `${service.name} - ${client.nome}`,
+      asaas_payment_id: finalPaymentId,
+      customer_id: client.asaas_customer_id || customer_id,
+      // SALVAR DADOS PIX IMEDIATAMENTE
+      qr_code_image: qrCodeImage,
+      pix_payload: pixPayload,
+      invoice_url: invoiceUrl,
+      payment_description: `${service.name} - ${client.nome}`,
+      billing_type: 'PIX',
+      webhook_response: webhookResult,
+      splits_config: {
+        acsm_value: service.acsm_value,
+        icetran_value: service.icetran_value,
+        taxa_cobranca: service.taxa_cobranca,
+        margem_despachante: margemDespachante,
+        custo_minimo: custoMinimo
+      },
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    };
+    
+    console.log('📦 DADOS PARA INSERÇÃO:');
+    console.log(JSON.stringify(insertData, null, 2));
+    
     const { data: payment, error: paymentError } = await supabase
       .from('service_orders')
-      .insert({
-        client_id: customer_id,
-        service_id,
-        company_id,
-        service_type: 'recurso_multa',
-        multa_type: 'leve', // Valor padrão, pode ser ajustado conforme necessário
-        amount: valor_cobranca,
-        status: 'pending_payment',
-        description: `${service.name} - ${client.nome}`,
-        asaas_payment_id: finalPaymentId,
-        customer_id: client.asaas_customer_id || customer_id,
-        // SALVAR DADOS PIX IMEDIATAMENTE
-        qr_code_image: qrCodeImage,
-        pix_payload: pixPayload,
-        invoice_url: invoiceUrl,
-        payment_description: `${service.name} - ${client.nome}`,
-        billing_type: 'PIX',
-        webhook_response: webhookResult,
-        splits_config: {
-          acsm_value: service.acsm_value,
-          icetran_value: service.icetran_value,
-          taxa_cobranca: service.taxa_cobranca,
-          margem_despachante: margemDespachante,
-          custo_minimo: custoMinimo
-        },
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      })
+      .insert(insertData)
       .select()
       .single();
     
     if (paymentError) {
-      console.error('Erro ao salvar service order:', paymentError);
-      return res.status(500).json({ error: paymentError.message });
+      console.error('❌ ERRO AO SALVAR NO BANCO:', paymentError);
+      console.log('   - Código do erro:', paymentError.code);
+      console.log('   - Mensagem:', paymentError.message);
+      console.log('   - Detalhes:', paymentError.details);
+      return res.status(500).json({ 
+        error: 'Erro ao salvar cobrança no banco de dados',
+        details: paymentError.message 
+      });
     }
     
-    console.log('Service order criada com sucesso:', payment.id);
+    console.log('✅ SERVICE ORDER SALVA COM SUCESSO NO BANCO!');
+    console.log('   - ID gerado:', payment.id);
+    console.log('   - Asaas Payment ID salvo:', payment.asaas_payment_id);
+    console.log('   - Status:', payment.status);
+    console.log('   - Valor:', payment.amount);
     
-    console.log('✅ Service order criada com dados PIX completos!');
-    console.log(`   - QR Code salvo: ${payment.qr_code_image ? 'SIM' : 'NÃO'}`);
-    console.log(`   - PIX Payload salvo: ${payment.pix_payload ? 'SIM' : 'NÃO'}`);
+    console.log('\n📊 VERIFICAÇÃO DOS DADOS PIX SALVOS:');
+    console.log(`   - QR Code Image salvo: ${payment.qr_code_image ? 'SIM (' + payment.qr_code_image.length + ' chars)' : 'NÃO'}`);
+    console.log(`   - PIX Payload salvo: ${payment.pix_payload ? 'SIM (' + payment.pix_payload.length + ' chars)' : 'NÃO'}`);
     console.log(`   - Invoice URL salvo: ${payment.invoice_url ? 'SIM' : 'NÃO'}`);
+    console.log(`   - Webhook Response salvo: ${payment.webhook_response ? 'SIM' : 'NÃO'}`);
+    
+    console.log('\n🎯 DADOS PRONTOS PARA RETORNO AO FRONTEND!');
+    console.log('   - Modal poderá exibir QR Code e informações completas');
+    console.log('   - Cobrança foi persistida com sucesso na tabela service_orders');
     
     res.json({
       success: true,

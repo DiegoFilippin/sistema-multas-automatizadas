@@ -9,6 +9,7 @@ import { multasService } from '@/services/multasService';
 import { clientsService } from '@/services/clientsService';
 import { CreditPurchaseModal } from '@/components/CreditPurchaseModal';
 import { CobrancasCliente } from '@/components/CobrancasCliente';
+import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { useAuthStore } from '@/stores/authStore';
 import type { Database } from '@/lib/supabase';
 
@@ -82,14 +83,76 @@ export default function ClienteDetalhes() {
   const [loadingCredits, setLoadingCredits] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [showCobrancaModal, setShowCobrancaModal] = useState(false);
+  const [selectedCobranca, setSelectedCobranca] = useState<any>(null);
   const { user } = useAuthStore();
 
-  // Função para carregar multas do cliente
+  // Função para carregar multas do cliente (incluindo service_orders com processos iniciados)
   const fetchMultasCliente = async (clienteId: string) => {
     try {
       setLoadingMultas(true);
-      const multasCliente = await multasService.getMultas({ clientId: clienteId });
-      setMultas(multasCliente);
+      
+      // 1. Buscar multas tradicionais
+      const multasTracionais = await multasService.getMultas({ clientId: clienteId });
+      
+      // 2. Buscar service_orders com processos iniciados
+      const { supabase } = await import('../lib/supabase');
+      const { data: serviceOrders, error: serviceOrdersError } = await supabase
+        .from('service_orders')
+        .select(`
+          *,
+          multa:multas(numero_auto, placa_veiculo, descricao_infracao, valor_final, local_infracao)
+        `)
+        .eq('client_id', clienteId)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false });
+      
+      if (serviceOrdersError) {
+        console.error('Erro ao buscar service_orders:', serviceOrdersError);
+      }
+      
+      // 3. Converter service_orders para formato de multa
+      const multasDeServiceOrders = (serviceOrders || []).map(order => {
+        console.log('🔍 === DEBUG SERVICE_ORDER ===');
+        console.log('  - Order completo:', order);
+        console.log('  - QR Code Image:', order.qr_code_image);
+        console.log('  - PIX Payload:', order.pix_payload);
+        console.log('  - PIX QR Code:', order.pix_qr_code);
+        console.log('  - PIX Copy Paste:', order.pix_copy_paste);
+        
+        return {
+          id: order.id, // Usar ID do service_order
+          numero_auto: order.multa?.numero_auto || `SO-${order.id.slice(0, 8)}`,
+          placa_veiculo: order.multa?.placa_veiculo || 'N/A',
+          descricao_infracao: order.multa?.descricao_infracao || `Recurso ${order.multa_type.toUpperCase()}`,
+          valor_final: order.multa?.valor_final || order.amount,
+          local_infracao: order.multa?.local_infracao || 'Processo Iniciado',
+          status: order.status === 'paid' ? 'em_recurso' : 'pendente_pagamento',
+          data_infracao: order.created_at,
+          client_id: clienteId,
+          company_id: order.company_id,
+          // Campos específicos para identificar como service_order
+          is_service_order: true,
+          service_order_id: order.id,
+          multa_type: order.multa_type,
+          process_status: order.status,
+          // ✅ INCLUIR TODOS OS CAMPOS PIX DO SERVICE_ORDER
+          qr_code_image: order.qr_code_image,
+          pix_payload: order.pix_payload,
+          pix_qr_code: order.pix_qr_code,
+          pix_copy_paste: order.pix_copy_paste,
+          invoice_url: order.invoice_url,
+          bank_slip_url: order.bank_slip_url,
+          amount: order.amount,
+          created_at: order.created_at,
+          updated_at: order.updated_at
+        };
+      });
+      
+      // 4. Combinar multas tradicionais com service_orders
+      const todasMultas = [...multasTracionais, ...multasDeServiceOrders];
+      
+      setMultas(todasMultas);
     } catch (error) {
       console.error('Erro ao carregar multas do cliente:', error);
       toast.error('Erro ao carregar multas do cliente');
@@ -154,6 +217,49 @@ export default function ClienteDetalhes() {
     } finally {
       setCreatingCustomer(false);
     }
+  };
+
+  // Função para mapear dados do service_order para o formato do modal CobrancaDetalhes
+  const mapServiceOrderToCobranca = (multa: any) => {
+    console.log('🔄 === MAPEANDO SERVICE_ORDER PARA COBRANCA ===');
+    console.log('  - Multa original:', multa);
+    console.log('  - QR Code Image:', multa.qr_code_image);
+    console.log('  - PIX Payload:', multa.pix_payload);
+    console.log('  - PIX QR Code:', multa.pix_qr_code);
+    console.log('  - PIX Copy Paste:', multa.pix_copy_paste);
+    console.log('  - Invoice URL:', multa.invoice_url);
+    
+    return {
+      id: multa.service_order_id || multa.id,
+      asaas_payment_id: multa.service_order_id || multa.id,
+      client_id: multa.client_id,
+      client_name: cliente?.nome || 'Cliente não informado',
+      customer_name: cliente?.nome || 'Cliente não informado',
+      amount: multa.valor_final || multa.amount || 0,
+      status: multa.process_status || multa.status || 'pending',
+      payment_method: 'PIX',
+      due_date: multa.data_infracao || multa.created_at || new Date().toISOString(),
+      created_at: multa.created_at || new Date().toISOString(),
+      paid_at: multa.process_status === 'paid' ? multa.updated_at : null,
+      description: `Recurso de Multa - ${multa.multa_type?.toUpperCase() || 'GRAVE'} - ${cliente?.nome || 'Cliente'}`,
+      // ✅ CAMPOS PIX CORRIGIDOS - buscar do service_order
+      invoice_url: multa.invoice_url,
+      pix_code: multa.pix_payload || multa.pix_copy_paste, // Campo principal para copia e cola
+      pix_qr_code: multa.pix_qr_code || multa.qr_code_image, // Campo principal para QR code
+      qr_code_image: multa.qr_code_image,
+      pix_payload: multa.pix_payload, // Dados do PIX para copia e cola
+      pix_copy_paste: multa.pix_payload || multa.pix_copy_paste, // Fallback para compatibilidade
+      company_id: multa.company_id,
+      // Dados adicionais para compatibilidade
+      payment_data: multa
+    };
+  };
+
+  // Função para abrir modal de detalhes da cobrança
+  const handleOpenCobrancaModal = (multa: any) => {
+    const cobrancaData = mapServiceOrderToCobranca(multa);
+    setSelectedCobranca(cobrancaData);
+    setShowCobrancaModal(true);
   };
 
   useEffect(() => {
@@ -688,7 +794,14 @@ export default function ClienteDetalhes() {
                         </div>
                         <div>
                           <h3 className="font-medium text-gray-900">{multa.numero_auto}</h3>
-                          <p className="text-sm text-gray-600">{multa.descricao_infracao}</p>
+                          <p className="text-sm text-gray-600">
+                            {multa.descricao_infracao}
+                            {multa.is_service_order && (
+                              <span className="ml-2 inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                                Processo Iniciado
+                              </span>
+                            )}
+                          </p>
                         </div>
                       </div>
                       <div className="text-right">
@@ -696,12 +809,19 @@ export default function ClienteDetalhes() {
                           R$ {multa.valor_original?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </p>
                         <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          multa.status === 'pendente' ? 'bg-yellow-100 text-yellow-800' :
-                          multa.status === 'pago' ? 'bg-green-100 text-green-800' :
-                          multa.status === 'em_recurso' ? 'bg-blue-100 text-blue-800' :
+                          multa.status === 'pendente' || multa.status === 'pendente_pagamento' ? 'bg-yellow-100 text-yellow-800' :
+                          multa.status === 'pago' || multa.status === 'paid' ? 'bg-green-100 text-green-800' :
+                          multa.status === 'em_recurso' || multa.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                          multa.status === 'completed' ? 'bg-green-100 text-green-800' :
                           'bg-gray-100 text-gray-800'
                         }`}>
-                          {multa.status}
+                          {multa.is_service_order ? (
+                            multa.process_status === 'pending_payment' ? 'Aguardando Pagamento' :
+                            multa.process_status === 'paid' ? 'Pago' :
+                            multa.process_status === 'processing' ? 'Em Processamento' :
+                            multa.process_status === 'completed' ? 'Concluído' :
+                            multa.process_status
+                          ) : multa.status}
                         </span>
                       </div>
                     </div>
@@ -717,10 +837,27 @@ export default function ClienteDetalhes() {
                       </div>
                       <div>
                         <button 
-                          onClick={() => navigate(`/multas/${multa.id}`)}
+                          onClick={() => {
+                            if (multa.is_service_order) {
+                              // Para service_orders, verificar o status
+                              if (multa.process_status === 'paid') {
+                                // Se pago, redirecionar para página de recurso
+                                navigate(`/teste-recurso-ia?serviceOrderId=${multa.service_order_id}&nome=${encodeURIComponent(cliente.nome)}`);
+                              } else {
+                                // Se não pago, abrir modal de detalhes da cobrança
+                                handleOpenCobrancaModal(multa);
+                              }
+                            } else {
+                              // Redirecionar para página de detalhes da multa tradicional
+                              navigate(`/multas/${multa.id}`);
+                            }
+                          }}
                           className="text-blue-600 hover:text-blue-800 font-medium"
                         >
-                          Ver detalhes
+                          {multa.is_service_order ? 
+                            (multa.process_status === 'paid' ? 'Ver Recurso' : 'Ver Detalhes da Cobrança') : 
+                            'Ver detalhes'
+                          }
                         </button>
                       </div>
                     </div>
@@ -750,6 +887,34 @@ export default function ClienteDetalhes() {
           clientId={cliente.id}
         />
       </div>
+
+      {/* Modal de Detalhes da Cobrança */}
+      {showCobrancaModal && selectedCobranca && (
+        <CobrancaDetalhes
+          cobranca={selectedCobranca}
+          isOpen={showCobrancaModal}
+          onClose={() => {
+            setShowCobrancaModal(false);
+            setSelectedCobranca(null);
+          }}
+          onResend={async (cobranca) => {
+            // Implementar reenvio se necessário
+            toast.success('Cobrança reenviada!');
+          }}
+          onCancel={async (cobranca) => {
+            // Implementar cancelamento se necessário
+            toast.success('Cobrança cancelada!');
+          }}
+          onUpdate={(updatedCobranca) => {
+            // Atualizar dados se necessário
+            console.log('Cobrança atualizada:', updatedCobranca);
+            // Recarregar multas para refletir mudanças
+            if (cliente?.id) {
+              fetchMultasCliente(cliente.id);
+            }
+          }}
+        />
+      )}
 
       {/* Modal de Compra de Créditos */}
       <CreditPurchaseModal
