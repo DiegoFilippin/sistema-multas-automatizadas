@@ -115,7 +115,7 @@ class SubaccountService {
 
   private getAsaasBaseUrl(): string {
     // Usar proxy local para resolver problemas de CORS (igual ao asaasService)
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3001');
+    const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001';
     return `${baseUrl}/api/asaas-proxy`;
   }
 

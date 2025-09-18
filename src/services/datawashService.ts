@@ -21,8 +21,18 @@ interface DataWashResponse {
 }
 
 class DataWashService {
-  private baseUrl = import.meta.env.VITE_API_BASE_URL ? `${import.meta.env.VITE_API_BASE_URL}/api/datawash` : (import.meta.env.PROD ? '/api/datawash' : 'http://localhost:3001/api/datawash');
+  private baseUrl = this.getBaseUrl();
   private isProduction = import.meta.env.PROD;
+  
+  private getBaseUrl(): string {
+    // Em produção (Vercel), usar URLs relativas
+    if (import.meta.env.PROD) {
+      return '/api/datawash';
+    }
+    
+    // Em desenvolvimento, usar localhost
+    return 'http://localhost:3001/api/datawash';
+  }
   
   async consultarCPF(cpf: string): Promise<DataWashResponse> {
     const cpfLimpo = cpf.replace(/\D/g, '');
@@ -32,18 +42,13 @@ class DataWashService {
     }
     
     try {
-      // Tentar usar proxy local primeiro
-      if (!this.isProduction) {
-        return await this.consultarViaProxy(cpfLimpo);
+      // Em produção, usar API do Vercel diretamente
+      if (this.isProduction) {
+        return await this.consultarViaAPI(cpfLimpo);
       }
       
-      // Em produção, tentar proxy e fallback se falhar
-      try {
-        return await this.consultarViaProxy(cpfLimpo);
-      } catch (proxyError) {
-        console.log('Proxy não disponível em produção, usando fallback:', proxyError.message);
-        return this.gerarDadosSimulados(cpfLimpo);
-      }
+      // Em desenvolvimento, usar proxy local
+      return await this.consultarViaProxy(cpfLimpo);
       
     } catch (error) {
       // Log informativo para casos esperados (CPF não encontrado)
@@ -56,6 +61,45 @@ class DataWashService {
       // Sempre retornar dados simulados em caso de erro
       return this.gerarDadosSimulados(cpfLimpo);
     }
+  }
+  
+  private async consultarViaAPI(cpf: string): Promise<DataWashResponse> {
+    const response = await fetch(`${this.baseUrl}/${cpf}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      // Timeout de 10 segundos
+      signal: AbortSignal.timeout(10000)
+    });
+    
+    if (!response.ok) {
+      if (response.status === 404) {
+        // CPF não encontrado - retornar dados simulados diretamente
+        console.log('CPF não encontrado na API, gerando dados simulados:', cpf);
+        return this.gerarDadosSimulados(cpf);
+      } else if (response.status >= 500) {
+        throw new Error('Serviço temporariamente indisponível');
+      } else {
+        throw new Error('Erro ao consultar CPF. Tente novamente');
+      }
+    }
+    
+    const data = await response.json();
+    
+    if (!data.success) {
+      // Se a API retornou erro, usar dados simulados
+      console.log('API retornou erro, usando dados simulados:', data.warning || 'Erro na consulta CPF');
+      return this.gerarDadosSimulados(cpf);
+    }
+    
+    // Garantir que sempre tenha um email válido
+    if (!data.email && data.nome) {
+      data.email = this.gerarEmailDoNome(data.nome);
+      console.log('📧 Email gerado para completar dados:', data.email);
+    }
+    
+    return data;
   }
   
   private async consultarViaProxy(cpf: string): Promise<DataWashResponse> {

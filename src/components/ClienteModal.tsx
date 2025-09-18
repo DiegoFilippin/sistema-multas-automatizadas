@@ -379,7 +379,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
     
     try {
       // Fazer requisição para o backend
-      const response = await fetch(`${import.meta.env.PROD ? '/api' : 'http://localhost:3001'}/api/cep/${cepLimpo}`, {
+      const response = await fetch(`${import.meta.env.PROD ? '' : 'http://localhost:3001'}/api/cep/${cepLimpo}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
