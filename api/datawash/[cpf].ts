@@ -217,7 +217,7 @@ function generateFallbackData(cpf: string) {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Configurar headers CORS
-  res.setHeader('Access-Control-Allow-Origin', process.env.NODE_ENV === 'production' ? 'https://sistema-multas-automatizadas.vercel.app' : 'http://localhost:5173');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, access_token');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
