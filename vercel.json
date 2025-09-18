@@ -24,10 +24,7 @@
       "source": "/api/payments/(.*)",
       "destination": "/api/payments/$1"
     },
-    {
-      "source": "/api/datawash/([^/]+)",
-      "destination": "/api/datawash/[cpf]?cpf=$1"
-    },
+
     {
       "source": "/api/credits/balance",
       "destination": "/api/credits/balance"
