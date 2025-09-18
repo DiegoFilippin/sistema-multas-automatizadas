@@ -130,8 +130,25 @@ function RecursoActions({ cobranca }: { cobranca: Cobranca }) {
         console.log('📡 Response status:', response.status);
         
         if (response.ok) {
-          const data = await response.json();
-          console.log('✅ Recurso data received:', data);
+          const responseText = await response.text();
+          console.log('📄 Raw response:', responseText);
+          
+          // Verificar se a resposta é JSON válido
+          let data;
+          try {
+            // Verificar se começa com HTML (erro comum no Vercel)
+            if (responseText.trim().startsWith('<!') || responseText.trim().startsWith('<html')) {
+              console.error('❌ API retornou HTML ao invés de JSON:', responseText.substring(0, 100));
+              throw new Error('API retornou HTML ao invés de JSON - possível erro de roteamento');
+            }
+            
+            data = JSON.parse(responseText);
+            console.log('✅ Recurso data received:', data);
+          } catch (parseError) {
+            console.error('❌ Erro ao fazer parse do JSON:', parseError);
+            console.error('❌ Resposta recebida:', responseText.substring(0, 200));
+            throw new Error('Resposta da API não é um JSON válido');
+          }
           
           // Se não tem recurso e o pagamento está pago, pode criar
           if (!data.hasRecurso && isPaid) {

@@ -17,6 +17,14 @@
       "destination": "/api/payments/get-service-order?paymentId=$1"
     },
     {
+      "source": "/api/payments/(.*)/recurso",
+      "destination": "/api/payments/$1/recurso"
+    },
+    {
+      "source": "/api/payments/(.*)",
+      "destination": "/api/payments/$1"
+    },
+    {
       "source": "/api/datawash/(.*)",
       "destination": "/api/datawash/$1"
     },
