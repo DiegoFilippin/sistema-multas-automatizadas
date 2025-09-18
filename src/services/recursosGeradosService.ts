@@ -342,6 +342,71 @@ class RecursosGeradosService {
   }
 
   /**
+   * Limpa o conteúdo do recurso especificamente para PDF, removendo todos os metadados do sistema
+   */
+  private cleanRecursoForPDF(rawText: string): string {
+    let cleanedText = rawText;
+    
+    // Remover cabeçalho do sistema
+    cleanedText = cleanedText.replace(/\[RECURSO GERADO\]/g, '');
+    cleanedText = cleanedText.replace(/Tipo:.*$/gm, '');
+    cleanedText = cleanedText.replace(/Status:.*$/gm, '');
+    cleanedText = cleanedText.replace(/Gerado em:.*$/gm, '');
+    cleanedText = cleanedText.replace(/Versão:.*$/gm, '');
+    cleanedText = cleanedText.replace(/CONTEÚDO DO RECURSO:/g, '');
+    
+    // Remover rodapé do sistema
+    cleanedText = cleanedText.replace(/Documento gerado automaticamente.*$/gm, '');
+    cleanedText = cleanedText.replace(/Data de geração:.*$/gm, '');
+    
+    // Remover símbolos especiais no início das linhas
+    cleanedText = cleanedText.replace(/^[✕×✗]\s*/gm, '');
+    
+    // Remover comentários explicativos da IA no início
+    cleanedText = cleanedText.replace(/^(Claro|Vou|Posso|Caso queira).*$/gm, '');
+    
+    // Remover linhas com traços separadores
+    cleanedText = cleanedText.replace(/^\s*---\s*$/gm, '');
+    
+    // Remover perguntas no final
+    cleanedText = cleanedText.replace(/Caso queira.*?Deseja\?/gs, '');
+    cleanedText = cleanedText.replace(/Deseja que.*?\?/gs, '');
+    cleanedText = cleanedText.replace(/Precisa de.*?\?/gs, '');
+    
+    // Remover linhas vazias excessivas
+    cleanedText = cleanedText.replace(/\n\s*\n\s*\n/g, '\n\n');
+    
+    // Extrair apenas o conteúdo do recurso (de "À" até assinatura)
+    const lines = cleanedText.split('\n');
+    const startIndex = lines.findIndex(line => 
+      line.trim().startsWith('À') || 
+      line.includes('Autoridade') ||
+      line.includes('DETRAN') ||
+      line.includes('Ref.:')
+    );
+    
+    if (startIndex !== -1) {
+      // Encontrar o final (após "Pede deferimento" e assinatura)
+      let endIndex = -1;
+      for (let i = startIndex; i < lines.length; i++) {
+        if (lines[i].includes('Pede deferimento')) {
+          // Procurar por mais 3-5 linhas para incluir assinatura
+          endIndex = Math.min(i + 5, lines.length);
+          break;
+        }
+      }
+      
+      if (endIndex !== -1) {
+        cleanedText = lines.slice(startIndex, endIndex).join('\n');
+      } else {
+        cleanedText = lines.slice(startIndex).join('\n');
+      }
+    }
+    
+    return cleanedText.trim();
+  }
+
+  /**
    * Gera PDF do recurso usando jsPDF
    */
   async gerarPDF(recurso: RecursoGerado): Promise<Blob | null> {
@@ -382,60 +447,16 @@ class RecursosGeradosService {
         currentY += lines.length * fontSize * 0.35 + 5;
       };
       
-      // Cabeçalho do documento
-      addText(recurso.titulo.toUpperCase(), 16, true);
-      currentY += 5;
+      // Limpar o conteúdo do recurso removendo metadados do sistema
+      const conteudoLimpo = this.cleanRecursoForPDF(recurso.conteudo_recurso);
       
-      // Informações do recurso
-      addText(`Tipo: ${this.getTipoRecursoLabel(recurso.tipo_recurso)}`, 10);
-      addText(`Status: ${recurso.status.toUpperCase()}`, 10);
-      addText(`Gerado em: ${new Date(recurso.created_at!).toLocaleString('pt-BR')}`, 10);
-      
-      if (recurso.versao) {
-        addText(`Versão: ${recurso.versao}`, 10);
-      }
-      
-      currentY += 10;
-      
-      // Linha separadora
-      pdf.setDrawColor(0, 0, 0);
-      pdf.line(margin, currentY, pageWidth - margin, currentY);
-      currentY += 10;
-      
-      // Conteúdo do recurso
-      addText('CONTEÚDO DO RECURSO:', 14, true);
-      currentY += 5;
-      addText(recurso.conteudo_recurso, 11);
-      
-      // Fundamentação legal (se disponível)
-      if (recurso.fundamentacao_legal) {
-        currentY += 10;
-        addText('FUNDAMENTAÇÃO LEGAL:', 12, true);
-        addText(recurso.fundamentacao_legal, 10);
-      }
-      
-      // Argumentos principais (se disponíveis)
-      if (recurso.argumentos_principais && recurso.argumentos_principais.length > 0) {
-        currentY += 10;
-        addText('ARGUMENTOS PRINCIPAIS:', 12, true);
-        recurso.argumentos_principais.forEach((argumento, index) => {
-          addText(`${index + 1}. ${argumento}`, 10);
-        });
-      }
-      
-      // Rodapé
-      currentY += 20;
-      pdf.setDrawColor(0, 0, 0);
-      pdf.line(margin, currentY, pageWidth - margin, currentY);
-      currentY += 10;
-      
-      addText('Documento gerado automaticamente pelo Sistema de Recursos de Multas', 8);
-      addText(`Data de geração: ${new Date().toLocaleString('pt-BR')}`, 8);
+      // Adicionar apenas o conteúdo limpo do recurso
+      addText(conteudoLimpo, 11);
       
       // Converter para blob
       const pdfBlob = pdf.output('blob');
       
-      console.log('✅ PDF gerado com sucesso');
+      console.log('✅ PDF gerado com sucesso - apenas conteúdo do recurso');
       return pdfBlob;
       
     } catch (error) {
@@ -459,18 +480,93 @@ class RecursosGeradosService {
   }
 
   /**
+   * Limpa o texto do recurso removendo elementos extras
+   */
+  private cleanRecursoText(rawText: string): string {
+    let cleanedText = rawText;
+    
+    // Remover marcadores [RECURSO GERADO]
+    cleanedText = cleanedText.replace(/\[RECURSO GERADO\]/g, '');
+    
+    // Remover símbolos especiais no início das linhas
+    cleanedText = cleanedText.replace(/^[✕×✗]\s*/gm, '');
+    
+    // Remover comentários explicativos da IA no início
+    cleanedText = cleanedText.replace(/^(Claro|Vou|Posso|Caso queira).*$/gm, '');
+    
+    // Remover linhas com traços separadores
+    cleanedText = cleanedText.replace(/^\s*---\s*$/gm, '');
+    
+    // Remover perguntas no final (padrão: "Caso queira...Deseja?")
+    cleanedText = cleanedText.replace(/Caso queira.*?Deseja\?/gs, '');
+    
+    // Remover outras perguntas comuns no final
+    cleanedText = cleanedText.replace(/Deseja que.*?\?/gs, '');
+    cleanedText = cleanedText.replace(/Precisa de.*?\?/gs, '');
+    
+    // Limpar linhas vazias excessivas
+    cleanedText = cleanedText.replace(/\n\s*\n\s*\n/g, '\n\n');
+    
+    // Extrair apenas o conteúdo formal do recurso
+    const lines = cleanedText.split('\n');
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    // Procurar início do recurso (À, Autoridade, etc.)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.includes('À') || line.includes('Autoridade') || line.includes('Ref.:') || line.includes('Requerente:')) {
+        startIndex = i;
+        break;
+      }
+    }
+    
+    // Procurar fim do recurso (Pede deferimento, assinatura, etc.)
+    if (startIndex !== -1) {
+      for (let i = startIndex + 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('Pede deferimento') || line.includes('Termos em que') || 
+            (line.length > 10 && /^[A-Z][a-z]+ [A-Z][a-z]+ [A-Z][a-z]+$/.test(line))) {
+          // Incluir mais algumas linhas após "Pede deferimento" para capturar assinatura
+          endIndex = Math.min(i + 4, lines.length);
+          break;
+        }
+      }
+    }
+    
+    // Se encontrou início e fim, extrair apenas essa parte
+    if (startIndex !== -1) {
+      const finalEndIndex = endIndex !== -1 ? endIndex : lines.length;
+      cleanedText = lines.slice(startIndex, finalEndIndex).join('\n');
+    }
+    
+    // Limpeza final
+    cleanedText = cleanedText.trim();
+    
+    // Remover linhas vazias no início e fim
+    cleanedText = cleanedText.replace(/^\s*\n+/, '').replace(/\n+\s*$/, '');
+    
+    return cleanedText;
+  }
+
+  /**
    * Faz download do recurso como arquivo
    */
   async downloadRecurso(recurso: RecursoGerado, formato: 'txt' | 'pdf' = 'txt'): Promise<void> {
     try {
       let blob: Blob | null = null;
       let nomeArquivo = '';
-
+      
       if (formato === 'pdf') {
-        blob = await this.gerarPDF(recurso);
+        // Para PDF, usar limpeza específica que remove todos os metadados do sistema
+        const conteudoLimpoPDF = this.cleanRecursoForPDF(recurso.conteudo_recurso);
+        const recursoLimpo = { ...recurso, conteudo_recurso: conteudoLimpoPDF };
+        blob = await this.gerarPDF(recursoLimpo);
         nomeArquivo = `recurso_${recurso.id?.substring(0, 8)}_${Date.now()}.pdf`;
       } else {
-        const conteudo = `${recurso.titulo}\n\n${recurso.conteudo_recurso}`;
+        // Para TXT, usar limpeza padrão
+        const conteudoLimpo = this.cleanRecursoText(recurso.conteudo_recurso);
+        const conteudo = `${recurso.titulo}\n\n${conteudoLimpo}`;
         blob = new Blob([conteudo], { type: 'text/plain;charset=utf-8' });
         nomeArquivo = `recurso_${recurso.id?.substring(0, 8)}_${Date.now()}.txt`;
       }

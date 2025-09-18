@@ -23,6 +23,74 @@ const RecursosGerados: React.FC<RecursosGeradosProps> = ({
   const [editingRecurso, setEditingRecurso] = useState<RecursoGerado | null>(null);
   const [editedContent, setEditedContent] = useState('');
 
+  // Função para limpar o texto do recurso removendo elementos extras
+  const cleanRecursoText = (rawText: string): string => {
+    let cleanedText = rawText;
+    
+    // Remover marcadores [RECURSO GERADO]
+    cleanedText = cleanedText.replace(/\[RECURSO GERADO\]/g, '');
+    
+    // Remover símbolos especiais no início das linhas
+    cleanedText = cleanedText.replace(/^[✕×✗]\s*/gm, '');
+    
+    // Remover comentários explicativos da IA no início
+    cleanedText = cleanedText.replace(/^(Claro|Vou|Posso|Caso queira).*$/gm, '');
+    
+    // Remover linhas com traços separadores
+    cleanedText = cleanedText.replace(/^\s*---\s*$/gm, '');
+    
+    // Remover perguntas no final (padrão: "Caso queira...Deseja?")
+    cleanedText = cleanedText.replace(/Caso queira.*?Deseja\?/gs, '');
+    
+    // Remover outras perguntas comuns no final
+    cleanedText = cleanedText.replace(/Deseja que.*?\?/gs, '');
+    cleanedText = cleanedText.replace(/Precisa de.*?\?/gs, '');
+    
+    // Limpar linhas vazias excessivas
+    cleanedText = cleanedText.replace(/\n\s*\n\s*\n/g, '\n\n');
+    
+    // Extrair apenas o conteúdo formal do recurso
+    const lines = cleanedText.split('\n');
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    // Procurar início do recurso (À, Autoridade, etc.)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.includes('À') || line.includes('Autoridade') || line.includes('Ref.:') || line.includes('Requerente:')) {
+        startIndex = i;
+        break;
+      }
+    }
+    
+    // Procurar fim do recurso (Pede deferimento, assinatura, etc.)
+    if (startIndex !== -1) {
+      for (let i = startIndex + 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('Pede deferimento') || line.includes('Termos em que') || 
+            (line.length > 10 && /^[A-Z][a-z]+ [A-Z][a-z]+ [A-Z][a-z]+$/.test(line))) {
+          // Incluir mais algumas linhas após "Pede deferimento" para capturar assinatura
+          endIndex = Math.min(i + 4, lines.length);
+          break;
+        }
+      }
+    }
+    
+    // Se encontrou início e fim, extrair apenas essa parte
+    if (startIndex !== -1) {
+      const finalEndIndex = endIndex !== -1 ? endIndex : lines.length;
+      cleanedText = lines.slice(startIndex, finalEndIndex).join('\n');
+    }
+    
+    // Limpeza final
+    cleanedText = cleanedText.trim();
+    
+    // Remover linhas vazias no início e fim
+    cleanedText = cleanedText.replace(/^\s*\n+/, '').replace(/\n+\s*$/, '');
+    
+    return cleanedText;
+  };
+
   // Carregar recursos quando os props mudarem
   useEffect(() => {
     loadRecursos();
@@ -198,7 +266,7 @@ const RecursosGerados: React.FC<RecursosGeradosProps> = ({
                 </div>
                 
                 <p className="text-sm text-gray-600 line-clamp-2">
-                  {recurso.conteudo_recurso.substring(0, 150)}...
+                  {cleanRecursoText(recurso.conteudo_recurso).substring(0, 150)}...
                 </p>
                 
                 {recurso.argumentos_principais && recurso.argumentos_principais.length > 0 && (
@@ -286,7 +354,7 @@ const RecursosGerados: React.FC<RecursosGeradosProps> = ({
               </button>
             </div>
             <div className="p-4 overflow-y-auto max-h-[70vh]">
-              <pre className="whitespace-pre-wrap text-sm">{selectedRecurso.conteudo_recurso}</pre>
+              <pre className="whitespace-pre-wrap text-sm">{cleanRecursoText(selectedRecurso.conteudo_recurso)}</pre>
             </div>
             <div className="flex items-center justify-end space-x-2 p-4 border-t">
               <button

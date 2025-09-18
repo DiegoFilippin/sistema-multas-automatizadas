@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Upload, FileText, MessageCircle, Eye, User, MapPin, Hash } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
@@ -376,6 +376,56 @@ const TesteRecursoIA: React.FC = () => {
   // Estados para recursos gerados
   const [recursosGerados, setRecursosGerados] = useState<any[]>([]);
   const [showRecursosGerados, setShowRecursosGerados] = useState(false);
+  
+  // Ref para o container do chat para scroll automático
+  const chatContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Função para scroll automático do chat
+  const scrollToBottom = () => {
+    if (chatContainerRef.current) {
+      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+    }
+  };
+  
+  // useEffect para scroll automático quando mensagens mudam
+  useEffect(() => {
+    scrollToBottom();
+  }, [n8nChatMessages, isN8nLoading]);
+  
+  // useEffect para polling de recursos gerados
+  useEffect(() => {
+    let pollingInterval: NodeJS.Timeout;
+    
+    if (multaId && chatSessionId) {
+      pollingInterval = setInterval(async () => {
+        try {
+          // Verificar se há novos recursos gerados
+          const { supabase } = await import('../lib/supabase');
+          const { data: recursos, error } = await supabase
+            .from('recursos_gerados')
+            .select('*')
+            .eq('multa_id', multaId)
+            .order('created_at', { ascending: false });
+            
+          if (!error && recursos && recursos.length > recursosGerados.length) {
+            setRecursosGerados(recursos);
+            // Mostrar notificação quando novo recurso for gerado
+            if (recursos.length > recursosGerados.length) {
+              toast.success('Novo recurso foi gerado automaticamente!');
+            }
+          }
+        } catch (error) {
+          console.error('Erro no polling de recursos:', error);
+        }
+      }, 5000); // Verificar a cada 5 segundos
+    }
+    
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [multaId, chatSessionId, recursosGerados.length]);
 
   // Carregar histórico de mensagens do banco quando chatSessionId é definido
   // Debug: Monitor de estado do chat
@@ -492,6 +542,74 @@ const TesteRecursoIA: React.FC = () => {
     loadExistingSession();
   }, [multaId, chatSessionId]);
 
+  // Função para limpar o texto do recurso removendo elementos extras
+  const cleanRecursoText = (rawText: string): string => {
+    let cleanedText = rawText;
+    
+    // Remover marcadores [RECURSO GERADO]
+    cleanedText = cleanedText.replace(/\[RECURSO GERADO\]/g, '');
+    
+    // Remover símbolos especiais no início das linhas
+    cleanedText = cleanedText.replace(/^[✕×✗]\s*/gm, '');
+    
+    // Remover comentários explicativos da IA no início
+    cleanedText = cleanedText.replace(/^(Claro|Vou|Posso|Caso queira).*$/gm, '');
+    
+    // Remover linhas com traços separadores
+    cleanedText = cleanedText.replace(/^\s*---\s*$/gm, '');
+    
+    // Remover perguntas no final (padrão: "Caso queira...Deseja?")
+    cleanedText = cleanedText.replace(/Caso queira.*?Deseja\?/gs, '');
+    
+    // Remover outras perguntas comuns no final
+    cleanedText = cleanedText.replace(/Deseja que.*?\?/gs, '');
+    cleanedText = cleanedText.replace(/Precisa de.*?\?/gs, '');
+    
+    // Limpar linhas vazias excessivas
+    cleanedText = cleanedText.replace(/\n\s*\n\s*\n/g, '\n\n');
+    
+    // Extrair apenas o conteúdo formal do recurso
+    const lines = cleanedText.split('\n');
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    // Procurar início do recurso (À, Autoridade, etc.)
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (line.includes('À') || line.includes('Autoridade') || line.includes('Ref.:') || line.includes('Requerente:')) {
+        startIndex = i;
+        break;
+      }
+    }
+    
+    // Procurar fim do recurso (Pede deferimento, assinatura, etc.)
+    if (startIndex !== -1) {
+      for (let i = startIndex + 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('Pede deferimento') || line.includes('Termos em que') || 
+            (line.length > 10 && /^[A-Z][a-z]+ [A-Z][a-z]+ [A-Z][a-z]+$/.test(line))) {
+          // Incluir mais algumas linhas após "Pede deferimento" para capturar assinatura
+          endIndex = Math.min(i + 4, lines.length);
+          break;
+        }
+      }
+    }
+    
+    // Se encontrou início e fim, extrair apenas essa parte
+    if (startIndex !== -1) {
+      const finalEndIndex = endIndex !== -1 ? endIndex : lines.length;
+      cleanedText = lines.slice(startIndex, finalEndIndex).join('\n');
+    }
+    
+    // Limpeza final
+    cleanedText = cleanedText.trim();
+    
+    // Remover linhas vazias no início e fim
+    cleanedText = cleanedText.replace(/^\s*\n+/, '').replace(/\n+\s*$/, '');
+    
+    return cleanedText;
+  };
+
   // Função para detectar e salvar recursos gerados pelo n8n
   const detectarESalvarRecurso = async (responseContent: string, sessionId: string, multaIdParam: string) => {
     try {
@@ -527,8 +645,12 @@ const TesteRecursoIA: React.FC = () => {
         console.log('📝 Conteúdo:', responseContent.substring(0, 200) + '...');
         console.log('🏷️ Indicadores que ativaram a detecção:', indicadoresEncontrados);
         
-        // Extrair informações do recurso
-        const infoRecurso = recursosGeradosService.extrairInformacoesRecurso(responseContent);
+        // Limpar o conteúdo do recurso removendo elementos extras
+        const conteudoLimpo = cleanRecursoText(responseContent);
+        console.log('🧹 Conteúdo limpo (primeiros 200 chars):', conteudoLimpo.substring(0, 200));
+        
+        // Extrair informações do recurso usando o conteúdo limpo
+        const infoRecurso = recursosGeradosService.extrairInformacoesRecurso(conteudoLimpo);
         console.log('📋 Informações extraídas:', infoRecurso);
         
         // Obter dados do usuário e empresa
@@ -2628,7 +2750,7 @@ const TesteRecursoIA: React.FC = () => {
             <div className="flex-1">
               {n8nChatActive ? (
                 <div className="h-full flex flex-col">
-                  <div className="flex-1 overflow-y-auto space-y-4 p-4 bg-gray-50 rounded-lg mb-4 max-h-96">
+                  <div ref={chatContainerRef} className="flex-1 overflow-y-auto space-y-4 p-4 bg-gray-50 rounded-lg mb-4 max-h-96">
                     {n8nChatMessages.map((message) => (
                       <div
                         key={message.id}
