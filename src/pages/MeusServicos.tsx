@@ -1851,13 +1851,7 @@ const MeusServicos: React.FC = () => {
                            </div>
                          )}
 
-                        {/* Informações de Custo */}
-                        {custoMinimo > 0 && (
-                          <div className="text-xs text-gray-500 mt-2">
-                            💡 Custo mínimo: R$ {custoMinimo.toFixed(2)} | 
-                            Qualquer valor acima será sua margem de lucro
-                          </div>
-                        )}
+                        {/* Informações de Custo removidas */}
                       </div>
                     )}
                   </div>

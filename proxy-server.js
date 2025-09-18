@@ -253,7 +253,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Health check
-  if (req.url === '/health') {
+  if (req.url === '/health' || req.url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'OK',

@@ -246,9 +246,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     
     console.log(`DataWash proxy request: Consultando CPF ${cpf}`);
     
-    // Usar HTTP em vez de HTTPS para evitar erro de certificado SSL
-    // Configuração exata do n8n que funciona
-    const targetUrl = `http://webservice.datawash.com.br/localizacao.asmx/ConsultaCPFCompleta?cliente=Neoshare&usuario=felipe@nexmedia.com.br&senha=neoshare2015&cpf=${cpf}`;
+    // Verificar se estamos em ambiente de produção (Vercel)
+    const isProduction = process.env.NODE_ENV === 'production';
+    console.log(`🌍 Ambiente: ${isProduction ? 'PRODUÇÃO (Vercel)' : 'DESENVOLVIMENTO'}`);
+    
+    // Usar variáveis de ambiente para credenciais do DataWash
+    const datawashUsername = process.env.DATAWASH_USERNAME || 'felipe@nexmedia.com.br';
+    const datawashPassword = process.env.DATAWASH_PASSWORD || 'neoshare2015';
+    const datawashCliente = process.env.DATAWASH_CLIENTE || 'Neoshare';
+    const datawashBaseUrl = process.env.DATAWASH_BASE_URL || 'http://webservice.datawash.com.br/localizacao.asmx/ConsultaCPFCompleta';
+    
+    // Log das variáveis de ambiente (sem mostrar senha completa)
+    console.log(`🔑 DataWash Config:`);
+    console.log(`   - Username: ${datawashUsername}`);
+    console.log(`   - Password: ${datawashPassword ? datawashPassword.substring(0, 4) + '***' : 'NÃO DEFINIDA'}`);
+    console.log(`   - Cliente: ${datawashCliente}`);
+    console.log(`   - Base URL: ${datawashBaseUrl}`);
+    
+    const targetUrl = `${datawashBaseUrl}?cliente=${datawashCliente}&usuario=${datawashUsername}&senha=${datawashPassword}&cpf=${cpf}`;
     
     console.log(`🌐 URL DataWash: ${targetUrl}`);
     
@@ -289,7 +304,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error) {
     console.error('❌ Erro no proxy DataWash:', error);
     
-    // Fallback para dados simulados em caso de erro
+    // Verificar se é erro de timeout ou rede
+    const isNetworkError = error instanceof Error && (
+      error.name === 'AbortError' ||
+      error.message.includes('fetch') ||
+      error.message.includes('network') ||
+      error.message.includes('timeout')
+    );
+    
+    // Verificar se é erro de credenciais ou API
+    const isApiError = error instanceof Error && (
+      error.message.includes('DataWash API error') ||
+      error.message.includes('401') ||
+      error.message.includes('403')
+    );
+    
+    console.log(`🔍 Tipo de erro detectado:`);
+    console.log(`   - Erro de rede/timeout: ${isNetworkError}`);
+    console.log(`   - Erro de API/credenciais: ${isApiError}`);
+    
+    // Se for erro de produção no Vercel, tentar retornar erro real ao invés de fallback
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && (isApiError || isNetworkError)) {
+      console.log('🚨 PRODUÇÃO: Retornando erro real ao invés de fallback');
+      res.status(500).json({
+        success: false,
+        error: 'Serviço DataWash temporariamente indisponível',
+        details: error instanceof Error ? error.message : 'Erro desconhecido',
+        source: 'datawash_error'
+      });
+      return;
+    }
+    
+    // Fallback para dados simulados apenas em desenvolvimento ou erros não críticos
     const cpf = req.query.cpf as string;
     const fallbackData = generateFallbackData(cpf);
     
