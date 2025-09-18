@@ -151,7 +151,8 @@ router.post('/recursos', authenticateToken, authorizeRoles(['master_company', 'd
       console.log('🔒 Validando pagamento para criação de recurso:', recursoData.paymentId);
       
       // Buscar dados do pagamento
-      const paymentResponse = await fetch(`${process.env.API_BASE_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3001')}/api/payments/${recursoData.paymentId}/recurso`, {
+      const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001';
+      const paymentResponse = await fetch(`${baseUrl}/api/payments/${recursoData.paymentId}/recurso`, {
         headers: {
           'Authorization': req.headers.authorization || ''
         }

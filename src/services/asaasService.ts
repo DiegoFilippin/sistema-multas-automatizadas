@@ -186,7 +186,7 @@ class AsaasService {
       throw new Error('Configuração do Asaas não carregada')
     }
     // Usar Vercel Functions em produção, proxy local em desenvolvimento
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3001')
+    const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001'
     return `${baseUrl}/api/asaas-proxy`
   }
 
