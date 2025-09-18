@@ -1031,7 +1031,7 @@ const server = http.createServer(async (req, res) => {
     }
     
     // GET /api/payments/:paymentId - Buscar detalhes de uma cobrança específica
-    if (path.match(/^\/api\/payments\/[^\/]+$/) && req.method === 'GET' && !path.includes('/recurso')) {
+    if (path.match(/^\/api\/payments\/[^\/]+$/) && req.method === 'GET' && !path.includes('/recurso') && !path.includes('list-service-orders')) {
       console.log('🔍 === BUSCAR DETALHES DA COBRANÇA ===');
       console.log('Method:', req.method);
       console.log('Path:', path);
@@ -1290,6 +1290,227 @@ const server = http.createServer(async (req, res) => {
         
       } catch (error) {
         console.error('❌ Erro na verificação do recurso:', error);
+        res.writeHead(500, { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': 'http://localhost:5173'
+        });
+        res.end(JSON.stringify({
+          success: false,
+          error: 'Erro interno do servidor',
+          message: error instanceof Error ? error.message : 'Erro desconhecido'
+        }));
+      }
+      return;
+    }
+    
+    // GET /api/payments/list-service-orders - Listar cobranças com filtros
+    if (path === '/api/payments/list-service-orders' && req.method === 'GET') {
+      console.log('🔍 === LISTAR COBRANÇAS (LIST-SERVICE-ORDERS) ===');
+      console.log('Method:', req.method);
+      console.log('Path:', path);
+      console.log('Query params:', req.url.split('?')[1] || 'nenhum');
+      
+      const urlParams = new URLSearchParams(req.url.split('?')[1] || '');
+      const companyId = urlParams.get('company_id');
+      const all = urlParams.get('all');
+      
+      console.log('Company ID:', companyId);
+      console.log('All:', all);
+      
+      try {
+        // Buscar cobranças das diferentes tabelas
+        
+        // 1. Service Orders (recursos de multa)
+        let serviceOrdersQuery = supabase
+          .from('service_orders')
+          .select(`
+            *,
+            client:clients(id, nome, cpf_cnpj, email),
+            company:companies(id, nome, cnpj),
+            service:services(id, name)
+          `)
+          .order('created_at', { ascending: false })
+          .limit(all === 'true' ? 100 : 50);
+        
+        // Filtrar por empresa se especificado
+        if (companyId && companyId !== 'all') {
+          serviceOrdersQuery = serviceOrdersQuery.eq('company_id', companyId);
+        }
+        
+        const { data: serviceOrders, error: serviceOrdersError } = await serviceOrdersQuery;
+        
+        if (serviceOrdersError) {
+          console.error('Erro ao buscar service_orders:', serviceOrdersError);
+        }
+        
+        // 2. Payments (créditos) - se a tabela ainda existir
+        let payments = [];
+        try {
+          let paymentsQuery = supabase
+            .from('payments')
+            .select(`
+              *,
+              customer:clients(id, nome, cpf_cnpj, email),
+              company:companies(id, nome, cnpj)
+            `)
+            .order('created_at', { ascending: false })
+            .limit(all === 'true' ? 100 : 50);
+          
+          // Filtrar por empresa se especificado
+          if (companyId && companyId !== 'all') {
+            paymentsQuery = paymentsQuery.eq('company_id', companyId);
+          }
+          
+          const { data: paymentsData, error: paymentsError } = await paymentsQuery;
+          
+          if (paymentsError) {
+            console.log('Tabela payments não existe ou erro:', paymentsError.message);
+          } else {
+            payments = paymentsData || [];
+          }
+        } catch (e) {
+          console.log('Tabela payments não acessível:', e.message);
+        }
+        
+        // 3. Asaas Payments - se a tabela ainda existir
+        let asaasPayments = [];
+        try {
+          let asaasPaymentsQuery = supabase
+            .from('asaas_payments')
+            .select(`
+              *,
+              client:clients(id, nome, cpf_cnpj, email),
+              company:companies(id, nome, cnpj)
+            `)
+            .order('created_at', { ascending: false })
+            .limit(all === 'true' ? 100 : 50);
+          
+          // Filtrar por empresa se especificado
+          if (companyId && companyId !== 'all') {
+            asaasPaymentsQuery = asaasPaymentsQuery.eq('company_id', companyId);
+          }
+          
+          const { data: asaasPaymentsData, error: asaasError } = await asaasPaymentsQuery;
+          
+          if (asaasError) {
+            console.log('Tabela asaas_payments não existe ou erro:', asaasError.message);
+          } else {
+            asaasPayments = asaasPaymentsData || [];
+          }
+        } catch (e) {
+          console.log('Tabela asaas_payments não acessível:', e.message);
+        }
+        
+        // Combinar e formatar os dados
+        let allPayments = [
+          // Service Orders (recursos de multa)
+          ...(serviceOrders || []).map(order => ({
+            id: order.id,
+            payment_id: order.asaas_payment_id || order.id,
+            client_name: order.client?.nome || order.client_name || order.customer_name || 'Cliente',
+            customer_name: order.client?.nome || order.client_name || order.customer_name || 'Cliente',
+            company_name: order.company?.nome || 'Empresa',
+            company_id: order.company_id,
+            amount: order.amount,
+            status: order.status,
+            created_at: order.created_at,
+            paid_at: order.paid_at,
+            due_date: order.due_date,
+            description: order.description || `${order.service?.name || 'Recurso de Multa'} - ${order.client?.nome || 'Cliente'}`,
+            payment_method: order.billing_type || 'PIX',
+            asaas_payment_id: order.asaas_payment_id,
+            invoice_url: order.invoice_url,
+            pix_qr_code: order.qr_code_image || order.qr_code,
+            pix_copy_paste: order.pix_payload || order.pix_copy_paste,
+            multa_type: order.multa_type || 'Recurso de Multa',
+            source: 'service_order'
+          })),
+          
+          // Payments (créditos)
+          ...(payments || []).map(payment => ({
+            id: payment.id,
+            payment_id: payment.id,
+            client_name: payment.customer?.nome || 'Cliente',
+            customer_name: payment.customer?.nome || 'Cliente',
+            company_name: payment.company?.nome || 'Empresa',
+            company_id: payment.company_id,
+            amount: payment.amount,
+            status: payment.status,
+            created_at: payment.created_at,
+            paid_at: payment.confirmed_at,
+            due_date: payment.due_date,
+            description: `Compra de ${payment.credit_amount || 0} créditos`,
+            payment_method: payment.payment_method || 'PIX',
+            asaas_payment_id: payment.asaas_payment_id,
+            invoice_url: payment.invoice_url,
+            pix_qr_code: payment.pix_qr_code,
+            pix_copy_paste: payment.pix_copy_paste,
+            source: 'credits'
+          })),
+          
+          // Asaas Payments
+          ...(asaasPayments || []).map(payment => ({
+            id: payment.id,
+            payment_id: payment.id,
+            client_name: payment.client?.nome || 'Cliente',
+            customer_name: payment.client?.nome || 'Cliente',
+            company_name: payment.company?.nome || 'Empresa',
+            company_id: payment.company_id,
+            amount: payment.amount,
+            status: payment.status,
+            created_at: payment.created_at,
+            paid_at: payment.payment_date,
+            due_date: payment.due_date,
+            description: payment.description,
+            payment_method: payment.payment_method || 'PIX',
+            asaas_payment_id: payment.id,
+            invoice_url: payment.invoice_url,
+            pix_qr_code: payment.pix_qr_code,
+            pix_copy_paste: payment.pix_copy_paste,
+            source: 'asaas'
+          }))
+        ];
+        
+        // Remover duplicatas baseado no payment_id
+        const seen = new Set();
+        allPayments = allPayments.filter(payment => {
+          const id = payment.payment_id || payment.id;
+          if (seen.has(id)) {
+            return false;
+          }
+          seen.add(id);
+          return true;
+        });
+        
+        // Ordenar por data de criação
+        allPayments.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        
+        const totalFound = allPayments.length;
+        const limit = all === 'true' ? 100 : 50;
+        
+        console.log(`✅ Total encontrado: ${totalFound} cobranças`);
+        if (companyId && companyId !== 'all') {
+          console.log(`  - Filtrado por empresa: ${companyId}`);
+        }
+        
+        res.writeHead(200, { 
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': 'http://localhost:5173'
+        });
+        res.end(JSON.stringify({
+          success: true,
+          payments: allPayments,
+          total: totalFound,
+          pagination: {
+            page: 1,
+            limit: limit,
+            total: totalFound,
+            totalPages: Math.ceil(totalFound / limit)
+          }
+        }));
+        
+      } catch (error) {
+        console.error('❌ Erro ao listar cobranças:', error);
         res.writeHead(500, { 
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': 'http://localhost:5173'

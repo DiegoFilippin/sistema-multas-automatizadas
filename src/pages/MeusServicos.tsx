@@ -8,6 +8,7 @@ import { AlertCircle, DollarSign, Calculator, Save, CheckCircle, Plus, FileText,
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
+import { serviceOrdersService } from '@/services/serviceOrdersService';
 import { toast } from 'sonner';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
@@ -291,7 +292,7 @@ const MeusServicos: React.FC = () => {
   }, [customAmount, custoMinimo]);
 
   const loadCobrancas = async (forceRefresh = false) => {
-    console.log('\n🔄 === INICIANDO LOADCOBRANCAS ===');
+    console.log('\n🔄 === INICIANDO LOADCOBRANCAS (NOVO SERVICEORDERSSERVICE) ===');
     console.log('  - forceRefresh:', forceRefresh);
     console.log('  - loadingCobrancas atual:', loadingCobrancas);
     console.log('  - user?.company_id:', user?.company_id);
@@ -308,53 +309,37 @@ const MeusServicos: React.FC = () => {
     
     setLoadingCobrancas(true);
     try {
-      console.log('🔄 Carregando cobranças da empresa:', user?.company_id);
+      console.log('🔄 Carregando cobranças via serviceOrdersService...');
+      console.log('  - Company ID:', user?.company_id);
       
-      const url = `/api/payments/company/${user?.company_id}`;
-      const token = localStorage.getItem('token');
-      
-      console.log('📡 Fazendo requisição:');
-      console.log('  - URL:', url);
-      console.log('  - Token disponível:', !!token);
-      
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+      const result = await serviceOrdersService.getServiceOrders({
+        companyId: user?.company_id,
+        all: false
       });
       
-      console.log('📡 Resposta recebida:');
-      console.log('  - Status:', response.status);
-      console.log('  - OK:', response.ok);
-      console.log('  - StatusText:', response.statusText);
+      console.log('📋 Resultado do serviceOrdersService:');
+      console.log('  - Success:', result.success);
+      console.log('  - Total:', result.total);
+      console.log('  - Payments length:', result.payments?.length);
       
-      if (response.ok) {
-        const result = await response.json();
-        console.log('📋 Cobranças recebidas (JSON parseado):');
-        console.log('  - Success:', result.success);
-        console.log('  - Total:', result.total);
-        console.log('  - Payments array:', result.payments);
-        console.log('  - Payments length:', result.payments?.length);
+      if (result.success && Array.isArray(result.payments)) {
+        console.log('✅ Definindo cobranças no estado:', result.payments.length, 'itens');
+        setCobrancas(result.payments);
+        console.log(`✅ ${result.payments.length} cobranças carregadas com sucesso`);
         
-        if (result.success && Array.isArray(result.payments)) {
-          console.log('✅ Definindo cobranças no estado:', result.payments);
-          setCobrancas(result.payments);
-          console.log(`✅ ${result.payments.length} cobranças carregadas com sucesso`);
-        } else {
-          console.warn('⚠️ Resposta inválida:', result);
-          setCobrancas([]);
+        // Log de amostra dos dados
+        if (result.payments.length > 0) {
+          console.log('📋 Amostra dos dados carregados:', result.payments[0]);
         }
       } else {
-        const errorText = await response.text();
-        console.error('❌ Erro HTTP:', response.status, response.statusText);
-        console.error('❌ Erro body:', errorText);
-        toast.error(`Erro ao carregar cobranças: ${response.status}`);
+        console.warn('⚠️ Resposta inválida do serviceOrdersService:', result);
+        setCobrancas([]);
       }
+      
     } catch (error) {
-      console.error('❌ Erro ao carregar cobranças:', error);
-      console.error('❌ Stack trace:', error.stack);
-      toast.error('Erro de conexão ao carregar cobranças');
+      console.error('❌ Erro ao carregar cobranças via serviceOrdersService:', error);
+      toast.error('Erro ao carregar cobranças');
+      setCobrancas([]);
     } finally {
       setLoadingCobrancas(false);
       console.log('🏁 LoadCobrancas finalizado');
@@ -1578,18 +1563,7 @@ const MeusServicos: React.FC = () => {
                         </Button>
                       )}
                       
-                      {/* Indicador de status para cobranças pendentes */}
-                      {!isPaid && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled
-                          title="Aguardando confirmação do pagamento"
-                        >
-                          <Clock className="h-4 w-4 mr-1" />
-                          Aguardando Pagamento
-                        </Button>
-                      )}
+
                       
                       {/* Indicador de pagamento realizado */}
                       {isPaid && (
@@ -1835,8 +1809,8 @@ const MeusServicos: React.FC = () => {
                           </Button>
                         </div>
 
-                        {/* Preview de Splits em Tempo Real */}
-                        {serviceSplitConfig && customAmount > 0 && (
+                        {/* Preview de Splits em Tempo Real - apenas para superadmins */}
+                        {serviceSplitConfig && customAmount > 0 && user?.role === 'Superadmin' && (
                           <div className="mt-3 p-3 bg-gray-50 rounded-lg">
                             <div className="flex justify-between items-center mb-2">
                               <span className="text-sm font-medium">📊 Preview de Splits:</span>

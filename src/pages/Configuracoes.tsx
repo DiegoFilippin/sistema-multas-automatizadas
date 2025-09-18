@@ -30,7 +30,6 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import AgenteJuridicoAdmin from '@/components/AgenteJuridicoAdmin';
 import DashboardAgenteJuridico from '@/components/DashboardAgenteJuridico';
-import MultaTypesConfig from '@/components/MultaTypesConfig';
 
 interface ConfigSection {
   id: string;
@@ -203,12 +202,6 @@ export default function Configuracoes() {
       title: 'Integrações',
       icon: Zap,
       description: 'APIs e conexões externas'
-    },
-    {
-      id: 'tipos-multa',
-      title: 'Tipos de Multa',
-      icon: Settings,
-      description: 'Configurar preços por tipo de multa'
     },
     {
       id: 'agente-juridico',
@@ -854,7 +847,6 @@ export default function Configuracoes() {
           {activeTab === 'notificacoes' && renderNotificationsTab()}
           {activeTab === 'seguranca' && renderSecurityTab()}
           {activeTab === 'integracoes' && renderIntegrationsTab()}
-          {activeTab === 'tipos-multa' && <MultaTypesConfig />}
           {activeTab === 'agente-juridico' && <AgenteJuridicoAdmin />}
           {activeTab === 'metricas-ia' && <DashboardAgenteJuridico />}
           {activeTab === 'plano' && renderPlanTab()}

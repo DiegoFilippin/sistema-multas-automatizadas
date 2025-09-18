@@ -185,8 +185,8 @@ class AsaasService {
     if (!this.config) {
       throw new Error('Configuração do Asaas não carregada')
     }
-    // Usar proxy local para resolver problemas de CORS
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+    // Usar Vercel Functions em produção, proxy local em desenvolvimento
+    const baseUrl = import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3001')
     return `${baseUrl}/api/asaas-proxy`
   }
 

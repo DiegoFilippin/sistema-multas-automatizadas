@@ -16,10 +16,8 @@ import {
   Bot,
   Receipt,
   Building,
-  TestTube,
   PieChart,
-  Package,
-  Coins
+  Package
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
@@ -125,13 +123,7 @@ const menuItems: MenuItem[] = [
     href: '/meus-servicos',
     roles: ['Despachante']
   },
-  {
-    id: 'gerenciar-creditos',
-    label: 'Gerenciar Créditos',
-    icon: Coins,
-    href: '/gerenciar-creditos',
-    roles: ['Despachante']
-  },
+
   {
     id: 'configuracoes',
     label: 'Configurações',
@@ -161,15 +153,7 @@ const menuItems: MenuItem[] = [
     roles: ['Superadmin'],
     badge: 'ADMIN'
   },
-  {
-    id: 'teste-recurso-ia',
-    label: 'Teste - Recurso IA',
-    icon: TestTube,
-    href: '/teste-recurso-ia',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante'],
-    badge: 'TESTE'
-  },
-
+  
 ];
 
 export default function Sidebar({ className }: SidebarProps) {

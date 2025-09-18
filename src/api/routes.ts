@@ -7,11 +7,11 @@ import { companiesService } from '../services/companiesService.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
 // Importar rotas de créditos, webhooks, payments, leads e force-sync
-import creditsRouter from '../../api/routes/credits.js';
-import webhooksRouter from '../../api/routes/webhooks.js';
-import paymentsRouter from '../../api/routes/payments.js';
-import leadsRouter from '../../api/routes/leads.js';
-import forceSyncRouter from '../../api/routes/force-sync.js';
+import creditsRouter from '../../lib/routes/credits.js';
+import webhooksRouter from '../../lib/routes/webhooks.js';
+import paymentsRouter from '../../lib/routes/payments.js';
+import leadsRouter from '../../lib/routes/leads.js';
+import forceSyncRouter from '../../lib/routes/force-sync.js';
 
 const router = express.Router();
 
@@ -151,7 +151,7 @@ router.post('/recursos', authenticateToken, authorizeRoles(['master_company', 'd
       console.log('🔒 Validando pagamento para criação de recurso:', recursoData.paymentId);
       
       // Buscar dados do pagamento
-      const paymentResponse = await fetch(`${process.env.API_BASE_URL || 'http://localhost:3001'}/api/payments/${recursoData.paymentId}/recurso`, {
+      const paymentResponse = await fetch(`${process.env.API_BASE_URL || (import.meta.env.PROD ? '/api' : 'http://localhost:3001')}/api/payments/${recursoData.paymentId}/recurso`, {
         headers: {
           'Authorization': req.headers.authorization || ''
         }

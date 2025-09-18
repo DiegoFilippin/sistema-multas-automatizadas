@@ -23,6 +23,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { usePermissions } from '@/hooks/useIcetranPermissions';
 import { toast } from 'sonner';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
+import { serviceOrdersService } from '@/services/serviceOrdersService';
 
 interface Cobranca {
   id: string;
@@ -271,57 +272,43 @@ export default function CobrancasGerais() {
     try {
       setIsLoading(true);
       
-      // Se é superadmin, busca todas as cobranças, senão busca apenas da empresa
-      const endpoint = isSuperadmin() 
-        ? '/api/payments/all'
-        : `/api/payments/company/${user?.company_id}`;
+      // Usar serviceOrdersService (acesso direto ao Supabase como clientes)
+      const filters = {
+        companyId: isSuperadmin() ? (companyFilter !== 'all' ? companyFilter : undefined) : user?.company_id,
+        all: isSuperadmin()
+      };
       
-      const params = new URLSearchParams();
-      if (companyFilter !== 'all' && isSuperadmin()) {
-        params.append('companyId', companyFilter);
-      }
+      console.log('🔍 Buscando com filtros:', filters);
+      const data = await serviceOrdersService.getServiceOrders(filters);
       
-      const url = params.toString() ? `${endpoint}?${params}` : endpoint;
+      console.log('Dados recebidos do serviceOrdersService:', data); // Debug
       
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
+      // Mapear os dados para o formato esperado pela interface
+      const mappedPayments = (data.payments || []).map(payment => ({
+        id: payment.id || payment.payment_id,
+        client_id: payment.customer_id || payment.client_id,
+        client_name: payment.customer_name || payment.client_name || 'Cliente',
+        amount: payment.amount || payment.value || 0,
+        due_date: payment.due_date,
+        status: mapApiStatusToInterface(payment.status),
+        description: payment.description || 'Recurso de Multa',
+        payment_method: payment.payment_method || 'PIX',
+        asaas_payment_id: payment.asaas_payment_id,
+        created_at: payment.created_at,
+        paid_at: payment.paid_at,
+        invoice_url: payment.invoice_url,
+        pix_qr_code: payment.pix_qr_code,
+        company_name: payment.company_name,
+        company_id: payment.company_id
+      }));
       
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Dados recebidos da API:', data); // Debug
-        
-        // Mapear os dados para o formato esperado pela interface
-        const mappedPayments = (data.payments || []).map(payment => ({
-          id: payment.id || payment.payment_id,
-          client_id: payment.customer_id || payment.client_id,
-          client_name: payment.customer_name || payment.customer?.nome || payment.client?.nome || 'Cliente',
-          amount: payment.amount || payment.value || 0,
-          due_date: payment.due_date,
-          status: mapApiStatusToInterface(payment.status),
-          description: payment.description || `Compra de ${payment.credit_amount || 0} créditos`,
-          payment_method: payment.payment_method || payment.method || 'PIX',
-          asaas_payment_id: payment.asaas_payment_id,
-          created_at: payment.created_at,
-          paid_at: payment.payment_date || payment.confirmed_at,
-          invoice_url: payment.invoice_url,
-          pix_qr_code: payment.pix_qr_code,
-          company_name: payment.company_name || payment.company?.nome,
-          company_id: payment.company_id
-        }));
-        
-        console.log('Dados mapeados:', mappedPayments); // Debug
-        setCobrancas(mappedPayments);
-        console.log('✅ Lista de cobranças atualizada com sucesso! Total:', mappedPayments.length);
-      } else {
-        console.error('Erro na resposta da API:', response.status, response.statusText);
-        toast.error('Erro ao carregar cobranças');
-      }
+      console.log('Dados mapeados:', mappedPayments); // Debug
+      setCobrancas(mappedPayments);
+      console.log('✅ Lista de cobranças atualizada com sucesso! Total:', mappedPayments.length);
+      
     } catch (error) {
       console.error('Erro ao carregar cobranças:', error);
-      toast.error('Erro ao carregar cobranças');
+      toast.error(`Erro ao carregar cobranças: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setIsLoading(false);
       console.log('🏁 Carregamento de cobranças finalizado');
