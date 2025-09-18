@@ -779,15 +779,25 @@ const TesteRecursoIA: React.FC = () => {
         serviceOrder = data;
         serviceOrderError = error;
       } else {
-        // Buscar por asaas_payment_id
+        // Buscar por asaas_payment_id - pode haver múltiplos, pegar o mais recente com multa_id
         console.log('🔍 Buscando por asaas_payment_id:', serviceOrderId);
         const { data, error } = await supabase
           .from('service_orders')
           .select('*')
           .eq('asaas_payment_id', serviceOrderId)
-          .single();
-        serviceOrder = data;
-        serviceOrderError = error;
+          .order('created_at', { ascending: false });
+        
+        if (!error && data && data.length > 0) {
+          // Priorizar service_order que tem multa_id, senão pegar o mais recente
+          serviceOrder = data.find(order => order.multa_id) || data[0];
+          console.log(`✅ Encontrados ${data.length} service_orders, selecionado:`, {
+            id: serviceOrder.id,
+            multa_id: serviceOrder.multa_id,
+            created_at: serviceOrder.created_at
+          });
+        } else {
+          serviceOrderError = error;
+        }
       }
       
       if (serviceOrderError || !serviceOrder) {
@@ -2607,7 +2617,7 @@ const TesteRecursoIA: React.FC = () => {
           <div className="bg-white rounded-lg shadow-sm p-6 h-[600px] flex flex-col">
             <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
               <MessageCircle className="w-5 h-5 mr-2 text-blue-600" />
-              Chat com IA
+              Chat ICETRAN
               {n8nChatActive && (
                 <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
                   Ativo
@@ -2652,7 +2662,7 @@ const TesteRecursoIA: React.FC = () => {
                         <div className="bg-white text-gray-900 shadow-sm border px-4 py-2 rounded-lg">
                           <div className="flex items-center space-x-2">
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                            <span className="text-sm">IA está pensando...</span>
+                            <span className="text-sm">Icetran está pensando...</span>
                           </div>
                         </div>
                       </div>
@@ -2710,20 +2720,7 @@ const TesteRecursoIA: React.FC = () => {
           </div>
 
           {/* Seção 4: Recurso Gerado */}
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-              <Eye className="w-5 h-5 mr-2" />
-              Recurso Gerado
-            </h2>
-            
-            <RecursoPreview
-              multaData={multaData}
-              chatHistory={n8nChatMessages}
-              recursoText={recursoText}
-              onRecursoChange={handleRecursoChange}
-              onFinalize={handleFinalize}
-            />
-          </div>
+
         </div>
       </div>
       

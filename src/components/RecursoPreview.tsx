@@ -185,9 +185,7 @@ OAB: [NÚMERO]`;
         <button
           onClick={generateEnhancedRecurso}
           className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 transition-colors"
-        >
-          Gerar Recurso Inteligente
-        </button>
+        >Gerar Recurso Inteligente</button>
       </div>
     );
   }

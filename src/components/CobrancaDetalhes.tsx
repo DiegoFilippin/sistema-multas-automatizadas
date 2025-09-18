@@ -714,7 +714,7 @@ export function CobrancaDetalhes({ cobranca, isOpen, onClose, onResend, onCancel
             </div>
 
             {/* ✅ SEÇÃO PIX - SEMPRE VISÍVEL SE QR CODE EXISTIR */}
-            {shouldShowPix && (
+            {shouldShowPix && actualStatus !== 'paid' && (
               <div className="px-6 py-4">
                 <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-6 border border-green-200">
                   <div className="flex items-center space-x-3 mb-4">

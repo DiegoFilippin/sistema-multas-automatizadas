@@ -194,55 +194,7 @@ export default function Login() {
           </form>
         </div>
 
-        {/* Credenciais de Teste */}
-        <div className="bg-white rounded-2xl shadow-xl p-6 border-2 border-blue-100">
-          <div className="text-center mb-4">
-            <div className="flex items-center justify-center mb-2">
-              <Key className="w-5 h-5 text-blue-600 mr-2" />
-              <h3 className="text-lg font-semibold text-gray-800">Credenciais de Teste</h3>
-            </div>
-            <p className="text-sm text-gray-600">Clique para preencher automaticamente</p>
-          </div>
-          
-          <div className="space-y-3">
-            {testCredentials.map((credential, index) => (
-              <div 
-                key={index}
-                onClick={() => fillCredentials(credential.email, credential.password)}
-                className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all duration-200 group"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <User className="w-4 h-4 text-gray-500 group-hover:text-blue-600 mr-3" />
-                    <div>
-                      <div className="font-medium text-gray-800 group-hover:text-blue-800">
-                        {credential.type}
-                      </div>
-                      <div className="text-sm text-gray-600 group-hover:text-blue-600">
-                        {credential.email}
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {credential.description}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-xs text-gray-400 group-hover:text-blue-500 font-mono">
-                    Clique para usar
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          
-          <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <div className="flex items-center">
-              <Shield className="w-4 h-4 text-yellow-600 mr-2" />
-              <p className="text-xs text-yellow-800">
-                <strong>Ambiente de Demonstração:</strong> Estas credenciais são apenas para teste e demonstração da plataforma.
-              </p>
-            </div>
-          </div>
-        </div>
+
 
         {/* Footer com link para contato */}
         <div className="text-center mt-8">
