@@ -557,7 +557,8 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
     
     try {
       // Fazer requisição para o backend
-      const response = await fetch(`${import.meta.env.PROD ? '' : 'http://localhost:3001'}/api/cep/${cepLimpo}`, {
+      const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/cep/${cepLimpo}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
