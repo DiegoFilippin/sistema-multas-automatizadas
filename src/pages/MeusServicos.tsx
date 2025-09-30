@@ -167,6 +167,10 @@ const MeusServicos: React.FC = () => {
   const [syncingWithAsaas, setSyncingWithAsaas] = useState(false);
   const [activeTab, setActiveTab] = useState('criar');
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  
+  // Estados para paginação
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   useEffect(() => {
     console.log('🔄 === USEEFFECT PRINCIPAL EXECUTADO ===');
@@ -493,7 +497,7 @@ const MeusServicos: React.FC = () => {
         type: service.tipo_multa?.toLowerCase() || 'leve',
         name: service.name,
         description: service.description,
-        suggested_price: service.base_price || 0,
+        suggested_price: service.suggested_price || 0,
         total_price: (service.acsm_value || 0) + (service.icetran_value || 0) + (service.taxa_cobranca || 0),
         acsm_value: service.acsm_value || 0,
         icetran_value: service.icetran_value || 0,
@@ -1247,12 +1251,12 @@ const MeusServicos: React.FC = () => {
     
     setServiceSplitConfig(splitConfigFromService);
     
-    // Calcular custo mínimo baseado nos valores reais do serviço
-    const custoMinimoReal = splitConfigFromService.acsm_value + splitConfigFromService.icetran_value + splitConfigFromService.taxa_cobranca;
-    setCustoMinimo(custoMinimoReal);
+    // Definir valor mínimo fixo de R$ 1,50 conforme regra de negócio
+    const custoMinimoFixo = 1.50;
+    setCustoMinimo(custoMinimoFixo);
     
-    // Definir valor inicial baseado no custo mínimo real
-    const valorInicial = Math.max(custoMinimoReal, type.suggested_price || 0);
+    // Inicializar com o valor sugerido (sempre usar suggested_price como valor inicial)
+    const valorInicial = type.suggested_price || custoMinimoFixo;
     setCustomAmount(valorInicial);
     setIsEditingAmount(false);
     
@@ -1261,7 +1265,7 @@ const MeusServicos: React.FC = () => {
       acsm_value: splitConfigFromService.acsm_value,
       icetran_value: splitConfigFromService.icetran_value,
       taxa_cobranca: splitConfigFromService.taxa_cobranca,
-      custoMinimoReal,
+      custoMinimoFixo,
       valorSugerido: type.suggested_price,
       valorInicial
     });
@@ -1386,14 +1390,28 @@ const MeusServicos: React.FC = () => {
     console.log('  - Filtro atual:', filter);
     console.log('  - User company_id:', user?.company_id);
     
-    const filteredCobranças = cobrancas.filter(cobranca => {
-      if (filter === 'pending') return ['PENDING', 'AWAITING_PAYMENT', 'pending'].includes(cobranca.status || '');
+    // Filtrar cobranças baseado no filtro selecionado
+    const allFilteredCobranças = cobrancas.filter(cobranca => {
+      if (filter === 'pending') return ['PENDING', 'AWAITING_PAYMENT', 'pending', 'pending_payment'].includes(cobranca.status || '');
       if (filter === 'paid') return ['RECEIVED', 'CONFIRMED', 'confirmed', 'paid'].includes(cobranca.status || '');
       return true;
     });
     
-    console.log('  - Cobranças filtradas:', filteredCobranças.length);
-    console.log('  - Cobranças filtradas array:', filteredCobranças);
+    // Cálculos de paginação
+    const totalItems = allFilteredCobranças.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const filteredCobranças = allFilteredCobranças.slice(startIndex, endIndex);
+    
+    // Reset página quando filtro muda
+    React.useEffect(() => {
+      setCurrentPage(1);
+    }, [filter]);
+    
+    console.log('  - Cobranças filtradas (total):', totalItems);
+    console.log('  - Página atual:', currentPage, 'de', totalPages);
+    console.log('  - Mostrando itens:', startIndex + 1, 'a', Math.min(endIndex, totalItems));
     
     return (
       <Card className="mt-6">
@@ -1422,7 +1440,7 @@ const MeusServicos: React.FC = () => {
                 variant={filter === 'pending' ? 'default' : 'outline'}
                 onClick={() => setFilter('pending')}
               >
-                Pendentes ({cobrancas.filter(c => ['PENDING', 'AWAITING_PAYMENT', 'pending'].includes(c.status || '')).length})
+                Pendentes ({cobrancas.filter(c => ['PENDING', 'AWAITING_PAYMENT', 'pending', 'pending_payment'].includes(c.status || '')).length})
               </Button>
               <Button
                 size="sm"
@@ -1445,138 +1463,284 @@ const MeusServicos: React.FC = () => {
           </div>
         </CardHeader>
         
-        <CardContent>
+        <CardContent className="p-8">
           {loadingCobrancas ? (
-            <div className="text-center py-8">
-              <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4" />
-              <p>Carregando cobranças...</p>
+            <div className="text-center py-12">
+              <div className="bg-gradient-to-br from-blue-50 to-indigo-100 rounded-2xl p-8 max-w-md mx-auto">
+                <RefreshCw className="h-10 w-10 animate-spin mx-auto mb-6 text-blue-600" />
+                <p className="text-lg font-medium text-gray-700">Carregando cobranças...</p>
+              </div>
             </div>
-          ) : filteredCobranças.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>Nenhuma cobrança encontrada</p>
-              {filter !== 'all' && (
-                <Button
-                  variant="link"
-                  onClick={() => setFilter('all')}
-                  className="mt-2"
-                >
-                  Ver todas as cobranças
-                </Button>
-              )}
+          ) : totalItems === 0 ? (
+            <div className="text-center py-16">
+              <div className="bg-gradient-to-br from-gray-50 to-slate-100 rounded-3xl p-12 max-w-lg mx-auto border border-gray-200/50">
+                <FileText className="h-16 w-16 mx-auto mb-6 text-gray-400" />
+                <h3 className="text-xl font-semibold text-gray-800 mb-2">Nenhuma cobrança encontrada</h3>
+                <p className="text-gray-500 mb-6">Não há cobranças para exibir no momento</p>
+                {filter !== 'all' && (
+                  <Button
+                    variant="link"
+                    onClick={() => setFilter('all')}
+                    className="text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Ver todas as cobranças
+                  </Button>
+                )}
+              </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              {filteredCobranças.map((cobranca, index) => {
-                const isPaid = ['RECEIVED', 'CONFIRMED', 'confirmed', 'paid'].includes(cobranca.status?.toUpperCase() || '');
+            <>
+              <div className="grid gap-6">
+                {filteredCobranças.map((cobranca, index) => {
+                const isPaid = ['RECEIVED', 'CONFIRMED', 'confirmed', 'paid'].includes(cobranca.status?.toLowerCase() || '');
                 
                 return (
                   <div
                     key={cobranca.payment_id || index}
-                    className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                    className={`relative overflow-hidden rounded-2xl border-0 p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl group ${
+                      isPaid 
+                        ? 'bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 shadow-lg shadow-green-100/50 hover:shadow-green-200/60' 
+                        : 'bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 shadow-lg shadow-blue-100/50 hover:shadow-blue-200/60'
+                    }`}
                   >
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900">
-                          {getClientDisplay(cobranca)}
-                        </h4>
-                        <p className="text-sm text-gray-600">
-                          Multa {cobranca.multa_type} • ID: {cobranca.payment_id}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">
-                          Criado: {new Date(cobranca.created_at).toLocaleString('pt-BR')}
-                          {isPaid && cobranca.paid_at && (
-                            <> • Pago: {new Date(cobranca.paid_at).toLocaleString('pt-BR')}</>
-                          )}
-                        </p>
-                      </div>
-                      
-                      <div className="text-right">
-                        <p className="font-bold text-green-600 text-lg">
-                          {formatCurrency(cobranca.amount)}
-                        </p>
-                        <Badge 
-                          variant={getStatusVariant(cobranca.status)}
-                          className="text-xs mt-1"
-                        >
-                          {getStatusLabel(cobranca.status)}
-                        </Badge>
-                      </div>
-                    </div>
+                    {/* Decorative gradient overlay */}
+                    <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 ${
+                      isPaid 
+                        ? 'bg-gradient-to-r from-emerald-500/5 to-green-500/5' 
+                        : 'bg-gradient-to-r from-blue-500/5 to-indigo-500/5'
+                    }`} />
                     
-                    <div className="flex gap-2 mt-3 flex-wrap">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          console.log('🔍 Abrindo modal com dados:', cobranca);
-                          console.log('  - client_name:', cobranca.client_name);
-                          console.log('  - customer_name:', cobranca.customer_name);
-                          console.log('  - status:', cobranca.status);
-                          console.log('  - qr_code:', !!cobranca.qr_code);
-                          console.log('  - pix_copy_paste:', !!cobranca.pix_copy_paste);
-                          setPaymentResult(cobranca);
-                          setShowPaymentModal(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        Ver Detalhes
-                      </Button>
+                    {/* Status indicator */}
+                    <div className={`absolute top-0 right-0 w-20 h-20 -mr-10 -mt-10 rounded-full opacity-10 ${
+                      isPaid ? 'bg-green-500' : 'bg-blue-500'
+                    }`} />
+                    
+                    <div className="relative z-10">
+                      <div className="flex justify-between items-start mb-6">
+                        <div className="flex-1 pr-6">
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className={`w-3 h-3 rounded-full ${
+                              isPaid ? 'bg-green-500 shadow-lg shadow-green-500/30' : 'bg-blue-500 shadow-lg shadow-blue-500/30'
+                            }`} />
+                            <h4 className="text-xl font-bold text-gray-900 tracking-tight">
+                              {getClientDisplay(cobranca)}
+                            </h4>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <p className="text-base font-medium text-gray-700 flex items-center gap-2">
+                              <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
+                              Multa {cobranca.multa_type}
+                            </p>
+                            <p className="text-sm text-gray-500 font-mono bg-white/60 px-3 py-1 rounded-lg inline-block">
+                              ID: {cobranca.payment_id}
+                            </p>
+                            <p className="text-sm text-gray-600 flex items-center gap-2">
+                              <span className="w-1 h-1 bg-gray-400 rounded-full" />
+                              Criado: {new Date(cobranca.created_at).toLocaleString('pt-BR')}
+                              {isPaid && cobranca.paid_at && (
+                                <>
+                                  <span className="mx-2 text-gray-400">•</span>
+                                  <span className="text-green-600 font-medium">
+                                    Pago: {new Date(cobranca.paid_at).toLocaleString('pt-BR')}
+                                  </span>
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="text-right flex flex-col items-end gap-3">
+                          <div className={`px-4 py-2 rounded-xl font-bold text-2xl shadow-lg ${
+                            isPaid 
+                              ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-green-500/30' 
+                              : 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-blue-500/30'
+                          }`}>
+                            {formatCurrency(cobranca.amount)}
+                          </div>
+                          <Badge 
+                            variant={getStatusVariant(cobranca.status)}
+                            className={`text-sm px-4 py-1.5 font-semibold shadow-md ${
+                              isPaid 
+                                ? 'bg-green-100 text-green-800 border-green-200' 
+                                : 'bg-blue-100 text-blue-800 border-blue-200'
+                            }`}
+                          >
+                            {getStatusLabel(cobranca.status)}
+                          </Badge>
+                        </div>
+                      </div>
                       
-                      {/* Botão Iniciar Recurso - apenas para cobranças pagas */}
-                      {isPaid && (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => handleCreateRecurso(cobranca)}
-                          className="bg-green-600 hover:bg-green-700"
-                        >
-                          <FileText className="h-4 w-4 mr-1" />
-                          Iniciar Recurso
-                        </Button>
-                      )}
-                      
-                      {/* Link de pagamento - apenas para cobranças pendentes */}
-                      {!isPaid && cobranca.payment_url && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => window.open(cobranca.payment_url, '_blank')}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-1" />
-                          Abrir Pagamento
-                        </Button>
-                      )}
-                      
-                      {/* Botão Copiar PIX - apenas para cobranças pendentes */}
-                      {!isPaid && cobranca.pix_copy_paste && (
+                      {/* Action buttons section */}
+                      <div className="flex flex-wrap gap-3 pt-4 border-t border-white/50">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => {
-                            navigator.clipboard.writeText(cobranca.pix_copy_paste);
-                            toast.success('Código PIX copiado!');
+                            console.log('🔍 Abrindo modal com dados:', cobranca);
+                            console.log('  - client_name:', cobranca.client_name);
+                            console.log('  - customer_name:', cobranca.customer_name);
+                            console.log('  - status:', cobranca.status);
+                            console.log('  - qr_code:', !!cobranca.qr_code);
+                            console.log('  - pix_copy_paste:', !!cobranca.pix_copy_paste);
+                            setPaymentResult(cobranca);
+                            setShowPaymentModal(true);
                           }}
+                          className="bg-white/80 hover:bg-white border-gray-200 hover:border-gray-300 text-gray-700 hover:text-gray-900 shadow-md hover:shadow-lg transition-all duration-200 font-medium px-4 py-2.5"
                         >
-                          <Copy className="h-4 w-4 mr-1" />
-                          Copiar PIX
+                          <Eye className="h-4 w-4 mr-2" />
+                          Ver Detalhes
                         </Button>
-                      )}
-                      
-
-                      
-                      {/* Indicador de pagamento realizado */}
-                      {isPaid && (
-                        <div className="flex items-center text-green-600 text-sm">
-                          <CheckCircle className="h-4 w-4 mr-1" />
-                          <span className="font-medium">Pagamento Confirmado</span>
-                        </div>
-                      )}
+                        
+                        {/* Botão Iniciar Recurso - apenas para cobranças pagas */}
+                        {isPaid && (
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => handleCreateRecurso(cobranca)}
+                            className="bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 font-medium px-4 py-2.5"
+                          >
+                            <FileText className="h-4 w-4 mr-2" />
+                            Iniciar Recurso
+                          </Button>
+                        )}
+                        
+                        {/* Link de pagamento - apenas para cobranças pendentes */}
+                        {!isPaid && cobranca.payment_url && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => window.open(cobranca.payment_url, '_blank')}
+                            className="bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border-blue-200 hover:border-blue-300 text-blue-700 hover:text-blue-800 shadow-md hover:shadow-lg transition-all duration-200 font-medium px-4 py-2.5"
+                          >
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Abrir Pagamento
+                          </Button>
+                        )}
+                        
+                        {/* Botão Copiar PIX - apenas para cobranças pendentes */}
+                        {!isPaid && cobranca.pix_copy_paste && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              navigator.clipboard.writeText(cobranca.pix_copy_paste);
+                              toast.success('Código PIX copiado!');
+                            }}
+                            className="bg-gradient-to-r from-purple-50 to-pink-50 hover:from-purple-100 hover:to-pink-100 border-purple-200 hover:border-purple-300 text-purple-700 hover:text-purple-800 shadow-md hover:shadow-lg transition-all duration-200 font-medium px-4 py-2.5"
+                          >
+                            <Copy className="h-4 w-4 mr-2" />
+                            Copiar PIX
+                          </Button>
+                        )}
+                        
+                        {/* Indicador de pagamento realizado */}
+                        {isPaid && (
+                          <div className="flex items-center bg-green-100/80 text-green-700 px-4 py-2.5 rounded-xl font-semibold shadow-md border border-green-200/50">
+                            <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                            <span>Pagamento Confirmado</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
-              })}
-            </div>
+                })}
+              </div>
+              
+              {/* Componente de Paginação */}
+              {totalPages > 1 && (
+              <div className="mt-8 space-y-4">
+                {/* Indicadores de página */}
+                <div className="flex justify-between items-center text-sm text-gray-600">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">Página {currentPage} de {totalPages}</span>
+                    <span className="w-1 h-1 bg-gray-400 rounded-full" />
+                    <span>Mostrando {startIndex + 1}-{Math.min(endIndex, totalItems)} de {totalItems} resultados</span>
+                  </div>
+                </div>
+                
+                {/* Controles de navegação */}
+                <div className="flex justify-center items-center gap-2">
+                  {/* Botão Primeira Página */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="px-3 py-2 text-sm font-medium"
+                  >
+                    ««
+                  </Button>
+                  
+                  {/* Botão Página Anterior */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-2 text-sm font-medium"
+                  >
+                    « Anterior
+                  </Button>
+                  
+                  {/* Números das páginas */}
+                  <div className="flex gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNumber;
+                      if (totalPages <= 5) {
+                        pageNumber = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNumber = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNumber = totalPages - 4 + i;
+                      } else {
+                        pageNumber = currentPage - 2 + i;
+                      }
+                      
+                      return (
+                        <Button
+                          key={pageNumber}
+                          variant={currentPage === pageNumber ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNumber)}
+                          className={`w-10 h-10 p-0 text-sm font-medium ${
+                            currentPage === pageNumber 
+                              ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md' 
+                              : 'hover:bg-blue-50 hover:border-blue-300'
+                          }`}
+                        >
+                          {pageNumber}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                  
+                  {/* Botão Próxima Página */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-2 text-sm font-medium"
+                  >
+                    Próxima »
+                  </Button>
+                  
+                  {/* Botão Última Página */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-2 text-sm font-medium"
+                  >
+                    »»
+                  </Button>
+                </div>
+               </div>
+                )}
+             </>
           )}
         </CardContent>
       </Card>
