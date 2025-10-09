@@ -24,6 +24,47 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// Helpers do Asaas
+let asaasConfig;
+async function loadAsaasConfig() {
+  try {
+    if (asaasConfig) {
+      return asaasConfig;
+    }
+    console.log('🔧 Carregando configuração do Asaas do banco...');
+    const { data, error } = await supabase
+      .from('asaas_config')
+      .select('*')
+      .single();
+    if (error) {
+      console.error('❌ Erro ao carregar configuração do Asaas:', error);
+      throw new Error('Configuração do Asaas não encontrada');
+    }
+    asaasConfig = data;
+    console.log('✅ Configuração do Asaas carregada:', {
+      environment: data.environment,
+      has_sandbox_key: !!data.api_key_sandbox,
+      has_production_key: !!data.api_key_production
+    });
+    return asaasConfig;
+  } catch (error) {
+    console.error('❌ Erro ao carregar configuração do Asaas:', error);
+    throw error;
+  }
+}
+function getAsaasApiKey(config) {
+  if (!config) {
+    throw new Error('Configuração do Asaas não carregada');
+  }
+  const apiKey = config.environment === 'production' 
+    ? config.api_key_production 
+    : config.api_key_sandbox;
+  if (!apiKey) {
+    throw new Error(`Chave API não encontrada para ambiente ${config.environment}`);
+  }
+  return apiKey;
+}
+
 // Função para converter XML do DataWash para JSON
 function parseDataWashXML(xmlText, cpf) {
   try {
@@ -239,8 +280,9 @@ function generateFallbackData(cpf) {
 }
 
 const server = http.createServer(async (req, res) => {
-  // Configurar headers CORS
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+  // Configurar headers CORS (origem dinâmica)
+  const origin = req.headers.origin || 'http://localhost:5173';
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, access_token');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -270,6 +312,393 @@ const server = http.createServer(async (req, res) => {
 
   // Proxy para API do DataWash
   if (req.url && req.url.startsWith('/api/datawash/')) {
+    // ... existing code ...
+  }
+
+  // Rotas de usuários (clientes e despachantes)
+  if (req.url && req.url.startsWith('/api/users/')) {
+    try {
+      const urlParts = req.url.split('?');
+      const path = urlParts[0];
+      console.log(`👤 Users API request: ${req.method} ${path}`);
+
+      // POST /api/users/create-client-customer - Criar customer no Asaas para cliente
+      if (path === '/api/users/create-client-customer' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { clientId } = JSON.parse(body || '{}');
+            if (!clientId) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Campo clientId é obrigatório' }));
+              return;
+            }
+            const { data: client, error: clientError } = await supabase
+              .from('clients')
+              .select('id, nome, email, telefone, cpf_cnpj, endereco, cidade, estado, cep, asaas_customer_id, company_id')
+              .eq('id', clientId)
+              .single();
+            if (clientError || !client) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Cliente não encontrado' }));
+              return;
+            }
+            if (client.asaas_customer_id) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Cliente já possui customer Asaas configurado' }));
+              return;
+            }
+            const config = await loadAsaasConfig();
+            const apiKey = getAsaasApiKey(config);
+            const baseUrl = config.environment === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
+            const customerData = {
+              name: client.nome,
+              email: client.email || `cliente${clientId}@exemplo.com`,
+              cpfCnpj: (client.cpf_cnpj || '00000000000').replace(/\D/g, ''),
+              mobilePhone: client.telefone,
+              address: client.endereco || 'Endereço não informado',
+              addressNumber: '0',
+              complement: '',
+              province: client.cidade || 'Cidade não informada',
+              city: client.cidade || 'Cidade não informada',
+              state: client.estado || 'SP',
+              postalCode: (client.cep || '00000000').replace(/\D/g, ''),
+              externalReference: `client_${clientId}`
+            };
+            const asaasResponse = await fetch(`${baseUrl}/customers`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'access_token': apiKey },
+              body: JSON.stringify(customerData)
+            });
+            const asaasResult = await asaasResponse.json();
+            if (!asaasResponse.ok) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: `Erro ao criar customer no Asaas: ${asaasResult.errors?.[0]?.description || 'Erro desconhecido'}` }));
+              return;
+            }
+            const { error: updateError } = await supabase
+              .from('clients')
+              .update({ asaas_customer_id: asaasResult.id })
+              .eq('id', clientId);
+            if (updateError) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: `Erro ao atualizar cliente: ${updateError.message}` }));
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, data: { clientId, asaasCustomerId: asaasResult.id, customerData: asaasResult } }));
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Erro interno do servidor', message: error instanceof Error ? error.message : 'Erro desconhecido' }));
+          }
+        });
+        return;
+      }
+
+      // POST /api/users/create-asaas-customer - Criar customer no Asaas para despachante
+      if (path === '/api/users/create-asaas-customer' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { userId } = JSON.parse(body || '{}');
+            if (!userId) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Campo userId é obrigatório' }));
+              return;
+            }
+            const { data: user, error: userError } = await supabase
+              .from('users')
+              .select('id, nome, email, telefone, cpf_cnpj, endereco, cidade, estado, cep, asaas_customer_id')
+              .eq('id', userId)
+              .single();
+            if (userError || !user) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Usuário não encontrado' }));
+              return;
+            }
+            if (user.asaas_customer_id) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Usuário já possui customer Asaas configurado' }));
+              return;
+            }
+            const config = await loadAsaasConfig();
+            const apiKey = getAsaasApiKey(config);
+            const baseUrl = config.environment === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
+            const customerData = {
+              name: user.nome,
+              email: user.email || `usuario${userId}@exemplo.com`,
+              cpfCnpj: (user.cpf_cnpj || '00000000000').replace(/\D/g, ''),
+              mobilePhone: user.telefone,
+              address: user.endereco || 'Endereço não informado',
+              addressNumber: '0',
+              complement: '',
+              province: user.cidade || 'Cidade não informada',
+              city: user.cidade || 'Cidade não informada',
+              state: user.estado || 'SP',
+              postalCode: (user.cep || '00000000').replace(/\D/g, ''),
+              externalReference: `user_${userId}`
+            };
+            const asaasResponse = await fetch(`${baseUrl}/customers`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'access_token': apiKey },
+              body: JSON.stringify(customerData)
+            });
+            const asaasResult = await asaasResponse.json();
+            if (!asaasResponse.ok) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: `Erro ao criar customer no Asaas: ${asaasResult.errors?.[0]?.description || 'Erro desconhecido'}` }));
+              return;
+            }
+            const { error: updateError } = await supabase
+              .from('users')
+              .update({ asaas_customer_id: asaasResult.id })
+              .eq('id', userId);
+            if (updateError) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: `Erro ao atualizar usuário: ${updateError.message}` }));
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, data: { userId, asaasCustomerId: asaasResult.id, customerData: asaasResult } }));
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Erro interno do servidor', message: error instanceof Error ? error.message : 'Erro desconhecido' }));
+          }
+        });
+        return;
+      }
+
+      // Rota não encontrada
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Rota não encontrada' }));
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Erro interno do servidor', message: error instanceof Error ? error.message : 'Erro desconhecido' }));
+    }
+    return;
+  }
+
+  // Rotas de empresas
+  if (req.url && req.url.startsWith('/api/companies/')) {
+    try {
+      const urlParts = req.url.split('?');
+      const path = urlParts[0];
+      console.log(`🏢 Companies API request: ${req.method} ${path}`);
+
+      // POST /api/companies/create-asaas-customer - Criar customer no Asaas para empresa
+      if (path === '/api/companies/create-asaas-customer' && req.method === 'POST') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+          try {
+            const { companyId } = JSON.parse(body || '{}');
+            if (!companyId) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Campo companyId é obrigatório' }));
+              return;
+            }
+            const { data: company, error: companyError } = await supabase
+              .from('companies')
+              .select('id, nome, cnpj, email, telefone, endereco, asaas_customer_id, company_level')
+              .eq('id', companyId)
+              .single();
+            if (companyError || !company) {
+              res.writeHead(404, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Empresa não encontrada' }));
+              return;
+            }
+            if (company.asaas_customer_id) {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: 'Empresa já possui customer Asaas configurado' }));
+              return;
+            }
+            const config = await loadAsaasConfig();
+            const apiKey = getAsaasApiKey(config);
+            const baseUrl = config.environment === 'production' ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
+            const customerData = {
+              name: company.nome,
+              email: company.email || `empresa${companyId}@exemplo.com`,
+              cpfCnpj: (company.cnpj || '00000000000191').replace(/\D/g, ''),
+              mobilePhone: company.telefone,
+              address: company.endereco || 'Endereço não informado',
+              addressNumber: '0',
+              complement: '',
+              province: 'Cidade não informada',
+              city: 'Cidade não informada',
+              state: 'SP',
+              postalCode: '00000000',
+              externalReference: `company_${companyId}`
+            };
+            const asaasResponse = await fetch(`${baseUrl}/customers`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'access_token': apiKey },
+              body: JSON.stringify(customerData)
+            });
+            const asaasResult = await asaasResponse.json();
+            if (!asaasResponse.ok) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: `Erro ao criar customer no Asaas: ${asaasResult.errors?.[0]?.description || 'Erro desconhecido'}` }));
+              return;
+            }
+            const { error: updateError } = await supabase
+              .from('companies')
+              .update({ asaas_customer_id: asaasResult.id })
+              .eq('id', companyId);
+            if (updateError) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, error: `Erro ao atualizar empresa: ${updateError.message}` }));
+              return;
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, customerId: asaasResult.id, data: { companyId, asaasCustomerId: asaasResult.id, customerData: asaasResult } }));
+          } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'Erro interno do servidor', message: error instanceof Error ? error.message : 'Erro desconhecido' }));
+          }
+        });
+        return;
+      }
+
+      // Rota não encontrada na seção companies
+      // (outras rotas de companies podem ser adicionadas aqui)
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, error: 'Erro interno do servidor', message: error instanceof Error ? error.message : 'Erro desconhecido' }));
+    }
+    return;
+  }
+  
+  // 1) Nova rota: POST /api/datawash/webhook-cpf (envia APENAS CPF)
+  if (req.url === '/api/datawash/webhook-cpf' && req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', async () => {
+        try {
+          const payload = body ? JSON.parse(body) : {};
+          const rawCpf = typeof payload.cpf === 'string' ? payload.cpf : '';
+          const cpf = rawCpf.replace(/\D/g, '');
+          
+          if (!cpf || cpf.length !== 11) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'CPF deve conter 11 dígitos' }));
+            return;
+          }
+          
+          const webhookUrl = process.env.N8N_WEBHOOK_CPF_URL || 'https://webhookn8n.synsoft.com.br/webhook/dataws3130178c-4c85-4899-854d-17eafaffff05';
+          console.log(`🌐 Chamando webhook n8n (POST) com CPF: ${cpf}`);
+          console.log(`   URL: ${webhookUrl}`);
+          
+          let response;
+          try {
+            response = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cpf }),
+              signal: AbortSignal.timeout(10000)
+            });
+          } catch (err) {
+            console.error('❌ Erro de rede ao chamar webhook n8n:', err);
+            const fallbackData = generateFallbackData(cpf);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(fallbackData));
+            return;
+          }
+          
+          const text = await response.text();
+          console.log('📥 Webhook response status:', response.status);
+          console.log('📄 Webhook response preview:', text.substring(0, 200));
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            data = { raw: text };
+          }
+          
+          // Em caso de erro HTTP do webhook, retornar fallback
+          if (!response.ok) {
+            console.log('❌ Webhook retornou erro HTTP:', response.status, response.statusText, data);
+            const fallbackData = generateFallbackData(cpf);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(fallbackData));
+            return;
+          }
+          
+          // Normalizar estrutura do n8n/DataWash para o formato esperado pelo frontend
+          let normalized = data;
+          // Suportar respostas como array ou objeto
+          let root = data;
+          if (Array.isArray(root)) {
+            root = root.find(item => item && item.ConsultaCPFCompleta) || root[0];
+          }
+          const compl = root && root.ConsultaCPFCompleta ? root.ConsultaCPFCompleta : (data && data.ConsultaCPFCompleta ? data.ConsultaCPFCompleta : null);
+          if (compl) {
+            const dados = compl.DADOS || {};
+            const codigo = String((compl.Codigo ?? dados.Codigo ?? '').toString()).trim();
+            const mensagem = compl.Mensagem ?? dados.Mensagem ?? '';
+            
+            // Se DataWash retornou erro (Código diferente de '0'), usar fallback
+            if (codigo && codigo !== '0') {
+              console.log(`❌ DataWash retornou código ${codigo}: ${mensagem}. Usando fallback.`);
+              const fallbackData = generateFallbackData(cpf);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(fallbackData));
+              return;
+            }
+            
+            // ENDEREÇO pode ser objeto único ou array
+            const enderecos = dados.ENDERECOS?.ENDERECO;
+            const enderecoObj = Array.isArray(enderecos) ? (enderecos[0] || {}) : (enderecos || {});
+            
+            // TELEFONES é array; pegar o primeiro
+            const telefones = dados.TELEFONES_MOVEIS?.TELEFONE;
+            const telefoneStr = Array.isArray(telefones)
+              ? (telefones[0] || '')
+              : (typeof telefones === 'string' ? telefones : '');
+            
+            // EMAIL pode ser string ou array; pegar o primeiro
+            const emails = dados.EMAILS?.EMAIL;
+            const emailStr = Array.isArray(emails)
+              ? (emails[0] || '')
+              : (typeof emails === 'string' ? emails : '');
+            
+            normalized = {
+              nome: dados.NOME || '',
+              cpf: dados.CPF || cpf,
+              dataNascimento: dados.DATA_NASC || '',
+              endereco: {
+                logradouro: enderecoObj.LOGRADOURO || '',
+                numero: enderecoObj.NUMERO || '',
+                complemento: enderecoObj.COMPLEMENTO || '',
+                bairro: enderecoObj.BAIRRO || '',
+                cidade: enderecoObj.CIDADE || '',
+                estado: enderecoObj.UF || '',
+                cep: enderecoObj.CEP || ''
+              },
+              telefone: telefoneStr,
+              email: emailStr,
+              success: true,
+              source: 'datawash'
+            };
+            
+            // Não preencher campos ausentes com dados simulados; manter exatamente o retorno do webhook
+          }
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(normalized));
+        } catch (error) {
+          console.error('❌ Erro ao processar POST webhook-cpf:', error);
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Erro ao consultar CPF via webhook' }));
+        }
+      });
+      return;
+    }
+    
+  // 2) Rota legada: GET /api/datawash/cpf/:cpf
+  if (req.url && req.url.startsWith('/api/datawash/cpf/')) {
     try {
       // Extrair CPF da URL: /api/datawash/cpf/12345678901
       const urlParts = req.url.split('/');
@@ -332,7 +761,7 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-
+  
   // Proxy para API do Asaas
   if (req.url && req.url.startsWith('/api/asaas-proxy/')) {
     try {

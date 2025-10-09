@@ -401,6 +401,36 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
     setDocumentError(null);
   };
   
+  // Helper: normaliza datas diversas (DD/MM/AAAA, DD-MM-AAAA, DD.MM.AAAA, YYYY-MM-DD, com textos) para 'YYYY-MM-DD' usado por input type="date"
+  const normalizarDataParaInput = (data?: string): string => {
+    if (!data) return '';
+    const s = data.trim();
+    // ISO-like primeiro
+    let m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+    if (m) {
+      const [, y, mo, d] = m;
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    // Dia primeiro
+    m = s.match(/(\d{1,2})\D+(\d{1,2})\D+(\d{2,4})/);
+    if (m) {
+      const d = m[1];
+      const mo = m[2];
+      let y = m[3];
+      if (y.length === 2) {
+        const yyNum = parseInt(y, 10);
+        y = yyNum >= 50 ? `19${y}` : `20${y}`;
+      }
+      const dNum = parseInt(d, 10);
+      const moNum = parseInt(mo, 10);
+      if (isNaN(dNum) || isNaN(moNum) || dNum < 1 || dNum > 31 || moNum < 1 || moNum > 12) {
+        return '';
+      }
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return '';
+  };
+  
   // Função para consultar CPF na API Datawash via backend
   const consultarCPF = async (cpf: string) => {
     const cpfLimpo = cpf.replace(/\D/g, '');
@@ -409,10 +439,10 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       return;
     }
 
-    // Validar CPF antes de consultar
+    // Validar CPF antes de consultar (modo teste: não bloqueia a chamada)
     if (!DataWashService.validarCPF(cpfLimpo)) {
-      toast.error('CPF inválido');
-      return;
+      toast.error('CPF inválido (modo teste: consultando mesmo assim)');
+      // Sem retorno: seguir com consulta via webhook
     }
 
     setIsLoadingCPF(true);
@@ -427,13 +457,16 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       
       if (dados.success) {
         // Preencher dados básicos
-        setFormData({
-          ...formData,
+        const rawDataNascimentoDW = dados.dataNascimento;
+        const convertedDataNascimentoDW = normalizarDataParaInput(rawDataNascimentoDW);
+        console.log(`📅 Data Nascimento DataWash (raw): "${rawDataNascimentoDW}" → convertido para input: "${convertedDataNascimentoDW}"`);
+        setFormData(prev => ({
+          ...prev,
           nome: dados.nome || '',
           cpf: dados.cpf,
-          dataNascimento: dados.dataNascimento || '',
+          dataNascimento: convertedDataNascimentoDW || prev.dataNascimento,
           cnh: ''
-        });
+        }));
         
         // Preencher primeiro endereço se disponível
         if (dados.endereco && (dados.endereco.logradouro || dados.endereco.cep)) {
@@ -594,6 +627,38 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       
     } catch (error) {
       console.error('Erro ao consultar CEP:', error);
+
+      // Tentar fallback direto para ViaCEP
+      try {
+        const responseViaCep = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+        if (responseViaCep.ok) {
+          const dadosViaCep = await responseViaCep.json();
+          if (!dadosViaCep.erro) {
+            const dadosFormatados = {
+              logradouro: dadosViaCep.logradouro || '',
+              bairro: dadosViaCep.bairro || '',
+              cidade: dadosViaCep.localidade || '',
+              estado: dadosViaCep.uf || ''
+            };
+
+            setEnderecos(enderecos.map(endereco => 
+              endereco.id === enderecoId ? {
+                ...endereco,
+                logradouro: dadosFormatados.logradouro,
+                bairro: dadosFormatados.bairro,
+                cidade: dadosFormatados.cidade,
+                estado: dadosFormatados.estado
+              } : endereco
+            ));
+
+            setCepConsultado(prev => ({ ...prev, [enderecoId]: true }));
+            toast.success('Endereço preenchido automaticamente via ViaCEP!');
+            return;
+          }
+        }
+      } catch (fallbackError) {
+        console.warn('Fallback ViaCEP falhou:', fallbackError);
+      }
       
       // Fallback para dados simulados em caso de erro
       const dadosSimulados = {
@@ -614,7 +679,7 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       ));
       
       setCepConsultado(prev => ({ ...prev, [enderecoId]: true }));
-      toast.warning('Usando dados simulados. ' + (error.message || 'Erro ao consultar CEP.'));
+      toast.warning('Usando dados simulados. ' + (error instanceof Error ? error.message : 'Erro ao consultar CEP.'));
     } finally {
       setIsLoadingCEP(prev => ({ ...prev, [enderecoId]: false }));
     }
@@ -994,14 +1059,6 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
               <p className="text-xs text-gray-500 mt-1">
                 Os dados serão preenchidos automaticamente após digitar o CPF
               </p>
-              {!cliente && (
-                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-700">
-                    <strong>Modo Demonstração:</strong> Devido a restrições de CORS, estamos usando dados simulados.
-                    Em produção, implemente um endpoint no backend para consultar a API Datawash.
-                  </p>
-                </div>
-              )}
             </div>
             
             {/* Seção de E-mails */}
@@ -1469,6 +1526,8 @@ export default function Clientes() {
   const [showModal, setShowModal] = useState(false);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 9;
 
   // Carregar clientes do Supabase com estatísticas
   const carregarClientes = async () => {
@@ -1690,6 +1749,17 @@ export default function Clientes() {
     const matchesStatus = statusFilter === 'all' || cliente.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+
+  // Paginação
+  const totalPages = Math.ceil(filteredClientes.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedClientes = filteredClientes.slice(startIndex, endIndex);
+
+  // Reset página quando filtros mudam
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
 
   const handleEdit = (cliente: Cliente) => {
     setSelectedCliente(cliente);
@@ -2085,7 +2155,7 @@ export default function Clientes() {
 
       {/* Clientes Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredClientes.map((cliente) => (
+        {paginatedClientes.map((cliente) => (
           <ClienteCard
             key={cliente.id}
             cliente={cliente}
@@ -2096,6 +2166,92 @@ export default function Clientes() {
           />
         ))}
       </div>
+
+      {/* Paginação */}
+      {filteredClientes.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0">
+            {/* Informações da paginação */}
+            <div className="text-sm text-gray-700">
+              <span className="font-medium">Página {currentPage} de {totalPages}</span>
+              <span className="mx-2">•</span>
+              <span>
+                Mostrando {startIndex + 1}-{Math.min(endIndex, filteredClientes.length)} de {filteredClientes.length} resultados
+              </span>
+            </div>
+
+            {/* Controles de navegação */}
+            <div className="flex items-center space-x-2">
+              {/* Primeira página */}
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                ««
+              </button>
+
+              {/* Página anterior */}
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+
+              {/* Números das páginas */}
+              <div className="flex items-center space-x-1">
+                {(() => {
+                  const pages = [];
+                  const maxVisiblePages = 5;
+                  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+                  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+                  
+                  if (endPage - startPage + 1 < maxVisiblePages) {
+                    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                  }
+
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i)}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                          currentPage === i
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {i}
+                      </button>
+                    );
+                  }
+                  return pages;
+                })()}
+              </div>
+
+              {/* Próxima página */}
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Próxima
+              </button>
+
+              {/* Última página */}
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                »»
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {filteredClientes.length === 0 && (
         <div className="text-center py-12">

@@ -1,4 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { logger } from '@/utils/logger'
+
+const log = logger.scope('services/gemini-ocr')
 
 interface DocumentoProcessado {
   // Dados básicos (existentes)
@@ -111,7 +114,7 @@ class GeminiOcrService {
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
+        // console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
         
         const model = this.genAI.getGenerativeModel({ 
           model: 'gemini-2.0-flash-exp',
@@ -195,7 +198,7 @@ IMPORTANTE:
         const response = await result.response;
         let jsonStr = response.text().trim();
       
-      console.log('Resposta bruta do Gemini:', jsonStr);
+      // console.log('Resposta bruta do Gemini:', jsonStr);
       
       // Limpar possíveis caracteres extras do response
       if (jsonStr.startsWith('```json')) {
@@ -213,7 +216,7 @@ IMPORTANTE:
         jsonStr = jsonMatch[0];
       }
       
-      console.log('JSON limpo para parse:', jsonStr);
+      // console.log('JSON limpo para parse:', jsonStr);
 
       const dadosExtraidos = JSON.parse(jsonStr);
       
@@ -280,7 +283,7 @@ IMPORTANTE:
           error?.code === 503;
         
         if (isRetryableError && attempt < maxRetries) {
-          console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
+          // console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
           await new Promise(resolve => setTimeout(resolve, retryDelay * attempt)); // Backoff exponencial
           continue;
         }
@@ -371,7 +374,7 @@ IMPORTANTE:
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento de veículo...`);
+        // console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento de veículo...`);
         
         const model = this.genAI.getGenerativeModel({ 
           model: 'gemini-2.0-flash-exp',
@@ -417,7 +420,7 @@ IMPORTANTE:
         const response = await result.response;
         let jsonStr = response.text().trim();
       
-        console.log('Resposta bruta do Gemini (veículo):', jsonStr);
+        // console.log('Resposta bruta do Gemini (veículo):', jsonStr);
       
         // Limpar possíveis caracteres extras do response
         if (jsonStr.startsWith('```json')) {
@@ -435,13 +438,13 @@ IMPORTANTE:
           jsonStr = jsonMatch[0];
         }
         
-        console.log('JSON limpo para parse (veículo):', jsonStr);
+        // console.log('JSON limpo para parse (veículo):', jsonStr);
 
         const dadosExtraidos = JSON.parse(jsonStr);
         
         // Debug: Log dos dados extraídos
-        console.log('Dados extraídos do Gemini (veículo):', dadosExtraidos);
-        console.log('Campo combustível extraído:', dadosExtraidos.combustivel);
+        // console.log('Dados extraídos do Gemini (veículo):', dadosExtraidos);
+        // console.log('Campo combustível extraído:', dadosExtraidos.combustivel);
         
         // Validar se os dados essenciais foram extraídos
         if (!dadosExtraidos.placa && !dadosExtraidos.marca && !dadosExtraidos.modelo) {
@@ -463,8 +466,8 @@ IMPORTANTE:
         };
         
         // Debug: Log do resultado final
-        console.log('Resultado final processado:', resultado);
-        console.log('Campo combustível no resultado:', resultado.combustivel);
+        // console.log('Resultado final processado:', resultado);
+        // console.log('Campo combustível no resultado:', resultado.combustivel);
         
         return resultado;
 
@@ -481,7 +484,7 @@ IMPORTANTE:
           error?.code === 503;
         
         if (isRetryableError && attempt < maxRetries) {
-          console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
+          // console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
           await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
           continue;
         }
@@ -541,7 +544,7 @@ IMPORTANTE:
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento pessoal...`);
+        // console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento pessoal...`);
         
         const model = this.genAI.getGenerativeModel({ 
           model: 'gemini-2.0-flash-exp',
@@ -600,7 +603,7 @@ IMPORTANTE:
         const response = await result.response;
         let jsonStr = response.text().trim();
       
-        console.log('Resposta bruta do Gemini (documento pessoal):', jsonStr);
+        // console.log('Resposta bruta do Gemini (documento pessoal):', jsonStr);
       
         // Limpar possíveis caracteres extras do response
         if (jsonStr.startsWith('```json')) {
@@ -618,20 +621,20 @@ IMPORTANTE:
           jsonStr = jsonMatch[0];
         }
         
-        console.log('JSON limpo para parse (documento pessoal):', jsonStr);
+        // console.log('JSON limpo para parse (documento pessoal):', jsonStr);
 
         const dadosExtraidos = JSON.parse(jsonStr);
         
         // Debug: Log dos dados extraídos
-        console.log('Dados extraídos do Gemini (documento pessoal):', dadosExtraidos);
+        // console.log('Dados extraídos do Gemini (documento pessoal):', dadosExtraidos);
         
         // Debug específico para data de nascimento
-        console.log('Data de nascimento extraída:', dadosExtraidos.dataNascimento);
+        // console.log('Data de nascimento extraída:', dadosExtraidos.dataNascimento);
         if (!dadosExtraidos.dataNascimento) {
-          console.warn('⚠️ ATENÇÃO: Data de nascimento não foi extraída do documento!');
-          console.log('Campos disponíveis na resposta:', Object.keys(dadosExtraidos));
+          log.warn('⚠️ ATENÇÃO: Data de nascimento não foi extraída do documento!');
+          // console.log('Campos disponíveis na resposta:', Object.keys(dadosExtraidos));
         } else {
-          console.log('✅ Data de nascimento extraída com sucesso:', dadosExtraidos.dataNascimento);
+          log.info('✅ Data de nascimento extraída com sucesso:', dadosExtraidos.dataNascimento);
         }
         
         // Validar se os dados essenciais foram extraídos
@@ -660,13 +663,13 @@ IMPORTANTE:
         };
         
         // Debug: Log do resultado final
-        console.log('Resultado final processado (documento pessoal):', resultado);
+        // console.log('Resultado final processado (documento pessoal):', resultado);
         
         // Debug específico para confirmar data de nascimento no resultado final
         if (resultado.dataNascimento) {
-          console.log('✅ Data de nascimento incluída no resultado final:', resultado.dataNascimento);
+          log.info('✅ Data de nascimento incluída no resultado final:', resultado.dataNascimento);
         } else {
-          console.warn('❌ Data de nascimento NÃO incluída no resultado final!');
+          log.warn('❌ Data de nascimento NÃO incluída no resultado final!');
         }
         
         return resultado;
@@ -684,7 +687,7 @@ IMPORTANTE:
           error?.code === 503;
         
         if (isRetryableError && attempt < maxRetries) {
-          console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
+          // console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
           await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
           continue;
         }

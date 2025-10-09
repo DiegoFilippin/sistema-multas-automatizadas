@@ -4,10 +4,13 @@
 
 O sistema implementa um modelo de **pagamento pré-pago** onde clientes devem adquirir créditos antes de utilizar serviços. O fluxo inclui:
 
-- **Cobrança PIX** via Asaas para aquisição de créditos
-- **Validação de saldo** antes da execução de serviços
-- **Sistema de créditos para despachantes** com desconto
-- **Flexibilidade** para usar créditos do cliente ou despachante
+* **Cobrança PIX** via Asaas para aquisição de créditos
+
+* **Validação de saldo** antes da execução de serviços
+
+* **Sistema de créditos para despachantes** com desconto
+
+* **Flexibilidade** para usar créditos do cliente ou despachante
 
 ## 2. Arquitetura de Banco de Dados
 
@@ -31,7 +34,7 @@ CREATE TABLE credits (
 CREATE INDEX idx_credits_owner ON credits(owner_type, owner_id);
 ```
 
-### 2.2 Tabela de Transações (credit_transactions)
+### 2.2 Tabela de Transações (credit\_transactions)
 
 ```sql
 CREATE TABLE credit_transactions (
@@ -82,7 +85,7 @@ CREATE INDEX idx_payments_status ON payments(status);
 CREATE INDEX idx_payments_asaas_id ON payments(asaas_payment_id);
 ```
 
-### 2.4 Tabela de Pacotes de Créditos (credit_packages)
+### 2.4 Tabela de Pacotes de Créditos (credit\_packages)
 
 ```sql
 CREATE TABLE credit_packages (
@@ -379,6 +382,7 @@ app.post('/api/recursos',
 ### 8.1 Compra de Créditos pelo Cliente
 
 **Fluxo:**
+
 1. Cliente acessa interface de compra
 2. Seleciona pacote de créditos
 3. Sistema gera cobrança PIX via Asaas
@@ -388,13 +392,17 @@ app.post('/api/recursos',
 7. Cliente recebe notificação
 
 **Regras:**
-- Pagamento deve ser confirmado em até 24h
-- Créditos são adicionados apenas após confirmação
-- Desconto aplicado conforme pacote selecionado
+
+* Pagamento deve ser confirmado em até 24h
+
+* Créditos são adicionados apenas após confirmação
+
+* Desconto aplicado conforme pacote selecionado
 
 ### 8.2 Compra de Créditos pela Empresa (Despachante)
 
 **Fluxo:**
+
 1. Despachante acessa painel administrativo
 2. Seleciona pacote empresarial (com desconto)
 3. Sistema gera cobrança PIX
@@ -402,13 +410,17 @@ app.post('/api/recursos',
 5. Créditos são adicionados ao saldo da empresa
 
 **Regras:**
-- Pacotes empresariais têm desconto maior
-- Créditos da empresa podem ser usados para qualquer cliente
-- Apenas usuários com role 'Despachante' podem comprar
+
+* Pacotes empresariais têm desconto maior
+
+* Créditos da empresa podem ser usados para qualquer cliente
+
+* Apenas usuários com role 'Despachante' podem comprar
 
 ### 8.3 Execução de Serviço
 
 **Fluxo:**
+
 1. Cliente/Despachante solicita serviço
 2. Sistema verifica saldo disponível
 3. Se suficiente, debita créditos e executa
@@ -416,18 +428,26 @@ app.post('/api/recursos',
 5. Registra transação de uso
 
 **Regras:**
-- Prioridade: créditos da empresa > créditos do cliente
-- Serviço só executa com saldo suficiente
-- Débito é atômico (tudo ou nada)
-- Histórico completo de transações
+
+* Prioridade: créditos da empresa > créditos do cliente
+
+* Serviço só executa com saldo suficiente
+
+* Débito é atômico (tudo ou nada)
+
+* Histórico completo de transações
 
 ### 8.4 Reembolso e Estorno
 
 **Regras:**
-- Reembolso apenas para pagamentos não utilizados
-- Estorno em até 30 dias da compra
-- Créditos parcialmente utilizados: reembolso proporcional
-- Aprovação manual para valores acima de R$ 500
+
+* Reembolso apenas para pagamentos não utilizados
+
+* Estorno em até 30 dias da compra
+
+* Créditos parcialmente utilizados: reembolso proporcional
+
+* Aprovação manual para valores acima de R$ 500
 
 ## 9. Configurações do Sistema
 
@@ -470,19 +490,27 @@ const webhookConfig = {
 
 ### 10.1 Métricas Importantes
 
-- **Taxa de conversão PIX**: Pagamentos confirmados / Pagamentos criados
-- **Tempo médio de pagamento**: Tempo entre criação e confirmação
-- **Saldo médio por cliente/empresa**
-- **Utilização de créditos por serviço**
-- **Revenue por período**
+* **Taxa de conversão PIX**: Pagamentos confirmados / Pagamentos criados
+
+* **Tempo médio de pagamento**: Tempo entre criação e confirmação
+
+* **Saldo médio por cliente/empresa**
+
+* **Utilização de créditos por serviço**
+
+* **Revenue por período**
 
 ### 10.2 Alertas Automáticos
 
-- Saldo baixo (< R$ 10,00)
-- Pagamentos pendentes há mais de 12h
-- Falhas no webhook do Asaas
-- Tentativas de uso sem saldo suficiente
-- Transações suspeitas (valores muito altos)
+* Saldo baixo (< R$ 10,00)
+
+* Pagamentos pendentes há mais de 12h
+
+* Falhas no webhook do Asaas
+
+* Tentativas de uso sem saldo suficiente
+
+* Transações suspeitas (valores muito altos)
 
 ## 11. Segurança e Auditoria
 
@@ -505,15 +533,20 @@ CREATE TABLE audit_logs (
 
 ### 11.2 Validações de Segurança
 
-- Verificação de integridade dos saldos
-- Validação de assinatura do webhook Asaas
-- Rate limiting para APIs de pagamento
-- Criptografia de dados sensíveis
-- Logs detalhados de todas as transações
+* Verificação de integridade dos saldos
 
----
+* Validação de assinatura do webhook Asaas
+
+* Rate limiting para APIs de pagamento
+
+* Criptografia de dados sensíveis
+
+* Logs detalhados de todas as transações
+
+***
 
 **Próximos Passos:**
+
 1. Implementar tabelas no banco de dados
 2. Desenvolver APIs de créditos e pagamentos
 3. Integrar webhook do Asaas
@@ -524,3 +557,4 @@ CREATE TABLE audit_logs (
 8. Realizar testes de integração
 9. Deploy em ambiente de produção
 10. Treinamento da equipe
+

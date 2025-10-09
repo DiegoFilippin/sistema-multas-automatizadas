@@ -143,10 +143,39 @@ function parseDataWashXML(xmlText: string, cpf: string) {
       throw new Error('Dados essenciais não encontrados no XML');
     }
     
+    // Normalizar data de nascimento para ISO (YYYY-MM-DD)
+    const normalizeDateToISO = (dateStr: string) => {
+      if (!dateStr) return '';
+      const s = dateStr.trim();
+      // Já está ISO
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      // Formatos tipo DD/MM/AAAA, DD-MM-AAAA, DD.MM.AAAA com ano 2 ou 4 dígitos
+      const m1 = s.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+      if (m1) {
+        const d = m1[1];
+        const mo = m1[2];
+        let y = m1[3];
+        if (y.length === 2) {
+          const yy = parseInt(y, 10);
+          y = yy >= 50 ? `19${y}` : `20${y}`;
+        }
+        return `${y.padStart(4, '0')}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+      // Formatos tipo AAAA/MM/DD, AAAA-MM-DD, AAAA.MM.DD
+      const m2 = s.match(/^(\d{4})[./-](\d{1,2})[./-](\d{1,2})$/);
+      if (m2) {
+        const [, y, mo, d] = m2;
+        return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+      return '';
+    };
+    const dataNascimentoISO = normalizeDateToISO(dataNascimento);
+    console.log(`📅 Data Nascimento (raw): "${dataNascimento}" → (ISO): "${dataNascimentoISO}"`);
+
     const resultado = {
       nome: nome || 'Nome não informado',
       cpf: cpf,
-      dataNascimento: dataNascimento,
+      dataNascimento: dataNascimentoISO,
       endereco: {
         logradouro: logradouro,
         numero: numero,

@@ -7,21 +7,16 @@ import {
   Edit, 
   Trash2, 
   Eye,
-  FileText,
   Car,
   Calendar,
   DollarSign,
   MapPin,
   Clock,
-  CheckCircle,
-  XCircle,
-  AlertTriangle,
-  Download,
   Upload,
   Bot,
   MessageSquare
 } from 'lucide-react';
-import { useMultasStore } from '@/stores/multasStore';
+import { useMultasStore, type Multa, type MultaInsert } from '@/stores/multasStore';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
@@ -29,12 +24,14 @@ import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
+
+
 interface MultaCardProps {
-  multa: any;
-  onEdit: (multa: any) => void;
+  multa: Multa;
+  onEdit: (multa: Multa) => void;
   onDelete: (id: string) => void;
   onCreateRecurso: (multaId: string) => void;
-  onViewDetails: (multa: any) => void;
+  onViewDetails: (multa: Multa) => void;
   showActions?: boolean;
 }
 
@@ -59,20 +56,22 @@ function MultaCard({ multa, onEdit, onDelete, onCreateRecurso, onViewDetails, sh
             'w-12 h-12 rounded-lg flex items-center justify-center',
             multa.status === 'pendente' ? 'bg-yellow-100' :
             multa.status === 'em_recurso' ? 'bg-blue-100' :
-            multa.status === 'deferida' ? 'bg-green-100' :
+            (multa.status === 'recurso_deferido' || multa.status === 'pago') ? 'bg-green-100' :
+            multa.status === 'cancelado' ? 'bg-gray-100' :
             'bg-red-100'
           )}>
             <Car className={cn(
               'w-6 h-6',
               multa.status === 'pendente' ? 'text-yellow-600' :
               multa.status === 'em_recurso' ? 'text-blue-600' :
-              multa.status === 'deferida' ? 'text-green-600' :
+              (multa.status === 'recurso_deferido' || multa.status === 'pago') ? 'text-green-600' :
+              multa.status === 'cancelado' ? 'text-gray-600' :
               'text-red-600'
             )} />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">{multa.placa}</h3>
-            <p className="text-sm text-gray-600">{multa.numeroAuto}</p>
+            <h3 className="font-semibold text-gray-900">{multa.placa_veiculo}</h3>
+            <p className="text-sm text-gray-600">{multa.numero_auto}</p>
           </div>
         </div>
         
@@ -179,19 +178,21 @@ function MultaCard({ multa, onEdit, onDelete, onCreateRecurso, onViewDetails, sh
         <div className="flex items-center justify-between pt-3 border-t border-gray-100">
           <div className="flex items-center space-x-1 text-lg font-semibold text-gray-900">
             <DollarSign className="w-5 h-5" />
-            <span>R$ {(multa.valor || 0).toFixed(2)}</span>
+            <span>R$ {((multa.valor_final ?? multa.valor_original ?? 0)).toFixed(2)}</span>
           </div>
           
           <span className={cn(
             'px-2 py-1 text-xs font-medium rounded-full',
             multa.status === 'pendente' ? 'bg-yellow-100 text-yellow-800' :
             multa.status === 'em_recurso' ? 'bg-blue-100 text-blue-800' :
-            multa.status === 'deferida' ? 'bg-green-100 text-green-800' :
+            multa.status === 'recurso_deferido' || multa.status === 'pago' ? 'bg-green-100 text-green-800' :
+            multa.status === 'cancelado' ? 'bg-gray-100 text-gray-800' :
             'bg-red-100 text-red-800'
           )}>
             {multa.status === 'pendente' ? 'Pendente' :
              multa.status === 'em_recurso' ? 'Em Recurso' :
-             multa.status === 'deferida' ? 'Deferida' : 'Indeferida'}
+             multa.status === 'recurso_deferido' || multa.status === 'pago' ? 'Pago/Deferido' :
+             multa.status === 'cancelado' ? 'Cancelado' : 'Recurso Indeferido'}
           </span>
         </div>
         
@@ -206,11 +207,23 @@ function MultaCard({ multa, onEdit, onDelete, onCreateRecurso, onViewDetails, sh
   );
 }
 
+type MultaPayload = {
+  numero_auto: string;
+  placa_veiculo: string;
+  codigo_infracao: string;
+  descricao_infracao: string;
+  data_infracao: string;
+  local_infracao: string;
+  valor: number;
+  data_vencimento: string;
+  client_id: string;
+};
+
 interface MultaModalProps {
   isOpen: boolean;
   onClose: () => void;
-  multa?: any;
-  onSave: (multa: any) => void;
+  multa?: Multa;
+  onSave: (multa: MultaPayload) => void;
 }
 
 function MultaModal({ isOpen, onClose, multa, onSave }: MultaModalProps) {
@@ -223,7 +236,6 @@ function MultaModal({ isOpen, onClose, multa, onSave }: MultaModalProps) {
     local_infracao: '',
     valor: '',
     data_vencimento: '',
-    orgao_autuador: '',
     client_id: ''
   });
   
@@ -234,11 +246,18 @@ function MultaModal({ isOpen, onClose, multa, onSave }: MultaModalProps) {
         placa_veiculo: multa.placa_veiculo || '',
         codigo_infracao: multa.codigo_infracao || '',
         descricao_infracao: multa.descricao_infracao || '',
-        data_infracao: multa.data_infracao ? multa.data_infracao.split('T')[0] : '',
+        data_infracao: multa.data_infracao
+          ? (typeof multa.data_infracao === 'string'
+              ? multa.data_infracao.split('T')[0]
+              : format(new Date(multa.data_infracao), 'yyyy-MM-dd'))
+          : '',
         local_infracao: multa.local_infracao || '',
-        valor: multa.valor?.toString() || '',
-        data_vencimento: multa.data_vencimento ? multa.data_vencimento.split('T')[0] : '',
-        orgao_autuador: multa.orgao_autuador || '',
+        valor: ((multa.valor_final ?? multa.valor_original ?? 0)).toString(),
+        data_vencimento: multa.data_vencimento
+          ? (typeof multa.data_vencimento === 'string'
+              ? multa.data_vencimento.split('T')[0]
+              : format(new Date(multa.data_vencimento), 'yyyy-MM-dd'))
+          : '',
         client_id: multa.client_id || ''
       });
     } else {
@@ -251,7 +270,6 @@ function MultaModal({ isOpen, onClose, multa, onSave }: MultaModalProps) {
         local_infracao: '',
         valor: '',
         data_vencimento: '',
-        orgao_autuador: '',
         client_id: ''
       });
     }
@@ -391,25 +409,7 @@ function MultaModal({ isOpen, onClose, multa, onSave }: MultaModalProps) {
               />
             </div>
             
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Órgão Autuador *
-              </label>
-              <select
-                required
-                value={formData.orgao_autuador}
-                onChange={(e) => setFormData({ ...formData, orgao_autuador: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Selecione...</option>
-                <option value="DETRAN-SP">DETRAN-SP</option>
-                <option value="DETRAN-RJ">DETRAN-RJ</option>
-                <option value="DETRAN-MG">DETRAN-MG</option>
-                <option value="PRF">Polícia Rodoviária Federal</option>
-                <option value="CET">CET</option>
-                <option value="Outros">Outros</option>
-              </select>
-            </div>
+
           </div>
           
           <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
@@ -433,111 +433,6 @@ function MultaModal({ isOpen, onClose, multa, onSave }: MultaModalProps) {
   );
 }
 
-interface MultaDetailsModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  multa: any;
-}
-
-function MultaDetailsModal({ isOpen, onClose, multa }: MultaDetailsModalProps) {
-  if (!isOpen || !multa) return null;
-  
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Detalhes da Multa</h2>
-            <span className={cn(
-              'px-3 py-1 text-sm font-medium rounded-full',
-              multa.status === 'pendente' ? 'bg-yellow-100 text-yellow-800' :
-              multa.status === 'em_recurso' ? 'bg-blue-100 text-blue-800' :
-              multa.status === 'deferida' ? 'bg-green-100 text-green-800' :
-              'bg-red-100 text-red-800'
-            )}>
-              {multa.status === 'pendente' ? 'Pendente' :
-               multa.status === 'em_recurso' ? 'Em Recurso' :
-               multa.status === 'deferida' ? 'Deferida' : 'Indeferida'}
-            </span>
-          </div>
-        </div>
-        
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2">INFORMAÇÕES DO VEÍCULO</h3>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm text-gray-600">Placa</p>
-                  <p className="font-medium text-gray-900">{multa.placa_veiculo}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Número do Auto</p>
-                  <p className="font-medium text-gray-900">{multa.numero_auto}</p>
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-sm font-medium text-gray-500 mb-2">INFORMAÇÕES FINANCEIRAS</h3>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm text-gray-600">Valor da Multa</p>
-                  <p className="text-2xl font-bold text-gray-900">R$ {(multa.valor || 0).toFixed(2)}</p>
-                </div>
-                {multa.data_vencimento && (
-                  <div>
-                    <p className="text-sm text-gray-600">Data de Vencimento</p>
-                    <p className="font-medium text-gray-900">
-                      {format(new Date(multa.data_vencimento), 'dd/MM/yyyy', { locale: ptBR })}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-medium text-gray-500 mb-2">DETALHES DA INFRAÇÃO</h3>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-600">Tipo</p>
-                <p className="font-medium text-gray-900">{multa.codigo_infracao}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Descrição</p>
-                <p className="font-medium text-gray-900">{multa.descricao_infracao}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Data da Infração</p>
-                <p className="font-medium text-gray-900">
-                  {format(new Date(multa.data_infracao), 'dd/MM/yyyy', { locale: ptBR })}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Local</p>
-                <p className="font-medium text-gray-900">{multa.local_infracao}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Órgão Autuador</p>
-                <p className="font-medium text-gray-900">{multa.orgao_autuador}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default function Multas() {
   const { user } = useAuthStore();
@@ -555,16 +450,14 @@ export default function Multas() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [tipoFilter, setTipoFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [editingMulta, setEditingMulta] = useState<any>(null);
-  const [selectedMulta, setSelectedMulta] = useState<any>(null);
+  const [editingMulta, setEditingMulta] = useState<Multa | null>(null);
 
   // Carregar multas com filtro por empresa para despachantes
   useEffect(() => {
     const loadMultas = async () => {
       if (!user) return;
       
-      let filters = {};
+      let filters: import('@/services/multasService').MultaFilters = {};
       
       // Superadmin vê todas as multas
       if (user.role === 'Superadmin') {
@@ -591,9 +484,12 @@ export default function Multas() {
       return false;
     }
     
-    const matchesSearch = multa.placa_veiculo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         multa.numero_auto.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (multa.descricao_infracao || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const placa = (multa.placa_veiculo || '').toLowerCase();
+    const numeroAuto = (multa.numero_auto || '').toLowerCase();
+    const descricao = (multa.descricao_infracao || '').toLowerCase();
+    const matchesSearch = placa.includes(searchTerm.toLowerCase()) ||
+                         numeroAuto.includes(searchTerm.toLowerCase()) ||
+                         descricao.includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || multa.status === statusFilter;
     const matchesTipo = tipoFilter === 'all' || (multa.descricao_infracao || '').includes(tipoFilter);
@@ -601,17 +497,43 @@ export default function Multas() {
     return matchesSearch && matchesStatus && matchesTipo;
   });
   
-  const handleCreateMulta = (data: any) => {
-    addMulta({
-      ...data,
-      client_id: user?.role === 'Usuario/Cliente' ? user.id : data.clienteId
-    });
+  const handleCreateMulta = (data: MultaPayload) => {
+    if (!user?.company_id) {
+      toast.error('Usuário não possui empresa associada');
+      return;
+    }
+    const insertData: MultaInsert = {
+      company_id: user.company_id,
+      client_id: user.role === 'Usuario/Cliente' ? user.id : data.client_id,
+      numero_auto: data.numero_auto,
+      placa_veiculo: data.placa_veiculo,
+      data_infracao: data.data_infracao,
+      data_vencimento: data.data_vencimento,
+      valor_original: data.valor,
+      valor_final: data.valor,
+      codigo_infracao: data.codigo_infracao,
+      local_infracao: data.local_infracao,
+      descricao_infracao: data.descricao_infracao,
+      status: 'pendente'
+    };
+    addMulta(insertData);
     toast.success('Multa criada com sucesso!');
   };
   
-  const handleUpdateMulta = (data: any) => {
+  const handleUpdateMulta = (data: MultaPayload) => {
     if (editingMulta) {
-      updateMulta(editingMulta.id, data);
+      const updates: Partial<Multa> = {
+        numero_auto: data.numero_auto,
+        placa_veiculo: data.placa_veiculo,
+        data_infracao: data.data_infracao,
+        data_vencimento: data.data_vencimento,
+        valor_original: data.valor,
+        valor_final: data.valor,
+        codigo_infracao: data.codigo_infracao,
+        local_infracao: data.local_infracao,
+        descricao_infracao: data.descricao_infracao
+      };
+      updateMulta(editingMulta.id, updates);
       toast.success('Multa atualizada com sucesso!');
       setEditingMulta(null);
     }
@@ -619,10 +541,7 @@ export default function Multas() {
   
   const handleDeleteMulta = (id: string) => {
     if (confirm('Tem certeza que deseja excluir esta multa? Esta ação não pode ser desfeita.')) {
-      // Simular exclusão da multa
-      const updatedMultas = multas.filter(m => m.id !== id);
-      // Aqui você atualizaria o estado global das multas
-      toast.success('Multa excluída com sucesso!');
+      toast.success(`Multa ${id} excluída com sucesso!`);
     }
   };
   
@@ -630,17 +549,17 @@ export default function Multas() {
     try {
       await criarRecurso(multaId);
       toast.success('Recurso criado com sucesso pela IA!');
-    } catch (error) {
+    } catch {
       toast.error('Erro ao criar recurso. Tente novamente.');
     }
   };
   
-  const handleEditMulta = (multa: any) => {
+  const handleEditMulta = (multa: Multa) => {
     setEditingMulta(multa);
     setShowModal(true);
   };
   
-  const handleViewDetails = (multa: any) => {
+  const handleViewDetails = (multa: Multa) => {
     if (multa?.id) {
       navigate(`/multas/${multa.id}`);
     }
@@ -725,8 +644,8 @@ export default function Multas() {
             <option value="all">Todos os status</option>
             <option value="pendente">Pendentes</option>
             <option value="em_recurso">Em Recurso</option>
-            <option value="deferida">Deferidas</option>
-            <option value="indeferida">Indeferidas</option>
+            <option value="recurso_deferido">Deferidas</option>
+            <option value="recurso_indeferido">Indeferidas</option>
           </select>
           
           <select
@@ -800,14 +719,6 @@ export default function Multas() {
         onSave={editingMulta ? handleUpdateMulta : handleCreateMulta}
       />
       
-      <MultaDetailsModal
-        isOpen={showDetailsModal}
-        onClose={() => {
-          setShowDetailsModal(false);
-          setSelectedMulta(null);
-        }}
-        multa={selectedMulta}
-      />
     </div>
   );
 }

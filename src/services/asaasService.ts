@@ -1,5 +1,8 @@
 import { supabase } from '@/lib/supabase'
-import { splitService, type PaymentSplit } from './splitService'
+import { splitService } from './splitService'
+import { logger } from '@/utils/logger'
+
+const log = logger.scope('services/asaas')
 
 // Tipos baseados na documentação do Asaas
 export interface AsaasCustomer {
@@ -163,7 +166,7 @@ class AsaasService {
         .single()
 
       if (error) {
-        console.warn('Configuração do Asaas não encontrada:', error.message)
+        log.warn('Configuração do Asaas não encontrada:', error.message)
         return
       }
 
@@ -605,7 +608,7 @@ class AsaasService {
     try {
       // 1. Criar cliente
       customer = await this.createTestCustomer()
-      console.log('Cliente criado:', customer)
+      log.info('Cliente criado:', customer)
     } catch (error) {
       errors.push(`Erro ao criar cliente: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
     }
@@ -614,7 +617,7 @@ class AsaasService {
       try {
         // 2. Criar cobrança
         payment = await this.createTestPayment(customer.id)
-        console.log('Cobrança criada:', payment)
+        log.info('Cobrança criada:', payment)
       } catch (error) {
         errors.push(`Erro ao criar cobrança: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
       }
@@ -622,7 +625,7 @@ class AsaasService {
       try {
         // 3. Criar assinatura
         subscription = await this.createTestSubscription(customer.id)
-        console.log('Assinatura criada:', subscription)
+        log.info('Assinatura criada:', subscription)
       } catch (error) {
         errors.push(`Erro ao criar assinatura: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
       }
@@ -636,19 +639,19 @@ class AsaasService {
    */
   async getConfig(): Promise<AsaasConfig | null> {
     try {
-      console.log('AsaasService: Buscando configuração no banco...');
+      log.info('Buscando configuração no banco...');
       const { data, error } = await supabase
         .from('asaas_config')
         .select('*')
         .single();
 
-      console.log('AsaasService: Resultado da consulta:', { data, error });
+      log.info('Resultado da consulta:', { data, error });
 
       if (error && error.code !== 'PGRST116') {
         throw new Error(error.message);
       }
 
-      console.log('AsaasService: Retornando dados:', data);
+      log.info('Retornando dados:', data);
       return data;
     } catch (error) {
       console.error('Error getting Asaas config:', error);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { 
   Upload, 
@@ -118,6 +118,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
   const [cpfConsultado, setCpfConsultado] = useState(false);
   const [isLoadingCEP, setIsLoadingCEP] = useState<{[key: string]: boolean}>({});
   const [cepConsultado, setCepConsultado] = useState<{[key: string]: boolean}>({});
+  const cepDebounceTimers = useRef<{[key: string]: number}>({});
 
   // Funções para manipular upload de documentos pessoais
   const handleFileSelect = (file: File) => {
@@ -164,6 +165,36 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
     setDragActive(false);
   };
 
+  // Helper: normaliza datas diversas (DD/MM/AAAA, DD-MM-AAAA, DD.MM.AAAA, YYYY-MM-DD, com textos) para 'YYYY-MM-DD' usado por input type="date"
+  const normalizarDataParaInput = (data?: string): string => {
+    if (!data) return '';
+    const s = data.trim();
+    // ISO-like primeiro
+    let m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+    if (m) {
+      const [, y, mo, d] = m;
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    // Dia primeiro
+    m = s.match(/(\d{1,2})\D+(\d{1,2})\D+(\d{2,4})/);
+      if (m) {
+        const d = m[1];
+        const mo = m[2];
+        let y = m[3];
+        if (y.length === 2) {
+          const yyNum = parseInt(y, 10);
+          y = yyNum >= 50 ? `19${y}` : `20${y}`;
+        }
+        const dNum = parseInt(d, 10);
+        const moNum = parseInt(mo, 10);
+        if (isNaN(dNum) || isNaN(moNum) || dNum < 1 || dNum > 31 || moNum < 1 || moNum > 12) {
+          return '';
+        }
+        return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+    return '';
+  };
+
   const processDocumentWithAI = async () => {
     if (!uploadedFile) {
       setDocumentError('Nenhum arquivo selecionado.');
@@ -173,19 +204,24 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
     setIsProcessingDocument(true);
     setDocumentError(null);
 
+    // Conversão removida aqui; usamos normalizarDataParaInput definido acima para padronizar datas
+
     try {
       const result = await ocrService.extrairDadosPessoais(uploadedFile);
       
       console.log('Resultado recebido do OCR de documento pessoal:', result);
+      const rawDataNascimento = result.dataNascimento;
+      const convertedDataNascimento = normalizarDataParaInput(rawDataNascimento);
+      console.log('Data Nascimento OCR bruto:', rawDataNascimento, '→ convertido:', convertedDataNascimento);
       
-      // Preencher os campos automaticamente
-      setFormData({
-        ...formData,
-        nome: result.nome || formData.nome,
-        cpf: result.cpf || formData.cpf,
-        dataNascimento: result.dataNascimento || formData.dataNascimento,
-        cnh: result.cnh || formData.cnh
-      });
+      // Preencher os campos automaticamente (update funcional para evitar estado obsoleto)
+      setFormData(prev => ({
+        ...prev,
+        nome: result.nome || prev.nome,
+        cpf: result.cpf || prev.cpf,
+        dataNascimento: convertedDataNascimento || prev.dataNascimento,
+        cnh: result.cnh || prev.cnh
+      }));
       
       // Preencher primeiro endereço se disponível
       if (result.endereco && (result.endereco.logradouro || result.endereco.cep)) {
@@ -276,10 +312,10 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
       return;
     }
 
-    // Validar CPF antes de consultar
+    // Validar CPF antes de consultar (modo teste: não bloqueia a chamada)
     if (!validarCPF(cpfLimpo)) {
-      toast.error('CPF inválido');
-      return;
+      toast.error('CPF inválido (modo teste: consultando mesmo assim)');
+      // Sem retorno: seguir com consulta via webhook
     }
 
     setIsLoadingCPF(true);
@@ -294,13 +330,16 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
       
       if (dados.success) {
         // Preencher dados básicos
-        setFormData({
-          ...formData,
+        const rawDataNascimentoDW = dados.dataNascimento;
+        const convertedDataNascimentoDW = normalizarDataParaInput(rawDataNascimentoDW);
+        console.log(`📅 Data Nascimento DataWash (raw): "${rawDataNascimentoDW}" → convertido para input: "${convertedDataNascimentoDW}"`);
+        setFormData(prev => ({
+          ...prev,
           nome: dados.nome || '',
           cpf: dados.cpf,
-          dataNascimento: dados.dataNascimento || '',
+          dataNascimento: convertedDataNascimentoDW || prev.dataNascimento,
           cnh: ''
-        });
+        }));
         
         // Preencher primeiro endereço se disponível
         if (dados.endereco && (dados.endereco.logradouro || dados.endereco.cep)) {
@@ -416,6 +455,38 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
       
     } catch (error) {
       console.error('Erro ao consultar CEP:', error);
+
+      // Tentar fallback direto para ViaCEP
+      try {
+        const responseViaCep = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+        if (responseViaCep.ok) {
+          const dadosViaCep = await responseViaCep.json();
+          if (!dadosViaCep.erro) {
+            const dadosFormatados = {
+              logradouro: dadosViaCep.logradouro || '',
+              bairro: dadosViaCep.bairro || '',
+              cidade: dadosViaCep.localidade || '',
+              estado: dadosViaCep.uf || ''
+            };
+
+            setEnderecos(enderecos.map(endereco => 
+              endereco.id === enderecoId ? {
+                ...endereco,
+                logradouro: dadosFormatados.logradouro,
+                bairro: dadosFormatados.bairro,
+                cidade: dadosFormatados.cidade,
+                estado: dadosFormatados.estado
+              } : endereco
+            ));
+
+            setCepConsultado(prev => ({ ...prev, [enderecoId]: true }));
+            toast.success('Endereço preenchido automaticamente via ViaCEP!');
+            return;
+          }
+        }
+      } catch (fallbackError) {
+        console.warn('Fallback ViaCEP falhou:', fallbackError);
+      }
       
       // Fallback para dados simulados em caso de erro
       const dadosSimulados = {
@@ -436,7 +507,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
       ));
       
       setCepConsultado(prev => ({ ...prev, [enderecoId]: true }));
-      toast.warning('Usando dados simulados. ' + (error.message || 'Erro ao consultar CEP.'));
+      toast.warning('Usando dados simulados. ' + (error instanceof Error ? error.message : 'Erro ao consultar CEP.'));
     } finally {
       setIsLoadingCEP(prev => ({ ...prev, [enderecoId]: false }));
     }
@@ -471,7 +542,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
     }
   };
 
-  const atualizarEndereco = (id: string, campo: keyof Endereco, valor: any) => {
+  const atualizarEndereco = <K extends keyof Endereco>(id: string, campo: K, valor: Endereco[K]) => {
     setEnderecos(enderecos.map(endereco => 
       endereco.id === id ? { ...endereco, [campo]: valor } : endereco
     ));
@@ -494,7 +565,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
     }
   };
 
-  const atualizarEmail = (id: string, campo: keyof Email, valor: any) => {
+  const atualizarEmail = <K extends keyof Email>(id: string, campo: K, valor: Email[K]) => {
     setEmails(emails.map(email => 
       email.id === id ? { ...email, [campo]: valor } : email
     ));
@@ -517,7 +588,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
     }
   };
 
-  const atualizarTelefone = (id: string, campo: keyof Contato, valor: any) => {
+  const atualizarTelefone = <K extends keyof Contato>(id: string, campo: K, valor: Contato[K]) => {
     setTelefones(telefones.map(telefone => 
       telefone.id === id ? { ...telefone, [campo]: valor } : telefone
     ));
@@ -887,7 +958,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
                     </label>
                     <select
                       value={email.tipo}
-                      onChange={(e) => atualizarEmail(email.id, 'tipo', e.target.value)}
+                      onChange={(e) => atualizarEmail(email.id, 'tipo', e.target.value as Email['tipo'])}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="pessoal">Pessoal</option>
@@ -968,7 +1039,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
                     </label>
                     <select
                       value={telefone.tipo}
-                      onChange={(e) => atualizarTelefone(telefone.id, 'tipo', e.target.value)}
+                      onChange={(e) => atualizarTelefone(telefone.id, 'tipo', e.target.value as Contato['tipo'])}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="celular">Celular</option>
@@ -1051,7 +1122,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
                       </label>
                       <select
                         value={endereco.tipo}
-                        onChange={(e) => atualizarEndereco(endereco.id, 'tipo', e.target.value)}
+                        onChange={(e) => atualizarEndereco(endereco.id, 'tipo', e.target.value as Endereco['tipo'])}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       >
                         <option value="residencial">Residencial</option>
@@ -1071,15 +1142,25 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
                       </label>
                       <input
                         type="text"
-                        value={formatarCEP(endereco.cep || '')}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={(() => {
+                          const cepLimpo = (endereco.cep || '').replace(/\D/g, '');
+                          return cepLimpo.length === 8 ? formatarCEP(cepLimpo) : cepLimpo;
+                        })()}
                         onChange={(e) => {
-                          const cepFormatado = formatarCEP(e.target.value);
-                          atualizarEndereco(endereco.id, 'cep', cepFormatado);
-                          
-                          // Consultar CEP quando tiver 8 dígitos
                           const cepLimpo = e.target.value.replace(/\D/g, '');
+                          // Salvar apenas dígitos no estado
+                          atualizarEndereco(endereco.id, 'cep', cepLimpo);
+
+                          // Debounce da consulta de CEP: só com 8 dígitos
+                          if (cepDebounceTimers.current[endereco.id]) {
+                            clearTimeout(cepDebounceTimers.current[endereco.id]);
+                          }
                           if (cepLimpo.length === 8) {
-                            consultarCEP(cepLimpo, endereco.id);
+                            cepDebounceTimers.current[endereco.id] = window.setTimeout(() => {
+                              consultarCEP(cepLimpo, endereco.id);
+                            }, 600);
                           }
                         }}
                         className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -1088,7 +1169,7 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
                           cepConsultado[endereco.id] ? 'bg-green-50 border-green-200' : ''
                         }`}
                         placeholder="00000-000"
-                        maxLength={9}
+                        maxLength={8}
                         disabled={isLoadingCEP[endereco.id]}
                       />
                       {isLoadingCEP[endereco.id] && (

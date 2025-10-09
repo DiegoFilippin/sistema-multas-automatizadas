@@ -10,7 +10,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { serviceOrdersService } from '@/services/serviceOrdersService';
 import { toast } from 'sonner';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useNavigate } from 'react-router-dom';
@@ -145,6 +145,8 @@ const MeusServicos: React.FC = () => {
   const [multaTypes, setMultaTypes] = useState<MultaType[]>([]);
   const [loadingMultaTypes, setLoadingMultaTypes] = useState(false);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [clientQuery, setClientQuery] = useState('');
+  const [showClientList, setShowClientList] = useState(false);
   const [selectedMultaType, setSelectedMultaType] = useState<string>('');
   const [customAmount, setCustomAmount] = useState<number>(0);
   const [isEditingAmount, setIsEditingAmount] = useState(false);
@@ -1760,6 +1762,17 @@ const MeusServicos: React.FC = () => {
     );
   }
 
+  const normalizedQuery = clientQuery.trim().toLowerCase();
+  const digitsQuery = clientQuery.replace(/\D/g, '');
+  const filteredClients = (normalizedQuery === '' && digitsQuery === '')
+    ? clients
+    : clients.filter((c) => {
+        const nomeMatch = c.nome?.toLowerCase().includes(normalizedQuery);
+        const cpfCnpjDigits = (c.cpf_cnpj || '').replace(/\D/g, '');
+        const cpfMatch = digitsQuery !== '' ? cpfCnpjDigits.includes(digitsQuery) : false;
+        return nomeMatch || cpfMatch;
+      });
+
   return (
     <div className="container mx-auto p-6">
       <div className="mb-8">
@@ -1811,25 +1824,55 @@ const MeusServicos: React.FC = () => {
           {/* Seleção de Cliente */}
           <div className="space-y-2">
             <Label htmlFor="client-select">Cliente *</Label>
-            <Select 
-              value={selectedClient?.id || ''} 
-              onValueChange={(clientId) => {
-                const client = clients.find(c => c.id === clientId);
-                console.log('Cliente selecionado:', client);
-                setSelectedClient(client || null);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione um cliente" />
-              </SelectTrigger>
-              <SelectContent>
-                {clients.map((client) => (
-                  <SelectItem key={client.id} value={client.id}>
-                    {client.nome} - {client.cpf_cnpj}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="relative">
+              <div className="flex gap-2">
+                <Input
+                  id="client-select"
+                  placeholder="Digite nome ou CPF/CNPJ"
+                  value={clientQuery}
+                  onChange={(e) => { setClientQuery(e.target.value); setShowClientList(true); }}
+                  onFocus={() => setShowClientList(true)}
+                />
+                {selectedClient && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { setSelectedClient(null); setClientQuery(''); }}
+                  >
+                    Limpar
+                  </Button>
+                )}
+              </div>
+
+              {showClientList && (
+                <div className="absolute mt-2 w-full max-h-56 overflow-auto rounded-md border border-gray-200 bg-white shadow-lg z-10">
+                  {filteredClients.length === 0 ? (
+                    <div className="p-3 text-sm text-gray-500">Nenhum cliente encontrado</div>
+                  ) : (
+                    filteredClients.map((client) => (
+                      <button
+                        type="button"
+                        key={client.id}
+                        onClick={() => {
+                          setSelectedClient(client);
+                          setClientQuery(`${client.nome} - ${client.cpf_cnpj}`);
+                          setShowClientList(false);
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-100"
+                      >
+                        <div className="flex justify-between">
+                          <span className="font-medium">{client.nome}</span>
+                          <span className="text-xs text-gray-500">{client.cpf_cnpj}</span>
+                        </div>
+                        {client.email && (
+                          <div className="text-xs text-gray-500">{client.email}</div>
+                        )}
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
             
             {/* Feedback Visual do Cliente Selecionado */}
             {selectedClient && (
@@ -2031,7 +2074,7 @@ const MeusServicos: React.FC = () => {
               <Button
                 onClick={createServiceOrder}
                 disabled={!selectedClient || !selectedMultaType || creatingPayment || (customAmount < custoMinimo)}
-                className="min-w-[200px]"
+                className="min-w-[220px] bg-violet-600 hover:bg-violet-700 text-white shadow-lg focus:outline-none focus:ring-4 focus:ring-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 size="lg"
               >
                 {creatingPayment ? (

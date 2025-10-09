@@ -4,7 +4,6 @@ import {
   LayoutDashboard, 
   Building2, 
   Users, 
-  FileText, 
   CreditCard, 
   Settings, 
   LogOut,
@@ -51,6 +50,13 @@ const menuItems: MenuItem[] = [
     roles: ['ICETRAN']
   },
   {
+    id: 'meus-servicos',
+    label: 'Meus Serviços',
+    icon: Package,
+    href: '/meus-servicos',
+    roles: ['Despachante']
+  },
+  {
     id: 'empresas',
     label: 'Empresas',
     icon: Building2,
@@ -70,13 +76,6 @@ const menuItems: MenuItem[] = [
     icon: Shield,
     href: '/clientes',
     roles: ['Superadmin', 'ICETRAN', 'Despachante']
-  },
-  {
-    id: 'multas',
-    label: 'Multas',
-    icon: FileText,
-    href: '/multas',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante', 'Usuario/Cliente']
   },
   {
     id: 'cobrancas',
@@ -115,13 +114,6 @@ const menuItems: MenuItem[] = [
     icon: PieChart,
     href: '/servicos-splits',
     roles: ['Superadmin', 'ICETRAN']
-  },
-  {
-    id: 'meus-servicos',
-    label: 'Meus Serviços',
-    icon: Package,
-    href: '/meus-servicos',
-    roles: ['Despachante']
   },
 
   {

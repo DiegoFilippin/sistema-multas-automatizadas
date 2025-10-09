@@ -1,6 +1,9 @@
 import openaiAssistantService, { OpenAIAssistantService } from './openaiAssistantService';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { DocumentoProcessado } from './geminiOcrService';
+import { logger } from '@/utils/logger';
+
+const log = logger.scope('services/ai-recurso');
 
 interface RecursoGerado {
   titulo: string;
@@ -18,7 +21,7 @@ export class AiRecursoService {
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
     } else {
-      console.warn('VITE_GOOGLE_API_KEY não encontrada. Serviço Gemini não estará disponível.');
+      log.warn('VITE_GOOGLE_API_KEY não encontrada. Serviço Gemini não estará disponível.');
     }
   }
 
@@ -27,33 +30,33 @@ export class AiRecursoService {
   }
 
  async gerarRecurso(dadosMulta: DocumentoProcessado, nomeCliente: string, tipoDocumento: 'defesa_previa' | 'conversao_advertencia' = 'defesa_previa'): Promise<RecursoGerado> {
-    console.log('=== INÍCIO DA GERAÇÃO DE RECURSO ===');
-    console.log('Dados da multa recebidos:', dadosMulta);
-    console.log('Nome do cliente:', nomeCliente);
-    console.log('Tipo de documento:', tipoDocumento);
+    log.info('=== INÍCIO DA GERAÇÃO DE RECURSO ===');
+    log.info('Dados da multa recebidos:', dadosMulta);
+    log.info('Nome do cliente:', nomeCliente);
+    log.info('Tipo de documento:', tipoDocumento);
     
     // Verificar configurações das APIs
     const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
     const openaiAssistantId = import.meta.env.VITE_OPENAI_ASSISTANT_ID;
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     
-    console.log('Configurações das APIs:');
-    console.log('- OpenAI API Key configurada:', !!openaiKey);
-    console.log('- OpenAI Assistant ID configurada:', !!openaiAssistantId);
-    console.log('- Gemini API Key configurada:', !!geminiKey);
-    console.log('- OpenAI Assistant Service configurado:', OpenAIAssistantService.isConfigured());
-    console.log('- Gemini Service configurado:', !!this.genAI);
+    log.info('Configurações das APIs:');
+    log.info('- OpenAI API Key configurada:', !!openaiKey);
+    log.info('- OpenAI Assistant ID configurada:', !!openaiAssistantId);
+    log.info('- Gemini API Key configurada:', !!geminiKey);
+    log.info('- OpenAI Assistant Service configurado:', OpenAIAssistantService.isConfigured());
+    log.info('- Gemini Service configurado:', !!this.genAI);
     
     let ultimoErro: any = null;
     
     // Priorizar OpenAI Assistant se estiver configurado
     if (OpenAIAssistantService.isConfigured()) {
       try {
-        console.log('🤖 TENTATIVA 1: Usando OpenAI Assistant para gerar recurso');
-        console.log('Assistant ID sendo usado:', openaiAssistantId);
+        log.info('🤖 TENTATIVA 1: Usando OpenAI Assistant para gerar recurso');
+        log.info('Assistant ID sendo usado:', openaiAssistantId);
         const resultado = await openaiAssistantService.gerarRecurso(dadosMulta, nomeCliente, tipoDocumento);
-        console.log('✅ OpenAI Assistant gerou recurso com sucesso!');
-        console.log('Título gerado:', resultado.titulo);
+        log.info('✅ OpenAI Assistant gerou recurso com sucesso!');
+        log.info('Título gerado:', resultado.titulo);
         return resultado;
       } catch (error) {
         ultimoErro = error;
@@ -73,16 +76,16 @@ export class AiRecursoService {
     // Fallback para Gemini se OpenAI não estiver disponível ou falhar
     if (!this.genAI) {
       console.error('❌ Nenhum serviço de IA configurado. Último erro OpenAI:', ultimoErro);
-      console.log('🔄 USANDO FALLBACK ESTÁTICO - Nenhuma API de IA disponível');
+      log.info('🔄 USANDO FALLBACK ESTÁTICO - Nenhuma API de IA disponível');
       return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente);
     }
 
     // Tentar Gemini com múltiplas tentativas
-    console.log('🔄 Tentando Gemini como fallback...');
+    log.info('🔄 Tentando Gemini como fallback...');
     const maxTentativas = 3;
     for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
       try {
-        console.log(`🔄 TENTATIVA ${tentativa}: Usando Gemini como fallback para gerar recurso`);
+        // Removido log de tentativa dentro do loop para reduzir ruído
       const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
       const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
@@ -176,8 +179,8 @@ IMPORTANTE:
       // Remover possíveis caracteres especiais no início/fim
       jsonStr = jsonStr.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
 
-      console.log('Resposta bruta da IA para recurso:', response.text());
-      console.log('JSON limpo para parsing:', jsonStr);
+      // console.log('Resposta bruta da IA para recurso:', response.text());
+      // console.log('JSON limpo para parsing:', jsonStr);
 
       try {
         const recursoGerado = JSON.parse(jsonStr);
@@ -187,8 +190,8 @@ IMPORTANTE:
           throw new Error('Estrutura de resposta inválida');
         }
 
-        console.log('✅ Gemini gerou recurso com sucesso!');
-        console.log('Título gerado:', recursoGerado.titulo);
+        log.info('✅ Gemini gerou recurso com sucesso!');
+        log.info('Título gerado:', recursoGerado.titulo);
         
         return {
           titulo: recursoGerado.titulo,
@@ -200,11 +203,11 @@ IMPORTANTE:
 
       } catch (parseError) {
         console.error(`Tentativa ${tentativa} - Erro ao fazer parsing da resposta da IA:`, parseError);
-        console.error('Resposta que causou erro:', jsonStr);
+        // console.error('Resposta que causou erro:', jsonStr);
         
         if (tentativa === maxTentativas) {
-          console.log('❌ Todas as tentativas de parsing do Gemini falharam, usando fallback estático');
-          console.log('🔄 USANDO FALLBACK ESTÁTICO - Falha no parsing do Gemini');
+          log.warn('❌ Todas as tentativas de parsing do Gemini falharam, usando fallback estático');
+          log.info('🔄 USANDO FALLBACK ESTÁTICO - Falha no parsing do Gemini');
           return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente, tipoDocumento);
         }
         
@@ -227,22 +230,22 @@ IMPORTANTE:
     }
     
     // Fallback final em caso de erro em ambos os serviços
-    console.log('❌ TODAS AS TENTATIVAS DE IA FALHARAM!');
-    console.log('🔄 USANDO FALLBACK ESTÁTICO FINAL - Falha em OpenAI e Gemini');
-    console.log('Último erro registrado:', ultimoErro);
+    log.warn('❌ TODAS AS TENTATIVAS DE IA FALHARAM!');
+    log.info('🔄 USANDO FALLBACK ESTÁTICO FINAL - Falha em OpenAI e Gemini');
+    log.warn('Último erro registrado:', ultimoErro);
     return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente, tipoDocumento);
   }
   
   private criarRecursoFallbackEstatico(dadosMulta: DocumentoProcessado, nomeCliente: string, tipoDocumento?: string): RecursoGerado {
-    console.log('📄 GERANDO RECURSO COM FALLBACK ESTÁTICO');
-    console.log('Tipo de documento:', tipoDocumento);
-    console.log('Dados da multa para fallback:', {
+    log.info('📄 GERANDO RECURSO COM FALLBACK ESTÁTICO');
+    log.info('Tipo de documento:', tipoDocumento);
+    log.info('Dados da multa para fallback:', {
       numeroAuto: dadosMulta.numeroAuto,
       placaVeiculo: dadosMulta.placaVeiculo,
       orgaoAutuador: dadosMulta.orgaoAutuador,
       valorMulta: dadosMulta.valorMulta
     });
-    console.log('Nome do cliente para fallback:', nomeCliente);
+    log.info('Nome do cliente para fallback:', nomeCliente);
     
     const dataAtual = new Date().toLocaleDateString('pt-BR');
     const orgaoDestinatario = dadosMulta.orgaoAutuador || 'Órgão de Trânsito Competente';
@@ -291,8 +294,8 @@ IMPORTANTE:
         tipo: 'conversao_advertencia' as const
       };
       
-      console.log('✅ Recurso Art. 267 (fallback estático) gerado com sucesso!');
-      console.log('Título do recurso Art. 267:', recursoArt267.titulo);
+      log.info('✅ Recurso Art. 267 (fallback estático) gerado com sucesso!');
+      log.info('Título do recurso Art. 267:', recursoArt267.titulo);
       return recursoArt267;
     }
     
@@ -345,9 +348,8 @@ IMPORTANTE:
       tipo: 'defesa_previa' as const
     };
     
-    console.log('✅ Recurso fallback estático gerado com sucesso!');
-    console.log('Título do recurso fallback:', recursoFallback.titulo);
-    console.log('=== FIM DA GERAÇÃO DE RECURSO (FALLBACK ESTÁTICO) ===');
+    log.info('✅ Recurso fallback estático gerado com sucesso!');
+    log.info('Título do recurso fallback:', recursoFallback.titulo);
     
     return recursoFallback;
   }

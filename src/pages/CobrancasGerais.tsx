@@ -24,6 +24,9 @@ import { usePermissions } from '@/hooks/useIcetranPermissions';
 import { toast } from 'sonner';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { serviceOrdersService } from '@/services/serviceOrdersService';
+import { logger } from '@/utils/logger';
+
+const log = logger.scope('cobrancas-gerais');
 
 interface Cobranca {
   id: string;
@@ -268,7 +271,7 @@ export default function CobrancasGerais() {
   const itemsPerPage = 12;
 
   const carregarCobrancas = async () => {
-    console.log('🔄 Iniciando carregamento de cobranças...');
+    log.debug('🔄 Iniciando carregamento de cobranças...');
     try {
       setIsLoading(true);
       
@@ -278,10 +281,10 @@ export default function CobrancasGerais() {
         all: isSuperadmin()
       };
       
-      console.log('🔍 Buscando com filtros:', filters);
+      log.debug('🔍 Buscando com filtros:', filters);
       const data = await serviceOrdersService.getServiceOrders(filters);
       
-      console.log('Dados recebidos do serviceOrdersService:', data); // Debug
+      log.debug('Dados recebidos do serviceOrdersService:', data); // Debug
       
       // Mapear os dados para o formato esperado pela interface
       const mappedPayments = (data.payments || []).map(payment => ({
@@ -302,16 +305,16 @@ export default function CobrancasGerais() {
         company_id: payment.company_id
       }));
       
-      console.log('Dados mapeados:', mappedPayments); // Debug
+      log.debug('Dados mapeados:', mappedPayments); // Debug
       setCobrancas(mappedPayments);
-      console.log('✅ Lista de cobranças atualizada com sucesso! Total:', mappedPayments.length);
+      log.info('✅ Lista de cobranças atualizada com sucesso! Total:', mappedPayments.length);
       
     } catch (error) {
       console.error('Erro ao carregar cobranças:', error);
       toast.error(`Erro ao carregar cobranças: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setIsLoading(false);
-      console.log('🏁 Carregamento de cobranças finalizado');
+      log.debug('🏁 Carregamento de cobranças finalizado');
     }
   };
   
@@ -623,7 +626,7 @@ export default function CobrancasGerais() {
       </div>
 
       {/* Cobranças Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="space-y-4">
         {paginatedCobrancas.map((cobranca) => (
           <CobrancaCard
             key={cobranca.id}

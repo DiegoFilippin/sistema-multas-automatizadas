@@ -848,8 +848,8 @@ export function CobrancaDetalhes({ cobranca, isOpen, onClose, onResend, onCancel
                 )}
               </div>
 
-              {/* External Links - SEMPRE VISÍVEL QUANDO EXISTIR */}
-              {cobranca.invoice_url && (
+              {/* External Links - OCULTO QUANDO STATUS FOR PAID */}
+              {cobranca.invoice_url && actualStatus !== 'paid' && (
                 <div className="pb-2">
                   <a
                     href={cobranca.invoice_url}

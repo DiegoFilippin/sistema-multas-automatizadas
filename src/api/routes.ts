@@ -508,6 +508,55 @@ router.get('/datawash/cpf/:cpf', authenticateToken, async (req, res) => {
   }
 });
 
+// Nova rota proxy para webhook n8n (CPF via POST)
+router.post('/datawash/webhook-cpf', authenticateToken, async (req, res) => {
+  try {
+    const { cpf } = req.body;
+    if (!cpf || typeof cpf !== 'string') {
+      return res.status(400).json({ error: 'CPF é obrigatório' });
+    }
+
+    const cpfLimpo = cpf.replace(/\D/g, '');
+    if (cpfLimpo.length !== 11) {
+      return res.status(400).json({ error: 'CPF deve conter 11 dígitos' });
+    }
+
+    const webhookUrl = process.env.N8N_DATAWASH_WEBHOOK_URL || 'https://webhookn8n.synsoft.com.br/webhook/dataws3130178c-4c85-4899-854d-17eafaffff05';
+
+    let response: Response;
+    try {
+      response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cpfLimpo }),
+        signal: AbortSignal.timeout(10000)
+      });
+    } catch (err) {
+      console.error('Erro de rede ao chamar webhook n8n:', err);
+      return res.status(502).json({ error: 'Falha de rede ao consultar CPF via webhook' });
+    }
+
+    const text = await response.text();
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch (e) {
+      console.error('Falha ao parsear JSON do webhook:', e, text);
+      return res.status(502).json({ error: 'Resposta inválida do webhook n8n' });
+    }
+
+    if (!response.ok) {
+      console.error('Erro do webhook n8n:', response.status, data);
+      return res.status(response.status).json(data || { error: 'Erro na consulta CPF via webhook' });
+    }
+
+    return res.json(data);
+  } catch (error) {
+    console.error('Erro ao consultar CPF via webhook:', error);
+    return res.status(502).json({ error: 'Erro ao consultar CPF via webhook' });
+  }
+});
+
 // Rota para consultar CEP via ViaCEP
 router.get('/cep/:cep', authenticateToken, async (req, res) => {
   try {

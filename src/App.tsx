@@ -32,6 +32,7 @@ import GerenciarLeads from './pages/GerenciarLeads';
 import SubcontasSplitTest from './components/SubcontasSplitTest';
 import TesteRecursoIA from './pages/TesteRecursoIA';
 import TesteN8nDemo from './pages/TesteN8nDemo';
+import TesteDataNascimentoOCR from './pages/TesteDataNascimentoOCR';
 import AppLayout from './components/Layout/AppLayout';
 
 // Componentes de rota movidos para dentro do contexto do Router
@@ -324,6 +325,15 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <TesteN8nDemo />
+              </ProtectedRoute>
+            } 
+          />
+
+          <Route 
+            path="/teste-data-nascimento-ocr" 
+            element={
+              <ProtectedRoute>
+                <TesteDataNascimentoOCR />
               </ProtectedRoute>
             } 
           />

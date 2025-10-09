@@ -782,13 +782,7 @@ export default function ClienteDetalhes() {
                 <AlertTriangle className="h-5 w-5" />
                 Multas ({multas.length})
               </h2>
-              <button 
-                onClick={() => navigate('/multas/nova')}
-                className="flex items-center gap-2 px-3 py-1 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
-              >
-                <Plus className="h-4 w-4" />
-                Nova Multa
-              </button>
+
             </div>
           </div>
           <div className="p-6">
@@ -882,13 +876,7 @@ export default function ClienteDetalhes() {
               <div className="text-center py-8 text-gray-500">
                 <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                 <p>Nenhuma multa encontrada para este cliente</p>
-                <button 
-                  onClick={() => navigate('/multas/nova')}
-                  className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                >
-                  <Plus className="h-4 w-4" />
-                  Cadastrar primeira multa
-                </button>
+
               </div>
             )}
           </div>

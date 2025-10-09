@@ -9,7 +9,7 @@ import { ptBR } from 'date-fns/locale';
 interface PaymentSplitsTableProps {
   splits: DespachantePaymentSplit[];
   loading?: boolean;
-  onStatusFilterChange?: (status: string) => void;
+  onStatusFilterChange?: (status: 'all' | 'pending' | 'processed' | 'failed') => void;
   onDateRangeChange?: (startDate: string, endDate: string) => void;
 }
 
@@ -19,7 +19,7 @@ export function PaymentSplitsTable({
   onStatusFilterChange,
   onDateRangeChange
 }: PaymentSplitsTableProps) {
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'processed' | 'failed'>('all');
   const [dateRange, setDateRange] = useState<{ start: string; end: string }>({
     start: '',
     end: ''
@@ -35,9 +35,9 @@ export function PaymentSplitsTable({
   const getStatusBadgeVariant = (status: string) => {
     switch (status) {
       case 'processed':
-        return 'success';
+        return 'default';
       case 'pending':
-        return 'warning';
+        return 'outline';
       case 'failed':
         return 'destructive';
       default:
@@ -58,7 +58,7 @@ export function PaymentSplitsTable({
     }
   };
 
-  const handleStatusChange = (newStatus: string) => {
+  const handleStatusChange = (newStatus: 'all' | 'pending' | 'processed' | 'failed') => {
     setStatusFilter(newStatus);
     onStatusFilterChange?.(newStatus);
   };
@@ -125,7 +125,7 @@ export function PaymentSplitsTable({
               <Filter className="h-4 w-4 text-gray-500" />
               <select
                 value={statusFilter}
-                onChange={(e) => handleStatusChange(e.target.value)}
+                onChange={(e) => handleStatusChange(e.target.value as 'all' | 'pending' | 'processed' | 'failed')}
                 className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="all">Todos os Status</option>
