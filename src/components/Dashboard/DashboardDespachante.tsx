@@ -1,26 +1,38 @@
 import { useEffect, useState } from 'react';
 import { 
-  Users, 
   FileText, 
-  TrendingUp, 
-  DollarSign,
+  TrendingUp,
   Clock,
   CheckCircle,
   XCircle,
-  AlertTriangle,
   Zap,
   Plus,
   Coins,
-  CreditCard
+  DollarSign
 } from 'lucide-react';
 import { useMultasStore } from '@/stores/multasStore';
 import { useAuthStore } from '@/stores/authStore';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import TipoRecursoTag from '@/components/TipoRecursoTag';
 import { CreditPurchaseModal } from '@/components/CreditPurchaseModal';
 import { useNavigate } from 'react-router-dom';
+import { ClienteModal } from '@/components/ClienteModal';
+import { useClientsStore, type ClientInsert } from '@/stores/clientsStore';
+import { FinancialSummaryCards } from '@/components/Financeiro/FinancialSummaryCards';
+import { PaymentSplitsTable } from '@/components/Financeiro/PaymentSplitsTable';
+import { despachanteFinanceiroService } from '@/services/despachanteFinanceiroService';
+import type { DespachanteFinancialData, DespachanteFinancialFilter, DespachantePaymentSplit } from '@/types/despachanteFinanceiro';
+
+// Tipo mínimo esperado pelo ClienteModal no onSave
+type NovoClienteData = {
+  nome?: string;
+  cpf?: string;
+  emails?: { endereco?: string }[];
+  telefones?: { numero?: string }[];
+  enderecos?: { logradouro?: string; cidade?: string; estado?: string; cep?: string }[];
+};
 
 interface StatCardProps {
   title: string;
@@ -76,7 +88,21 @@ export default function DashboardDespachante() {
   const [companyCredits, setCompanyCredits] = useState<number>(0);
   const [loadingCredits, setLoadingCredits] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
+  const [showClienteModal, setShowClienteModal] = useState(false);
+  const { addClient } = useClientsStore();
   const navigate = useNavigate();
+
+  // Estado para dados financeiros
+  const [financialData, setFinancialData] = useState<DespachanteFinancialData | null>(null);
+  const [loadingFinancialData, setLoadingFinancialData] = useState(false);
+  const [financialFilter, setFinancialFilter] = useState<DespachanteFinancialFilter>({
+    startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
+    endDate: new Date().toISOString().split('T')[0],
+    status: 'all'
+  });
+  const [showFinancialSection, setShowFinancialSection] = useState(false);
+  const [paymentSplits, setPaymentSplits] = useState<DespachantePaymentSplit[]>([]);
+  const [loadingSplits, setLoadingSplits] = useState(false);
 
   const stats = getEstatisticas();
 
@@ -150,6 +176,55 @@ export default function DashboardDespachante() {
     fetchCompanyCredits();
   }, [user?.company_id]);
 
+  // Função para buscar dados financeiros
+  const fetchFinancialData = async () => {
+    if (!user?.id) return;
+
+    try {
+      setLoadingFinancialData(true);
+      
+      // Buscar resumo financeiro
+      const financialSummary = await despachanteFinanceiroService.getFinancialSummary(user.id);
+      setFinancialData(financialSummary);
+      
+    } catch (error) {
+      console.error('Erro ao buscar dados financeiros:', error);
+      toast.error('Erro ao carregar dados financeiros');
+    } finally {
+      setLoadingFinancialData(false);
+    }
+  };
+
+  // Buscar splits de pagamento
+  const fetchPaymentSplits = async () => {
+    if (!user?.company_id) return;
+    try {
+      setLoadingSplits(true);
+      const splits = await despachanteFinanceiroService.getPaymentSplits(user.company_id as string, financialFilter);
+      setPaymentSplits(splits);
+    } catch (error) {
+      console.error('Erro ao buscar splits de pagamento:', error);
+      toast.error('Erro ao carregar pagamentos');
+    } finally {
+      setLoadingSplits(false);
+    }
+  };
+
+  // Buscar dados financeiros quando a seção for exibida
+  useEffect(() => {
+    if (showFinancialSection) {
+      fetchFinancialData();
+      fetchPaymentSplits();
+    }
+  }, [showFinancialSection, user?.id]);
+
+  // Atualizar splits quando filtros mudarem
+  useEffect(() => {
+    if (showFinancialSection) {
+      fetchPaymentSplits();
+    }
+  }, [financialFilter.startDate, financialFilter.endDate, financialFilter.status, user?.company_id, showFinancialSection]);
+
   // Mock data para gráficos
   const recursosUltimos30Dias = [
     { dia: '1', criados: 2, deferidos: 1, indeferidos: 0 },
@@ -177,6 +252,7 @@ export default function DashboardDespachante() {
       await criarRecurso(multaId);
       toast.success('Recurso criado com sucesso pela IA!');
     } catch (error) {
+      console.error('Erro ao criar recurso:', error);
       toast.error('Erro ao criar recurso');
     } finally {
       setIsCreatingResource(false);
@@ -212,7 +288,7 @@ export default function DashboardDespachante() {
             <option value="30d">Últimos 30 dias</option>
             <option value="90d">Últimos 90 dias</option>
           </select>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2">
+          <button onClick={() => setShowClienteModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2">
             <Plus className="w-4 h-4" />
             <span>Novo Cliente</span>
           </button>
@@ -260,37 +336,42 @@ export default function DashboardDespachante() {
         />
       </div>
 
-      {/* Alerta de Saldo Baixo */}
-      {companyCredits <= 10 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-yellow-600" />
-              <div>
-                <h3 className="font-medium text-yellow-900">Saldo de créditos baixo</h3>
-                <p className="text-sm text-yellow-700">
-                  Você tem apenas {companyCredits.toFixed(2)} créditos restantes. Compre mais créditos para continuar utilizando os serviços.
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowCreditModal(true)}
-                className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors flex items-center gap-2"
-              >
-                <CreditCard className="h-4 w-4" />
-                Comprar Créditos
-              </button>
-              <button
-                onClick={() => navigate('/gerenciar-creditos')}
-                className="px-4 py-2 border border-yellow-600 text-yellow-700 rounded-lg hover:bg-yellow-100 transition-colors"
-              >
-                Gerenciar
-              </button>
-            </div>
-          </div>
+      {/* Botão para mostrar/ocultar relatórios financeiros */}
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold text-gray-900">Relatórios Financeiros</h2>
+        <button
+          onClick={() => setShowFinancialSection(!showFinancialSection)}
+          className={cn(
+            "px-4 py-2 rounded-lg transition-colors flex items-center space-x-2",
+            showFinancialSection 
+              ? "bg-blue-600 text-white hover:bg-blue-700" 
+              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+          )}
+        >
+          <DollarSign className="w-4 h-4" />
+          <span>{showFinancialSection ? 'Ocultar' : 'Mostrar'} Relatório Financeiro</span>
+        </button>
+      </div>
+
+      {/* Seção de Relatórios Financeiros */}
+      {showFinancialSection && (
+        <div className="space-y-6">
+          {/* Cards de Resumo Financeiro */}
+          <FinancialSummaryCards 
+            data={financialData}
+            loading={loadingFinancialData}
+          />
+
+          {/* Tabela de Splits de Pagamento */}
+          <PaymentSplitsTable 
+            splits={paymentSplits}
+            loading={loadingSplits}
+            onStatusFilterChange={(status: 'all' | 'pending' | 'processed' | 'failed') => setFinancialFilter(prev => ({ ...prev, status }))}
+            onDateRangeChange={(startDate, endDate) => setFinancialFilter(prev => ({ ...prev, startDate, endDate }))}
+          />
         </div>
       )}
+
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -465,6 +546,45 @@ export default function DashboardDespachante() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Novo Cliente */}
+      <ClienteModal
+        isOpen={showClienteModal}
+        onClose={() => setShowClienteModal(false)}
+        cliente={undefined}
+        onSave={async (novoCliente: NovoClienteData) => {
+           try {
+             if (!user?.company_id) {
+               toast.error('Empresa do usuário não encontrada. Faça login novamente.');
+               return;
+             }
+
+            const primeiroEmail = novoCliente.emails?.[0]?.endereco || null;
+            const primeiroTelefone = novoCliente.telefones?.[0]?.numero || null;
+            const primeiroEndereco = novoCliente.enderecos?.[0];
+
+            const clienteData: ClientInsert = {
+              nome: novoCliente.nome || '',
+              cpf_cnpj: novoCliente.cpf || '',
+              email: primeiroEmail,
+              telefone: primeiroTelefone,
+              company_id: user.company_id,
+              status: 'ativo',
+              endereco: primeiroEndereco?.logradouro || null,
+              cidade: primeiroEndereco?.cidade || null,
+              estado: primeiroEndereco?.estado || null,
+              cep: primeiroEndereco?.cep || null
+            };
+
+            await addClient(clienteData);
+            toast.success('Cliente cadastrado com sucesso!');
+            setShowClienteModal(false);
+          } catch (error) {
+            console.error('Erro ao salvar cliente:', error);
+            toast.error('Erro ao cadastrar cliente. Tente novamente.');
+          }
+        }}
+      />
 
       {/* Modal de Compra de Créditos */}
       <CreditPurchaseModal
