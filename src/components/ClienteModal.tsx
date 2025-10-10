@@ -886,14 +886,6 @@ export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalP
               <p className="text-xs text-gray-500 mt-1">
                 Os dados serão preenchidos automaticamente após digitar o CPF
               </p>
-              {!cliente && (
-                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-700">
-                    <strong>Modo Demonstração:</strong> Devido a restrições de CORS, estamos usando dados simulados.
-                    Em produção, implemente um endpoint no backend para consultar a API Datawash.
-                  </p>
-                </div>
-              )}
             </div>
             
             <div>
