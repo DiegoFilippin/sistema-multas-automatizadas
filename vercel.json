@@ -1,1 +1,68 @@
-{"rewrites":[{"source":"/(.*)","destination":"/index.html"}]}
+{
+  "rewrites": [
+    {
+      "source": "/api/payments/save-service-order",
+      "destination": "/api/payments/save-service-order"
+    },
+    {
+      "source": "/api/payments/create-service-order",
+      "destination": "/api/payments/create-service-order"
+    },
+    {
+      "source": "/api/payments/list-service-orders",
+      "destination": "/api/payments/list-service-orders"
+    },
+    {
+      "source": "/api/payments/get-service-order/(.*)",
+      "destination": "/api/payments/get-service-order?paymentId=$1"
+    },
+    {
+      "source": "/api/payments/(.*)/recurso",
+      "destination": "/api/payments/$1/recurso"
+    },
+    {
+      "source": "/api/payments/(.*)",
+      "destination": "/api/payments/$1"
+    },
+
+    {
+      "source": "/api/credits/balance",
+      "destination": "/api/credits/balance"
+    },
+    {
+      "source": "/api/cep/(.*)",
+      "destination": "/api/cep/$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "GET, POST, PUT, DELETE, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization, access_token"
+        },
+        {
+          "key": "Access-Control-Allow-Credentials",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

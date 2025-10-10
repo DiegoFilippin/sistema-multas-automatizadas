@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Shield, Mail, Lock, Eye, EyeOff, Loader2, ArrowLeft } from 'lucide-react';
+import { Shield, Mail, Lock, Eye, EyeOff, Loader2, ArrowLeft, User, Key } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -58,23 +58,32 @@ export default function Login() {
     }
   };
 
-  const demoAccounts = [
-    {
-      type: 'Administrador Master',
-      email: 'master@multastrae.com',
-      description: 'Acesso completo à plataforma'
-    },
+  const testCredentials = [
     {
       type: 'Despachante',
-      email: 'despachante@exemplo.com',
+      email: 'operador@icetran.com.br',
+      password: 'User@123',
       description: 'Gestão de clientes e recursos'
     },
     {
-      type: 'Cliente',
-      email: 'cliente@exemplo.com',
-      description: 'Visualização de multas e recursos'
+      type: 'ICETRAN',
+      email: 'icetran@icetran.com.br',
+      password: 'Icetran@123',
+      description: 'Acesso ICETRAN - Visualização de splits e recebimentos'
+    },
+    {
+      type: 'Administrador',
+      email: 'admin@icetran.com.br',
+      password: 'Admin@123',
+      description: 'Acesso completo à plataforma'
     }
   ];
+
+  const fillCredentials = (email: string, password: string) => {
+    setEmail(email);
+    setPassword(password);
+    toast.success('Credenciais preenchidas automaticamente!');
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50 flex items-center justify-center p-4">
@@ -185,7 +194,17 @@ export default function Login() {
           </form>
         </div>
 
-        {/* Demo Accounts */}
+
+
+        {/* Footer com link para contato */}
+        <div className="text-center mt-8">
+          <p className="text-sm text-gray-500">
+            Não tem acesso ainda? {' '}
+            <Link to="/contato" className="text-slate-600 hover:text-slate-800 font-medium transition-colors">
+              Solicite acesso à plataforma
+            </Link>
+          </p>
+        </div>
 
       </div>
     </div>

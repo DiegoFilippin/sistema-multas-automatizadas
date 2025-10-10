@@ -6,6 +6,13 @@ import { clientsService } from '../services/clientsService.js';
 import { companiesService } from '../services/companiesService.js';
 import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
 
+// Importar rotas de créditos, webhooks, payments, leads e force-sync
+import creditsRouter from '../../lib/routes/credits.js';
+import webhooksRouter from '../../lib/routes/webhooks.js';
+import paymentsRouter from '../../lib/routes/payments.js';
+import leadsRouter from '../../lib/routes/leads.js';
+import forceSyncRouter from '../../lib/routes/force-sync.js';
+
 const router = express.Router();
 
 // Rotas de Autenticação
@@ -138,9 +145,52 @@ router.post('/recursos', authenticateToken, authorizeRoles(['master_company', 'd
   try {
     const companyId = req.user.companyId;
     const recursoData = req.body;
+    
+    // Validação de segurança: verificar se existe paymentId e se está pago
+    if (recursoData.paymentId) {
+      console.log('🔒 Validando pagamento para criação de recurso:', recursoData.paymentId);
+      
+      // Buscar dados do pagamento
+      const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001';
+      const paymentResponse = await fetch(`${baseUrl}/api/payments/${recursoData.paymentId}/recurso`, {
+        headers: {
+          'Authorization': req.headers.authorization || ''
+        }
+      });
+      
+      if (!paymentResponse.ok) {
+        return res.status(400).json({ 
+          error: 'Pagamento não encontrado ou inválido',
+          code: 'PAYMENT_NOT_FOUND'
+        });
+      }
+      
+      const paymentData = await paymentResponse.json();
+      
+      // Verificar se o pagamento permite criação de recurso
+      if (!paymentData.canCreateRecurso) {
+        return res.status(400).json({ 
+          error: `Recurso não pode ser criado. Status do pagamento: ${paymentData.status}`,
+          code: 'PAYMENT_NOT_PAID'
+        });
+      }
+      
+      // Verificar se já existe recurso para este pagamento
+      if (paymentData.existingRecurso) {
+        return res.status(409).json({ 
+          error: 'Já existe um recurso para este pagamento',
+          code: 'RECURSO_ALREADY_EXISTS',
+          existingRecurso: paymentData.existingRecurso
+        });
+      }
+      
+      console.log('✅ Pagamento validado com sucesso para criação de recurso');
+    }
+    
     const recurso = await recursosService.createRecurso(recursoData);
     res.status(201).json(recurso);
   } catch (error) {
+    console.error('❌ Erro ao criar recurso:', error);
     res.status(400).json({ error: error.message });
   }
 });
@@ -283,6 +333,16 @@ router.get('/clients/:clientId/vehicles', authenticateToken, async (req, res) =>
 });
 
 // Rotas de Empresas
+router.get('/companies/all', authenticateToken, authorizeRoles(['superadmin']), async (req, res) => {
+  try {
+    // Superadmin pode ver todas as empresas
+    const companies = await companiesService.getCompanies({});
+    res.json({ companies });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 router.get('/companies', authenticateToken, authorizeRoles(['master_company']), async (req, res) => {
   try {
     const filter = {
@@ -448,6 +508,55 @@ router.get('/datawash/cpf/:cpf', authenticateToken, async (req, res) => {
   }
 });
 
+// Nova rota proxy para webhook n8n (CPF via POST)
+router.post('/datawash/webhook-cpf', authenticateToken, async (req, res) => {
+  try {
+    const { cpf } = req.body;
+    if (!cpf || typeof cpf !== 'string') {
+      return res.status(400).json({ error: 'CPF é obrigatório' });
+    }
+
+    const cpfLimpo = cpf.replace(/\D/g, '');
+    if (cpfLimpo.length !== 11) {
+      return res.status(400).json({ error: 'CPF deve conter 11 dígitos' });
+    }
+
+    const webhookUrl = process.env.N8N_DATAWASH_WEBHOOK_URL || 'https://webhookn8n.synsoft.com.br/webhook/dataws3130178c-4c85-4899-854d-17eafaffff05';
+
+    let response: Response;
+    try {
+      response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cpf: cpfLimpo }),
+        signal: AbortSignal.timeout(10000)
+      });
+    } catch (err) {
+      console.error('Erro de rede ao chamar webhook n8n:', err);
+      return res.status(502).json({ error: 'Falha de rede ao consultar CPF via webhook' });
+    }
+
+    const text = await response.text();
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch (e) {
+      console.error('Falha ao parsear JSON do webhook:', e, text);
+      return res.status(502).json({ error: 'Resposta inválida do webhook n8n' });
+    }
+
+    if (!response.ok) {
+      console.error('Erro do webhook n8n:', response.status, data);
+      return res.status(response.status).json(data || { error: 'Erro na consulta CPF via webhook' });
+    }
+
+    return res.json(data);
+  } catch (error) {
+    console.error('Erro ao consultar CPF via webhook:', error);
+    return res.status(502).json({ error: 'Erro ao consultar CPF via webhook' });
+  }
+});
+
 // Rota para consultar CEP via ViaCEP
 router.get('/cep/:cep', authenticateToken, async (req, res) => {
   try {
@@ -493,5 +602,20 @@ router.get('/cep/:cep', authenticateToken, async (req, res) => {
 router.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
+
+// Rotas de créditos e pagamentos
+router.use('/credits', creditsRouter);
+
+// Rotas de webhooks
+router.use('/webhooks', webhooksRouter);
+
+// Rotas de cobranças/pagamentos
+router.use('/payments', paymentsRouter);
+
+// Rotas de leads
+router.use('/leads', leadsRouter);
+
+// Rotas de sincronização forçada
+router.use('/force-sync', forceSyncRouter);
 
 export default router;

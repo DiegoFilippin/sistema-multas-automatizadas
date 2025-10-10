@@ -1,5 +1,9 @@
 import { supabase } from '../lib/supabase'
 import type { Database } from '../lib/supabase'
+import { multaLeveService, type MultaLeveAnalysis } from './multaLeveService'
+import { logger } from '@/utils/logger'
+
+const log = logger.scope('services/multas')
 
 type Multa = Database['public']['Tables']['multas']['Row']
 type MultaInsert = Database['public']['Tables']['multas']['Insert']
@@ -128,6 +132,77 @@ class MultasService {
       return data
     } catch (error) {
       throw new Error(`Failed to create multa: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  /**
+   * Cria multa com análise automática de multa leve integrada
+   */
+  async createMultaWithAnalysis(
+    multa: MultaInsert,
+    cpfCondutor?: string,
+    dataReferencia?: Date
+  ): Promise<{ multa: Multa; analise?: MultaLeveAnalysis }> {
+    try {
+      log.info('🔍 === CRIANDO MULTA COM ANÁLISE INTEGRADA ===');
+      
+      // 1. Criar a multa primeiro
+      const multaCriada = await this.createMulta(multa);
+      log.info('✅ Multa criada com ID:', multaCriada.id);
+      
+      // 2. Realizar análise de multa leve se temos os dados necessários
+      let analiseResult: MultaLeveAnalysis | undefined;
+      
+      if (multa.codigo_infracao && cpfCondutor && cpfCondutor !== 'CPF/CNPJ não informado') {
+        // console.log('🔍 Iniciando análise de multa leve...');
+        
+        try {
+          // Realizar análise completa
+          analiseResult = await multaLeveService.analisarMultaLeve(
+            multa.codigo_infracao,
+            cpfCondutor,
+            dataReferencia || new Date(multa.data_infracao || new Date())
+          );
+          
+          // Determinar tipo de gravidade
+          const tipoGravidade = multaLeveService.determinarTipoGravidade(
+            multa.codigo_infracao
+          );
+          
+          // Atualizar campos da multa com os resultados da análise
+          await multaLeveService.atualizarCamposMultaLeve(
+            multaCriada.id,
+            analiseResult,
+            tipoGravidade
+          );
+          
+          log.info('✅ Análise de multa leve concluída:', {
+            tipoGravidade,
+            isMultaLeve: analiseResult.isMultaLeve,
+            sugerirAdvertencia: analiseResult.advertencia.sugerirAdvertencia
+          });
+          
+        } catch (analiseError: unknown) {
+          console.error('❌ Erro na análise de multa leve:', analiseError);
+          // Não falhar a criação da multa por erro na análise
+        }
+      } else {
+        log.info('⚠️ Dados insuficientes para análise de multa leve:', {
+          codigoInfracao: multa.codigo_infracao,
+          cpfCondutor
+        });
+      }
+      
+      log.info('✅ === CRIAÇÃO COM ANÁLISE CONCLUÍDA ===');
+      
+      return {
+        multa: multaCriada,
+        analise: analiseResult
+      };
+      
+    } catch (error: unknown) {
+      console.error('❌ Erro ao criar multa com análise:', error);
+      throw new Error(`Failed to create multa with analysis: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

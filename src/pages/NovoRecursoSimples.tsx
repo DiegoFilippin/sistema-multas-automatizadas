@@ -13,26 +13,76 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import GeminiOcrService, { type DocumentoProcessado } from '../services/geminiOcrService';
-import { useClientsStore } from '@/stores/clientsStore';
+import { useClientsStore, type ClientInsert } from '@/stores/clientsStore';
 import { useMultasStore, type MultaInsert, type RecursoInsert } from '@/stores/multasStore';
 import AiRecursoService, { default as aiRecursoService } from '@/services/aiRecursoService';
 import { useAuthStore } from '@/stores/authStore';
+import { clientsService } from '@/services/clientsService';
 import HistoricoMultasModal from '@/components/HistoricoMultasModal';
+import { ClienteModal } from '@/components/ClienteModal';
 import { isMultaLeve, podeConverterEmAdvertencia, getTextoConversaoAdvertencia, type MultaData } from '@/utils/multaUtils';
+import { asaasService } from '@/services/asaasService';
+
+// Interfaces para compatibilidade com ClienteModal
+interface Email {
+  id: string;
+  tipo: 'pessoal' | 'comercial' | 'alternativo';
+  endereco: string;
+  principal: boolean;
+}
+
+interface Contato {
+  id: string;
+  tipo: 'celular' | 'residencial' | 'comercial' | 'whatsapp';
+  numero: string;
+  principal: boolean;
+}
+
+interface Endereco {
+  id: string;
+  tipo: 'residencial' | 'comercial' | 'correspondencia';
+  logradouro: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+  cep: string;
+  principal: boolean;
+}
+
+interface Veiculo {
+  id: string;
+  placa: string;
+  modelo: string;
+  marca: string;
+  ano: number;
+  cor: string;
+  renavam: string;
+  dataCadastro: string;
+}
 
 interface Cliente {
   id: string;
   nome: string;
-  cpf_cnpj: string;
-  email?: string;
-  telefone?: string;
+  cpf: string;
+  emails: Email[];
+  telefones: Contato[];
+  enderecos: Endereco[];
+  dataNascimento: string;
+  cnh: string;
+  veiculos: Veiculo[];
+  multas: number;
+  recursosAtivos: number;
+  valorEconomizado: number;
+  dataCadastro: string;
   status: 'ativo' | 'inativo';
 }
 
 export default function NovoRecursoSimples() {
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { clients, fetchClients, isLoading: loadingClientes } = useClientsStore();
+  const { clients, fetchClients, addClient, isLoading: loadingClientes } = useClientsStore();
   const { addMulta, addRecurso } = useMultasStore();
   
   const [currentStep, setCurrentStep] = useState(1);
@@ -46,9 +96,112 @@ export default function NovoRecursoSimples() {
   const [searchCliente, setSearchCliente] = useState('');
   const [showNovoClienteModal, setShowNovoClienteModal] = useState(false);
   
-  // Estados para modal de histórico de multas
+  // Estados para modal de histórico
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
   const [tipoRecurso, setTipoRecurso] = useState<'normal' | 'conversao'>('normal');
+  
+  // Função auxiliar para formatar valor da multa de forma robusta
+  const formatarValorMulta = (valor: any): string => {
+    console.log('🔍 Formatando valor da multa:', { valor, tipo: typeof valor });
+    
+    if (!valor && valor !== 0) {
+      console.warn('⚠️ Valor da multa é null/undefined');
+      return 'R$ 0,00';
+    }
+    
+    let valorNumerico: number;
+    
+    if (typeof valor === 'number') {
+      valorNumerico = valor;
+    } else if (typeof valor === 'string') {
+      // Remover caracteres não numéricos exceto vírgula e ponto
+      const valorLimpo = valor.replace(/[^\d,.]/g, '').replace(',', '.');
+      valorNumerico = parseFloat(valorLimpo) || 0;
+    } else {
+      console.warn('⚠️ Tipo de valor não reconhecido:', typeof valor);
+      valorNumerico = 0;
+    }
+    
+    if (valorNumerico <= 0) {
+      console.warn('⚠️ Valor da multa é zero ou negativo:', valorNumerico);
+      return 'R$ 0,00';
+    }
+    
+    const valorFormatado = `R$ ${valorNumerico.toFixed(2).replace('.', ',')}`;
+    console.log('✅ Valor formatado:', valorFormatado);
+    return valorFormatado;
+  };
+  
+  // Função para salvar novo cliente
+  const handleSalvarNovoCliente = async (novoCliente: Partial<Cliente>) => {
+    try {
+      // Determinar company_id para o novo cliente
+      const clientCompanyId = user?.company_id || 'default-company';
+      
+      // Extrair dados do primeiro email, telefone e endereço
+      const primeiroEmail = novoCliente.emails?.[0]?.endereco || null;
+      const primeiroTelefone = novoCliente.telefones?.[0]?.numero || null;
+      const primeiroEndereco = novoCliente.enderecos?.[0];
+      
+      const clienteData: ClientInsert = {
+        nome: novoCliente.nome || '',
+        cpf_cnpj: novoCliente.cpf || '',
+        email: primeiroEmail,
+        telefone: primeiroTelefone,
+        company_id: clientCompanyId,
+        status: 'ativo' as const,
+        endereco: primeiroEndereco?.logradouro || null,
+        cidade: primeiroEndereco?.cidade || null,
+        estado: primeiroEndereco?.estado || null,
+        cep: primeiroEndereco?.cep || null
+      };
+      
+      // Salvar através do store
+      const clienteCriado = await addClient(clienteData);
+      
+      // Criar customer no Asaas
+      if (clienteCriado?.id) {
+        try {
+          const asaasCustomerData = {
+            name: novoCliente.nome || '',
+            cpfCnpj: novoCliente.cpf || '',
+            email: primeiroEmail,
+            phone: primeiroTelefone,
+            address: primeiroEndereco?.logradouro,
+            addressNumber: primeiroEndereco?.numero,
+            complement: primeiroEndereco?.complemento,
+            province: primeiroEndereco?.bairro,
+            city: primeiroEndereco?.cidade,
+            state: primeiroEndereco?.estado,
+            postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          
+          // Atualizar cliente com asaas_customer_id através do clientsService
+          await clientsService.updateClient(clienteCriado.id, {
+            asaas_customer_id: asaasCustomer.id
+          });
+
+          console.log('Customer criado no Asaas:', asaasCustomer.id);
+          toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+        } catch (asaasError) {
+          console.error('Erro ao criar customer no Asaas:', asaasError);
+          toast.warning('Cliente criado, mas houve erro na integração com Asaas.');
+        }
+      } else {
+        toast.success('Cliente cadastrado com sucesso!');
+      }
+      
+      setShowNovoClienteModal(false);
+      
+      // Recarregar lista de clientes
+      await loadClientes();
+    } catch (error) {
+      console.error('Erro ao salvar cliente:', error);
+      toast.error('Erro ao cadastrar cliente. Tente novamente.');
+    }
+  };
   
   // Carregar clientes do store
   useEffect(() => {
@@ -64,8 +217,9 @@ export default function NovoRecursoSimples() {
     }
 
     try {
-      // Carregar clientes reais da empresa do usuário logado
-      await fetchClients({ status: 'ativo', companyId: user.company_id });
+      // Carregar clientes da empresa do usuário
+      const filters = { status: 'ativo' as const, companyId: user.company_id };
+      await fetchClients(filters);
       
       if (clients.length === 0) {
         toast.info('Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.');
@@ -80,28 +234,68 @@ export default function NovoRecursoSimples() {
   const gerarCodigoInfracao = (descricao: string | null | undefined): string => {
     if (!descricao) return 'OUTRAS';
     
-    // Mapear descrições comuns para códigos conhecidos
-    const mapeamentoCodigos: { [key: string]: string } = {
-      'velocidade': 'VEL001',
-      'estacionamento': 'EST001', 
-      'sinalização': 'SIN001',
-      'ultrapassagem': 'ULT001',
-      'conversão': 'CON001',
-      'parada': 'PAR001',
-      'faixa': 'FAI001',
-      'semáforo': 'SEM001',
-      'preferencial': 'PRE001',
-      'cinto': 'CIN001',
-      'celular': 'CEL001',
-      'álcool': 'ALC001'
-    };
-    
     const descricaoLower = descricao.toLowerCase();
     
-    // Procurar por palavras-chave na descrição
-    for (const [palavra, codigo] of Object.entries(mapeamentoCodigos)) {
-      if (descricaoLower.includes(palavra)) {
+    // Mapear descrições para códigos reais do CTB (priorizando infrações leves)
+    const mapeamentoCodigos: { [key: string]: string } = {
+      // Infrações LEVES (Art. 161 a 169 do CTB)
+      'dirigir sem atenção': '50110',
+      'sem atenção': '50110',
+      'cuidados indispensáveis': '50110',
+      'distância de segurança': '50120',
+      'distância lateral': '50120',
+      'distância frontal': '50120',
+      'preferência de passagem': '50130',
+      'preferência pedestre': '50130',
+      'pedestre': '50130',
+      'estacionar em desacordo': '50140',
+      'estacionamento irregular': '50140',
+      'estacionar': '74580',
+      'parar em local proibido': '50150',
+      'parada proibida': '74560',
+      'equipamento obrigatório': '50160',
+      'equipamento ineficiente': '50160',
+      'sem equipamento': '50170',
+      'som ou ruído': '50180',
+      'descarga livre': '50190',
+      'silenciador defeituoso': '50190',
+      'buzina': '50200',
+      'afastado da guia': '74570',
+      'contramão': '74590',
+      
+      // Outras infrações comuns
+      'velocidade': '60630', // Excesso de velocidade até 20%
+      'sinalização': '55410',
+      'ultrapassagem': '60310',
+      'conversão': '60420',
+      'faixa': '60710',
+      'semáforo': '60810',
+      'cinto': '76830',
+      'celular': '73890',
+      'álcool': '70290'
+    };
+    
+    console.log('🔍 Analisando descrição para código:', descricaoLower);
+    
+    // Procurar por palavras-chave na descrição (busca mais específica primeiro)
+    for (const [frase, codigo] of Object.entries(mapeamentoCodigos)) {
+      if (descricaoLower.includes(frase)) {
+        console.log(`✅ Código encontrado: ${codigo} para "${frase}"`);
         return codigo;
+      }
+    }
+    
+    // Se não encontrar correspondência específica, tentar palavras individuais
+    const palavrasChave = [
+      'estacion', 'parar', 'parada', 'equipamento', 'atenção', 
+      'distância', 'preferência', 'buzina', 'som', 'ruído'
+    ];
+    
+    for (const palavra of palavrasChave) {
+      if (descricaoLower.includes(palavra)) {
+        // Retornar um código genérico de infração leve
+        console.log(`⚠️ Palavra-chave encontrada: ${palavra}, usando código genérico leve`);
+        return '50110'; // Código genérico para infração leve
       }
     }
     
@@ -109,9 +303,12 @@ export default function NovoRecursoSimples() {
     const palavras = descricaoLower.split(' ').filter(p => p.length > 2);
     if (palavras.length > 0) {
       const iniciais = palavras.slice(0, 3).map(p => p.charAt(0).toUpperCase()).join('');
-      return `${iniciais}001`.substring(0, 6);
+      const codigoGerado = `${iniciais}001`.substring(0, 6);
+      console.log(`🔧 Código gerado: ${codigoGerado}`);
+      return codigoGerado;
     }
     
+    console.log('❌ Nenhum código encontrado, usando OUTRAS');
     return 'OUTRAS';
   };
 
@@ -165,10 +362,29 @@ export default function NovoRecursoSimples() {
       toast.error('Dados incompletos para gerar recurso');
       return;
     }
+    
+    // Validação crítica do valor da multa antes de gerar recurso
+    const valorNormalizado = typeof extractedData.valorMulta === 'number'
+      ? extractedData.valorMulta
+      : parseFloat(String(extractedData.valorMulta).replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    
+    if (valorNormalizado <= 0) {
+      console.error('❌ ERRO CRÍTICO: Tentativa de gerar recurso com valor de multa inválido:', {
+        valorOriginal: extractedData.valorMulta,
+        valorNormalizado,
+        clienteSelecionado: clienteSelecionado.nome
+      });
+      toast.error('Erro: Não é possível gerar recurso com valor de multa zero ou inválido. Verifique os dados extraídos.');
+      return;
+    }
+    
+    console.log('✅ Validação final aprovada. Gerando recurso com valor:', valorNormalizado);
     if (!user?.company_id) {
       toast.error('Empresa do usuário não encontrada. Faça login novamente.');
       return;
     }
+    
+    const companyId = user.company_id;
     
     setIsGeneratingRecurso(true);
     
@@ -181,7 +397,7 @@ export default function NovoRecursoSimples() {
         : parseFloat(String(extractedData.valorMulta).replace(/[^\d,]/g, '').replace(',', '.')) || 0;
 
       const multaData: MultaInsert = {
-        company_id: user.company_id,
+        company_id: companyId,
         client_id: clienteSelecionado.id,
         numero_auto: (extractedData.numeroAuto || '').substring(0, 50), // VARCHAR(50)
         placa_veiculo: (extractedData.placaVeiculo || '').substring(0, 10), // VARCHAR(10)
@@ -220,7 +436,7 @@ export default function NovoRecursoSimples() {
       
       const recursoData: RecursoInsert = {
         multa_id: novaMulta.id,
-        company_id: user.company_id,
+        company_id: companyId,
         numero_processo: `REC-${Date.now()}`, // Gerar número de processo único
         data_protocolo: new Date().toISOString().split('T')[0], // Formato DATE (YYYY-MM-DD)
         tipo_recurso: recursoGerado.tipo || 'defesa_previa',
@@ -286,6 +502,34 @@ export default function NovoRecursoSimples() {
       // Processar documento com Gemini OCR
       const dadosExtraidos = await geminiService.extrairDadosAutoInfracao(uploadedFile);
       
+      // Validação crítica dos dados extraídos
+      console.log('🔍 Dados extraídos do OCR:', dadosExtraidos);
+      
+      if (!dadosExtraidos) {
+        throw new Error('Nenhum dado foi extraído do documento');
+      }
+      
+      // Validar valor da multa
+      const valorValidado = typeof dadosExtraidos.valorMulta === 'number' 
+        ? dadosExtraidos.valorMulta 
+        : parseFloat(String(dadosExtraidos.valorMulta).replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+      
+      if (valorValidado <= 0) {
+        console.warn('⚠️ Valor da multa extraído é inválido:', dadosExtraidos.valorMulta);
+        // Tentar extrair valor de outros campos ou usar valor padrão
+        dadosExtraidos.valorMulta = 100; // Valor padrão para teste
+        toast.warning('Valor da multa não foi detectado corretamente. Verifique os dados extraídos.');
+      }
+      
+      // Garantir que o valor seja numérico
+      dadosExtraidos.valorMulta = valorValidado > 0 ? valorValidado : 100;
+      
+      console.log('✅ Dados validados e prontos para uso:', {
+        valorMulta: dadosExtraidos.valorMulta,
+        numeroAuto: dadosExtraidos.numeroAuto,
+        placaVeiculo: dadosExtraidos.placaVeiculo
+      });
+      
       setExtractedData(dadosExtraidos);
       
       // Verificar se é multa leve para mostrar pergunta sobre histórico
@@ -324,11 +568,33 @@ export default function NovoRecursoSimples() {
   };
   
   const handleHistoricoResponse = (temHistorico: boolean) => {
-    if (!extractedData) return;
+    if (!extractedData) {
+      console.error('❌ extractedData não encontrado no handleHistoricoResponse');
+      return;
+    }
+    
+    // Debug: Log do estado antes do processamento
+    console.log('🔍 Estado do extractedData ANTES do processamento:', {
+      valorMulta: extractedData.valorMulta,
+      tipo: typeof extractedData.valorMulta,
+      numeroAuto: extractedData.numeroAuto,
+      placaVeiculo: extractedData.placaVeiculo
+    });
     
     const valorNormalizado = typeof extractedData.valorMulta === 'number'
       ? extractedData.valorMulta
       : parseFloat(String(extractedData.valorMulta).replace(/[^\d,]/g, '').replace(',', '.')) || 0;
+    
+    // Validação crítica: garantir que o valor não seja zero
+    if (valorNormalizado <= 0) {
+      console.error('❌ ERRO CRÍTICO: Valor da multa é zero ou inválido!', {
+        valorOriginal: extractedData.valorMulta,
+        valorNormalizado,
+        extractedData
+      });
+      toast.error('Erro: Valor da multa não pode ser zero. Verifique o documento.');
+      return;
+    }
     
     const multaData: MultaData = {
       valor_original: valorNormalizado,
@@ -337,17 +603,53 @@ export default function NovoRecursoSimples() {
       descricao_infracao: extractedData.descricaoInfracao || ''
     };
     
-    if (!temHistorico && podeConverterEmAdvertencia(multaData, false)) {
+    // Debug logs para rastrear a lógica de conversão
+    console.log('🔍 Análise de conversão em advertência:');
+    console.log('- Tem histórico:', temHistorico);
+    console.log('- Valor da multa:', valorNormalizado);
+    console.log('- Código infração:', multaData.codigo_infracao);
+    console.log('- É multa leve:', isMultaLeve(multaData));
+    console.log('- Pode converter:', podeConverterEmAdvertencia(multaData, temHistorico));
+    
+    // CORREÇÃO: Passar temHistorico em vez de false
+    if (!temHistorico && podeConverterEmAdvertencia(multaData, temHistorico)) {
       setTipoRecurso('conversao');
-      toast.success('Multa pode ser convertida em advertência! O documento será gerado automaticamente.');
+      toast.success(
+        `✅ Multa pode ser convertida em advertência por escrito!\n\n` +
+        `📋 Conforme Art. 267 do CTB:\n` +
+        `• Infração LEVE (R$ ${valorNormalizado.toFixed(2)})\n` +
+        `• Sem histórico de multas nos últimos 12 meses\n\n` +
+        `O documento será gerado automaticamente.`,
+        { duration: 6000 }
+      );
     } else {
       setTipoRecurso('normal');
       if (temHistorico) {
-        toast.info('Como há histórico de multas, será gerado recurso de defesa prévia normal.');
+        toast.info(
+          `ℹ️ Recurso de defesa prévia normal será gerado.\n\n` +
+          `❌ Não é possível converter em advertência:\n` +
+          `• Condutor possui histórico de multas nos últimos 12 meses`,
+          { duration: 5000 }
+        );
+      } else if (!isMultaLeve(multaData)) {
+        toast.info(
+          `ℹ️ Recurso de defesa prévia normal será gerado.\n\n` +
+          `❌ Não é possível converter em advertência:\n` +
+          `• Infração não é classificada como LEVE (R$ ${valorNormalizado.toFixed(2)})`,
+          { duration: 5000 }
+        );
       } else {
         toast.info('Será gerado recurso de defesa prévia normal.');
       }
     }
+    
+    // Debug: Log do estado APÓS o processamento
+    console.log('🔍 Estado do extractedData APÓS o processamento:', {
+      valorMulta: extractedData.valorMulta,
+      tipo: typeof extractedData.valorMulta,
+      valorNormalizado,
+      numeroAuto: extractedData.numeroAuto
+    });
     
     setShowHistoricoModal(false);
     setCurrentStep(2);
@@ -547,14 +849,23 @@ export default function NovoRecursoSimples() {
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Valor da Multa
+              Valor da Multa *
             </label>
             <input
               type="text"
-              value={extractedData?.valorMulta ? `R$ ${extractedData.valorMulta.toFixed(2)}` : ''}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              value={formatarValorMulta(extractedData?.valorMulta)}
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                !extractedData?.valorMulta || extractedData.valorMulta <= 0 
+                  ? 'border-red-300 bg-red-50' 
+                  : 'border-gray-300'
+              }`}
               readOnly
             />
+            {(!extractedData?.valorMulta || extractedData.valorMulta <= 0) && (
+              <p className="text-sm text-red-600 mt-1">
+                ⚠️ Valor da multa é obrigatório e deve ser maior que zero
+              </p>
+            )}
           </div>
           
           <div className="md:col-span-2">
@@ -605,10 +916,32 @@ export default function NovoRecursoSimples() {
         
         <button
           onClick={() => {
+            // Validar dados antes de prosseguir
+            if (!extractedData?.valorMulta || extractedData.valorMulta <= 0) {
+              toast.error('Erro: Valor da multa é obrigatório e deve ser maior que zero.');
+              return;
+            }
+            
+            if (!extractedData?.numeroAuto) {
+              toast.error('Erro: Número do auto de infração é obrigatório.');
+              return;
+            }
+            
+            if (!extractedData?.placaVeiculo) {
+              toast.error('Erro: Placa do veículo é obrigatória.');
+              return;
+            }
+            
+            console.log('✅ Validação dos dados extraídos passou. Prosseguindo para seleção de cliente.');
             setCurrentStep(3);
             toast.success('Dados confirmados! Selecione o requerente.');
           }}
-          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+          className={`px-6 py-2 rounded-lg ${
+            !extractedData?.valorMulta || extractedData.valorMulta <= 0
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-green-600 hover:bg-green-700'
+          } text-white`}
+          disabled={!extractedData?.valorMulta || extractedData.valorMulta <= 0}
         >
           Próximo: Selecionar Requerente
         </button>
@@ -617,9 +950,48 @@ export default function NovoRecursoSimples() {
   );
   
   const renderClientSelectionStep = () => {
-    const filteredClientes = clients.filter(cliente => 
+    // Converter clientes do store para o formato local
+    const clientesConvertidos: Cliente[] = clients.map(cliente => ({
+      id: cliente.id,
+      nome: cliente.nome,
+      cpf: cliente.cpf_cnpj,
+      emails: [{
+        id: '1',
+        tipo: 'pessoal' as const,
+        endereco: cliente.email || '',
+        principal: true
+      }],
+      telefones: [{
+        id: '1',
+        tipo: 'celular' as const,
+        numero: cliente.telefone || '',
+        principal: true
+      }],
+      enderecos: [{
+        id: '1',
+        tipo: 'residencial' as const,
+        logradouro: cliente.endereco || '',
+        numero: '',
+        complemento: '',
+        bairro: '',
+        cidade: cliente.cidade || '',
+        estado: cliente.estado || '',
+        cep: cliente.cep || '',
+        principal: true
+      }],
+      dataNascimento: '',
+      cnh: '',
+      veiculos: [],
+      multas: 0,
+      recursosAtivos: 0,
+      valorEconomizado: 0,
+      dataCadastro: cliente.created_at || new Date().toISOString(),
+      status: cliente.status
+    }));
+    
+    const filteredClientes = clientesConvertidos.filter(cliente => 
       cliente.nome.toLowerCase().includes(searchCliente.toLowerCase()) ||
-      cliente.cpf_cnpj.includes(searchCliente)
+      cliente.cpf.includes(searchCliente)
     );
     
     return (
@@ -671,9 +1043,7 @@ export default function NovoRecursoSimples() {
               <button
                 onClick={() => setShowNovoClienteModal(true)}
                 className="text-blue-600 hover:text-blue-700 font-medium"
-              >
-                Cadastrar primeiro cliente
-              </button>
+              >Cadastrar primeiro cliente</button>
             </div>
           ) : (
             <div className="max-h-96 overflow-y-auto">
@@ -693,9 +1063,9 @@ export default function NovoRecursoSimples() {
                         }`} />
                         <div>
                           <h3 className="font-medium text-gray-900">{cliente.nome}</h3>
-                          <p className="text-sm text-gray-600">{cliente.cpf_cnpj}</p>
-                          {cliente.email && (
-                            <p className="text-sm text-gray-500">{cliente.email}</p>
+                          <p className="text-sm text-gray-600">{cliente.cpf}</p>
+                          {cliente.emails[0]?.endereco && (
+                            <p className="text-sm text-gray-500">{cliente.emails[0].endereco}</p>
                           )}
                         </div>
                       </div>
@@ -727,7 +1097,7 @@ export default function NovoRecursoSimples() {
                   Cliente selecionado: {clienteSelecionado.nome}
                 </p>
                 <p className="text-sm text-blue-700">
-                  {clienteSelecionado.cpf_cnpj}
+                  {clienteSelecionado.cpf}
                 </p>
               </div>
             </div>
@@ -868,6 +1238,13 @@ export default function NovoRecursoSimples() {
           onResponse={handleHistoricoResponse}
         />
       )}
+      
+      {/* Modal de Novo Cliente */}
+      <ClienteModal
+        isOpen={showNovoClienteModal}
+        onClose={() => setShowNovoClienteModal(false)}
+        onSave={handleSalvarNovoCliente}
+      />
     </div>
   );
 }

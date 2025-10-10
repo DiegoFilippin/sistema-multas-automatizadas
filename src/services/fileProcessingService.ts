@@ -1,4 +1,7 @@
 import { toast } from 'sonner';
+import { logger } from '@/utils/logger';
+
+const log = logger.scope('services/file-processing');
 
 // Interface para dados extraídos automaticamente de documentos
 export interface ExtractedFormData {
@@ -138,11 +141,11 @@ export class FileProcessingService {
       const wordCount = this.countWords(content);
 
       // Extrai dados estruturados para pré-preenchimento de formulários
-      console.log('Extraindo dados estruturados do documento...');
+      log.info('Extraindo dados estruturados do documento...');
       const extractedFormData = await this.extractFormData(content, file.name);
       
       if (extractedFormData.confidence_score && extractedFormData.confidence_score > 0) {
-        console.log(`Dados estruturados extraídos com ${(extractedFormData.confidence_score * 100).toFixed(1)}% de confiança`);
+        log.info(`Dados estruturados extraídos com ${(extractedFormData.confidence_score * 100).toFixed(1)}% de confiança`);
       }
 
       return {
@@ -185,7 +188,7 @@ export class FileProcessingService {
    */
   private async extractTextFromPdf(file: File): Promise<{ text: string; pageCount: number }> {
     try {
-      console.log('Processando PDF com Gemini OCR...');
+      log.info('Processando PDF com Gemini OCR...');
       
       // Converte arquivo para base64 usando FileReader nativo (mesma abordagem do geminiOcrService.ts)
       const base64Data = await this.fileToBase64(file);
@@ -200,7 +203,7 @@ export class FileProcessingService {
       
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash',
+          model: 'gemini-2.0-flash-exp',
         generationConfig: {
           temperature: 0.1,
           topK: 1,
@@ -235,7 +238,7 @@ Texto extraído:`;
       
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          console.log(`Tentativa ${attempt}/${maxRetries} de extração de texto...`);
+          // console.log(`Tentativa ${attempt}/${maxRetries} de extração de texto...`);
           
           const geminiResult = await model.generateContent([
             imagePart,
@@ -254,7 +257,7 @@ Texto extraído:`;
             .replace(/^Texto extraído:\s*/i, '') // Remove prefixo se presente
             .trim();
           
-          console.log('Texto extraído com sucesso via Gemini OCR');
+          log.info('Texto extraído com sucesso via Gemini OCR');
           
           // Estima número de páginas baseado no tamanho do arquivo
           // (aproximação, já que não temos acesso direto às páginas)
@@ -278,7 +281,7 @@ Texto extraído:`;
             error?.code === 503;
           
           if (isRetryableError && attempt < maxRetries) {
-            console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
+            // console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
             continue;
           }
@@ -358,7 +361,7 @@ Texto extraído:`;
       
       return false;
     } catch (error) {
-      console.warn('Erro ao detectar proteção por senha:', error);
+      log.warn('Erro ao detectar proteção por senha:', error);
       return false;
     }
   }
@@ -413,7 +416,7 @@ Texto extraído:`;
    */
   private async extractAsPlainText(file: File): Promise<string> {
     try {
-      console.log('Mammoth falhou, tentando OCR específico para documentos Word...');
+      log.warn('Mammoth falhou, tentando OCR específico para documentos Word...');
       
       // Converte arquivo para base64
       const base64Data = await this.fileToBase64(file);
@@ -428,7 +431,7 @@ Texto extraído:`;
       
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.0-flash-exp',
         generationConfig: {
           temperature: 0.1,
           topK: 1,
@@ -458,7 +461,7 @@ IMPORTANTE:
 
 Texto extraído:`;
       
-      console.log('Processando documento Word via OCR...');
+      log.info('Processando documento Word via OCR...');
       
       const geminiResult = await model.generateContent([
         imagePart,
@@ -481,7 +484,7 @@ Texto extraído:`;
         throw new Error('OCR não conseguiu extrair texto suficiente do documento');
       }
       
-      console.log(`Texto extraído via OCR: ${extractedText.length} caracteres`);
+      log.info(`Texto extraído via OCR: ${extractedText.length} caracteres`);
       return extractedText;
       
     } catch (error) {
@@ -494,7 +497,7 @@ Texto extraído:`;
    * Extrai texto de arquivo DOC/DOCX usando mammoth.js com validação robusta
    */
   private async extractTextFromDoc(file: File): Promise<string> {
-    console.log(`Iniciando processamento de documento Word: ${file.name} (${file.size} bytes)`);
+    log.info(`Iniciando processamento de documento Word: ${file.name} (${file.size} bytes)`);
     
     // Validação básica do arquivo
     if (!file || file.size === 0) {
@@ -515,9 +518,9 @@ Texto extraído:`;
     // Tenta mammoth primeiro, mesmo se a validação não for 100% positiva
     // Isso permite processar arquivos que podem ter assinaturas ligeiramente diferentes
     if (validation.isValid) {
-      console.log(`Arquivo validado como ${validation.fileType.toUpperCase()}, processando com mammoth...`);
+      log.info(`Arquivo validado como ${validation.fileType.toUpperCase()}, processando com mammoth...`);
     } else {
-      console.log(`Validação incerta (tipo: ${validation.fileType}), tentando mammoth mesmo assim...`);
+      log.warn(`Validação incerta (tipo: ${validation.fileType}), tentando mammoth mesmo assim...`);
     }
      
      try {
@@ -537,22 +540,22 @@ Texto extraído:`;
       
       if (criticalErrors.length > 0) {
         console.error('Erros críticos detectados no mammoth:', criticalErrors.map(e => e.message));
-        console.log('Tentando fallback OCR...');
+        log.warn('Tentando fallback OCR...');
         return await this.extractAsPlainText(file);
       }
       
       if (mammothResult.messages.length > 0) {
-        console.warn('Avisos ao processar documento:', mammothResult.messages);
+        log.warn('Avisos ao processar documento:', mammothResult.messages);
       }
       
       const extractedText = mammothResult.value?.trim();
       
       if (!extractedText || extractedText.length < 10) {
-        console.warn(`Texto extraído muito curto (${extractedText?.length || 0} chars), tentando fallback OCR...`);
+        log.warn(`Texto extraído muito curto (${extractedText?.length || 0} chars), tentando fallback OCR...`);
         return await this.extractAsPlainText(file);
       }
       
-      console.log(`Texto extraído com sucesso: ${extractedText.length} caracteres`);
+      log.info(`Texto extraído com sucesso: ${extractedText.length} caracteres`);
       return extractedText;
       
     } catch (error: any) {
@@ -563,13 +566,13 @@ Texto extraído:`;
           error?.message?.includes('are you sure this is a docx file') ||
           error?.message?.includes('corrupt') ||
           error?.message?.includes('invalid')) {
-        console.log(`Erro específico do mammoth: ${error.message}. Tentando fallback OCR específico para Word...`);
+        log.warn(`Erro específico do mammoth: ${error.message}. Tentando fallback OCR específico para Word...`);
         return await this.extractAsPlainText(file);
       }
       
       // Para outros erros, tenta fallback também
       try {
-        console.log(`Erro inesperado no mammoth: ${error.message}. Tentando fallback OCR específico para Word...`);
+        log.warn(`Erro inesperado no mammoth: ${error.message}. Tentando fallback OCR específico para Word...`);
         return await this.extractAsPlainText(file);
       } catch (fallbackError) {
         console.error('Fallback OCR também falhou:', fallbackError);
@@ -666,20 +669,20 @@ Texto extraído:`;
    */
   async extractFormData(content: string, fileName: string): Promise<ExtractedFormData> {
     try {
-      console.log('Iniciando extração de dados estruturados...');
+      log.info('Iniciando extração de dados estruturados...');
       
       // Importa e configura Gemini
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
       const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
       
       if (!apiKey) {
-        console.warn('VITE_GEMINI_API_KEY não configurada - extração de dados desabilitada');
+        log.warn('VITE_GEMINI_API_KEY não configurada - extração de dados desabilitada');
         return {};
       }
       
       const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ 
-        model: 'gemini-1.5-flash',
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-2.0-flash-exp',
         generationConfig: {
           temperature: 0.1, // Baixa temperatura para maior precisão
           topK: 1,
@@ -767,7 +770,7 @@ Formato esperado:
       
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          console.log(`Tentativa ${attempt}/${maxRetries} de extração de dados...`);
+          // console.log(`Tentativa ${attempt}/${maxRetries} de extração de dados...`);
           
           const geminiResult = await model.generateContent([{ text: prompt }]);
           const response = await geminiResult.response;
@@ -788,7 +791,7 @@ Formato esperado:
           try {
             extractedData = JSON.parse(extractedText);
           } catch (parseError) {
-            console.warn('Erro ao fazer parse do JSON, tentando extrair JSON válido...', parseError);
+            log.warn('Erro ao fazer parse do JSON, tentando extrair JSON válido...', parseError);
             
             // Tenta encontrar JSON válido na resposta
             const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
@@ -821,8 +824,8 @@ Formato esperado:
             extracted_fields: extractedFields
           };
           
-          console.log(`Dados extraídos com sucesso. Confiança: ${(confidenceScore * 100).toFixed(1)}%`);
-          console.log(`Campos extraídos: ${extractedFields.join(', ')}`);
+          log.info(`Dados extraídos com sucesso. Confiança: ${(confidenceScore * 100).toFixed(1)}%`);
+          log.info(`Campos extraídos: ${extractedFields.join(', ')}`);
           
           return extractionResult;
           
@@ -839,14 +842,14 @@ Formato esperado:
             error?.code === 503;
           
           if (isRetryableError && attempt < maxRetries) {
-            console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
+            // console.log(`Erro temporário detectado. Aguardando ${retryDelay}ms antes da próxima tentativa...`);
             await new Promise(resolve => setTimeout(resolve, retryDelay * attempt));
             continue;
           }
           
           if (attempt === maxRetries) {
             if (isRetryableError) {
-              console.warn('Serviço de extração temporariamente indisponível');
+              log.warn('Serviço de extração temporariamente indisponível');
               return { confidence_score: 0, extracted_fields: [] };
             }
             throw error;

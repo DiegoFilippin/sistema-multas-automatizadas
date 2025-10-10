@@ -1,13 +1,16 @@
 import openaiAssistantService, { OpenAIAssistantService } from './openaiAssistantService';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { DocumentoProcessado } from './geminiOcrService';
+import { logger } from '@/utils/logger';
+
+const log = logger.scope('services/ai-recurso');
 
 interface RecursoGerado {
   titulo: string;
   argumentacao: string;
   fundamentacao_legal: string;
   pedido: string;
-  tipo: 'defesa_previa' | 'recurso_primeira_instancia' | 'recurso_segunda_instancia';
+  tipo: 'defesa_previa' | 'conversao_advertencia' | 'recurso_primeira_instancia' | 'recurso_segunda_instancia';
 }
 
 export class AiRecursoService {
@@ -18,7 +21,7 @@ export class AiRecursoService {
     if (apiKey) {
       this.genAI = new GoogleGenerativeAI(apiKey);
     } else {
-      console.warn('VITE_GOOGLE_API_KEY não encontrada. Serviço Gemini não estará disponível.');
+      log.warn('VITE_GOOGLE_API_KEY não encontrada. Serviço Gemini não estará disponível.');
     }
   }
 
@@ -27,33 +30,33 @@ export class AiRecursoService {
   }
 
  async gerarRecurso(dadosMulta: DocumentoProcessado, nomeCliente: string, tipoDocumento: 'defesa_previa' | 'conversao_advertencia' = 'defesa_previa'): Promise<RecursoGerado> {
-    console.log('=== INÍCIO DA GERAÇÃO DE RECURSO ===');
-    console.log('Dados da multa recebidos:', dadosMulta);
-    console.log('Nome do cliente:', nomeCliente);
-    console.log('Tipo de documento:', tipoDocumento);
+    log.info('=== INÍCIO DA GERAÇÃO DE RECURSO ===');
+    log.info('Dados da multa recebidos:', dadosMulta);
+    log.info('Nome do cliente:', nomeCliente);
+    log.info('Tipo de documento:', tipoDocumento);
     
     // Verificar configurações das APIs
     const openaiKey = import.meta.env.VITE_OPENAI_API_KEY;
     const openaiAssistantId = import.meta.env.VITE_OPENAI_ASSISTANT_ID;
     const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
     
-    console.log('Configurações das APIs:');
-    console.log('- OpenAI API Key configurada:', !!openaiKey);
-    console.log('- OpenAI Assistant ID configurada:', !!openaiAssistantId);
-    console.log('- Gemini API Key configurada:', !!geminiKey);
-    console.log('- OpenAI Assistant Service configurado:', OpenAIAssistantService.isConfigured());
-    console.log('- Gemini Service configurado:', !!this.genAI);
+    log.info('Configurações das APIs:');
+    log.info('- OpenAI API Key configurada:', !!openaiKey);
+    log.info('- OpenAI Assistant ID configurada:', !!openaiAssistantId);
+    log.info('- Gemini API Key configurada:', !!geminiKey);
+    log.info('- OpenAI Assistant Service configurado:', OpenAIAssistantService.isConfigured());
+    log.info('- Gemini Service configurado:', !!this.genAI);
     
     let ultimoErro: any = null;
     
     // Priorizar OpenAI Assistant se estiver configurado
     if (OpenAIAssistantService.isConfigured()) {
       try {
-        console.log('🤖 TENTATIVA 1: Usando OpenAI Assistant para gerar recurso');
-        console.log('Assistant ID sendo usado:', openaiAssistantId);
+        log.info('🤖 TENTATIVA 1: Usando OpenAI Assistant para gerar recurso');
+        log.info('Assistant ID sendo usado:', openaiAssistantId);
         const resultado = await openaiAssistantService.gerarRecurso(dadosMulta, nomeCliente, tipoDocumento);
-        console.log('✅ OpenAI Assistant gerou recurso com sucesso!');
-        console.log('Título gerado:', resultado.titulo);
+        log.info('✅ OpenAI Assistant gerou recurso com sucesso!');
+        log.info('Título gerado:', resultado.titulo);
         return resultado;
       } catch (error) {
         ultimoErro = error;
@@ -73,17 +76,17 @@ export class AiRecursoService {
     // Fallback para Gemini se OpenAI não estiver disponível ou falhar
     if (!this.genAI) {
       console.error('❌ Nenhum serviço de IA configurado. Último erro OpenAI:', ultimoErro);
-      console.log('🔄 USANDO FALLBACK ESTÁTICO - Nenhuma API de IA disponível');
+      log.info('🔄 USANDO FALLBACK ESTÁTICO - Nenhuma API de IA disponível');
       return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente);
     }
 
     // Tentar Gemini com múltiplas tentativas
-    console.log('🔄 Tentando Gemini como fallback...');
+    log.info('🔄 Tentando Gemini como fallback...');
     const maxTentativas = 3;
     for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
       try {
-        console.log(`🔄 TENTATIVA ${tentativa}: Usando Gemini como fallback para gerar recurso`);
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        // Removido log de tentativa dentro do loop para reduzir ruído
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
 
       const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
       
@@ -107,15 +110,40 @@ DADOS DA MULTA:
 DADOS DO REQUERENTE:
 - Nome: ${nomeCliente}
 
-${isConversaoAdvertencia ? `INSTRUÇÕES ESPECÍFICAS PARA CONVERSÃO EM ADVERTÊNCIA:
-1. Gere um PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO
-2. Fundamente no Art. 267 do Código de Trânsito Brasileiro (CTB)
-3. Destaque que se trata de infração LEVE
-4. Mencione que o condutor NÃO possui registro de multas nos últimos 12 meses
-5. Solicite a aplicação da penalidade de advertência por escrito em substituição à multa
-6. Use linguagem formal e respeitosa
-7. Inclua todos os dados da infração e do requerente
-8. Estruture como requerimento administrativo formal` : `INSTRUÇÕES ESPECÍFICAS PARA DEFESA PRÉVIA:
+${isConversaoAdvertencia ? `INSTRUÇÕES ESPECÍFICAS PARA CONVERSÃO EM ADVERTÊNCIA (Art. 267 CTB):
+
+ESTRUTURA OBRIGATÓRIA DO DOCUMENTO:
+
+1. CABEÇALHO:
+   - "PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO"
+   - "Art. 267 do Código de Trânsito Brasileiro"
+   - "Auto de Infração nº [numero]"
+
+2. DESTINATÁRIO:
+   - "Ilmo. Sr. Diretor do [Órgão Autuador]"
+
+3. IDENTIFICAÇÃO DO REQUERENTE:
+   - Nome completo, nacionalidade, CPF
+   - Qualidade: proprietário/condutor do veículo
+   - Placa do veículo
+
+4. FUNDAMENTAÇÃO LEGAL (OBRIGATÓRIA):
+   - Citar expressamente o "Art. 267 do Código de Trânsito Brasileiro"
+   - Destacar que é "infração LEVE" (valor R$ ${dadosMulta.valorMulta})
+   - Mencionar "NÃO possui registro de multas nos últimos 12 meses"
+   - Explicar que o Art. 267 permite conversão em advertência por escrito
+
+5. PEDIDO FORMAL:
+   - Solicitar expressamente a "CONVERSÃO DA MULTA EM ADVERTÊNCIA POR ESCRITO"
+   - Mencionar "substituição da penalidade pecuniária"
+   - Referenciar novamente o Art. 267 do CTB
+
+6. ENCERRAMENTO:
+   - "Termos em que, Pede deferimento."
+   - Local e data
+   - Campo para assinatura com nome e CPF
+
+IMPORTANTE: Use EXATAMENTE os termos "conversão", "advertência por escrito", "Art. 267", "infração leve" e "últimos 12 meses".` : `INSTRUÇÕES ESPECÍFICAS PARA DEFESA PRÉVIA:
 1. Gere um documento COMPLETO e FORMAL, pronto para protocolo
 2. Inclua cabeçalho com destinatário (órgão autuador)
 3. Identifique completamente o requerente e o veículo
@@ -151,8 +179,8 @@ IMPORTANTE:
       // Remover possíveis caracteres especiais no início/fim
       jsonStr = jsonStr.replace(/^[^{]*/, '').replace(/[^}]*$/, '');
 
-      console.log('Resposta bruta da IA para recurso:', response.text());
-      console.log('JSON limpo para parsing:', jsonStr);
+      // console.log('Resposta bruta da IA para recurso:', response.text());
+      // console.log('JSON limpo para parsing:', jsonStr);
 
       try {
         const recursoGerado = JSON.parse(jsonStr);
@@ -162,8 +190,8 @@ IMPORTANTE:
           throw new Error('Estrutura de resposta inválida');
         }
 
-        console.log('✅ Gemini gerou recurso com sucesso!');
-        console.log('Título gerado:', recursoGerado.titulo);
+        log.info('✅ Gemini gerou recurso com sucesso!');
+        log.info('Título gerado:', recursoGerado.titulo);
         
         return {
           titulo: recursoGerado.titulo,
@@ -175,12 +203,12 @@ IMPORTANTE:
 
       } catch (parseError) {
         console.error(`Tentativa ${tentativa} - Erro ao fazer parsing da resposta da IA:`, parseError);
-        console.error('Resposta que causou erro:', jsonStr);
+        // console.error('Resposta que causou erro:', jsonStr);
         
         if (tentativa === maxTentativas) {
-          console.log('❌ Todas as tentativas de parsing do Gemini falharam, usando fallback estático');
-          console.log('🔄 USANDO FALLBACK ESTÁTICO - Falha no parsing do Gemini');
-          return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente);
+          log.warn('❌ Todas as tentativas de parsing do Gemini falharam, usando fallback estático');
+          log.info('🔄 USANDO FALLBACK ESTÁTICO - Falha no parsing do Gemini');
+          return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente, tipoDocumento);
         }
         
         // Continuar para próxima tentativa
@@ -202,23 +230,74 @@ IMPORTANTE:
     }
     
     // Fallback final em caso de erro em ambos os serviços
-    console.log('❌ TODAS AS TENTATIVAS DE IA FALHARAM!');
-    console.log('🔄 USANDO FALLBACK ESTÁTICO FINAL - Falha em OpenAI e Gemini');
-    console.log('Último erro registrado:', ultimoErro);
-    return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente);
+    log.warn('❌ TODAS AS TENTATIVAS DE IA FALHARAM!');
+    log.info('🔄 USANDO FALLBACK ESTÁTICO FINAL - Falha em OpenAI e Gemini');
+    log.warn('Último erro registrado:', ultimoErro);
+    return this.criarRecursoFallbackEstatico(dadosMulta, nomeCliente, tipoDocumento);
   }
   
-  private criarRecursoFallbackEstatico(dadosMulta: DocumentoProcessado, nomeCliente: string): RecursoGerado {
-    console.log('📄 GERANDO RECURSO COM FALLBACK ESTÁTICO');
-    console.log('Dados da multa para fallback:', {
+  private criarRecursoFallbackEstatico(dadosMulta: DocumentoProcessado, nomeCliente: string, tipoDocumento?: string): RecursoGerado {
+    log.info('📄 GERANDO RECURSO COM FALLBACK ESTÁTICO');
+    log.info('Tipo de documento:', tipoDocumento);
+    log.info('Dados da multa para fallback:', {
       numeroAuto: dadosMulta.numeroAuto,
       placaVeiculo: dadosMulta.placaVeiculo,
-      orgaoAutuador: dadosMulta.orgaoAutuador
+      orgaoAutuador: dadosMulta.orgaoAutuador,
+      valorMulta: dadosMulta.valorMulta
     });
-    console.log('Nome do cliente para fallback:', nomeCliente);
+    log.info('Nome do cliente para fallback:', nomeCliente);
     
     const dataAtual = new Date().toLocaleDateString('pt-BR');
     const orgaoDestinatario = dadosMulta.orgaoAutuador || 'Órgão de Trânsito Competente';
+    
+    // Verificar se é conversão em advertência (Art. 267)
+    const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
+    
+    if (isConversaoAdvertencia) {
+      // Gerar documento específico para Art. 267 CTB
+      const documentoArt267 = `PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO\n` +
+        `Art. 267 do Código de Trânsito Brasileiro\n` +
+        `Auto de Infração nº ${dadosMulta.numeroAuto}\n\n` +
+        `Ilmo. Sr. Diretor do ${orgaoDestinatario}\n\n` +
+        `${nomeCliente}, brasileiro(a), vem respeitosamente requerer a V.Sa. a ` +
+        `CONVERSÃO DA MULTA EM ADVERTÊNCIA POR ESCRITO, com base no Art. 267 do ` +
+        `Código de Trânsito Brasileiro.\n\n` +
+        `DADOS DA INFRAÇÃO:\n` +
+        `- Auto de Infração: ${dadosMulta.numeroAuto}\n` +
+        `- Data da Infração: ${dadosMulta.dataInfracao}\n` +
+        `- Local: ${dadosMulta.localInfracao}\n` +
+        `- Placa do Veículo: ${dadosMulta.placaVeiculo}\n` +
+        `- Código da Infração: ${dadosMulta.codigoInfracao}\n` +
+        `- Descrição: ${dadosMulta.descricaoInfracao}\n` +
+        `- Valor da Multa: R$ ${dadosMulta.valorMulta}\n\n` +
+        `FUNDAMENTAÇÃO LEGAL:\n\n` +
+        `1. A infração cometida é classificada como LEVE (valor R$ ${dadosMulta.valorMulta});\n` +
+        `2. O requerente NÃO possui registro de multas nos últimos 12 meses;\n` +
+        `3. O Art. 267 do Código de Trânsito Brasileiro estabelece que a penalidade ` +
+        `de multa pode ser convertida em advertência por escrito quando se tratar de ` +
+        `infração leve cometida pela primeira vez.\n\n` +
+        `PEDIDO:\n\n` +
+        `Diante do exposto, requer-se a aplicação do Art. 267 do CTB, convertendo ` +
+        `a multa em ADVERTÊNCIA POR ESCRITO, em substituição à penalidade pecuniária.\n\n` +
+        `Termos em que,\n` +
+        `Pede deferimento.\n\n` +
+        `_________________, ${dataAtual}\n\n` +
+        `_________________________\n` +
+        `${nomeCliente}\n` +
+        `Requerente`;
+      
+      const recursoArt267 = {
+        titulo: `PEDIDO DE CONVERSÃO DE MULTA EM ADVERTÊNCIA POR ESCRITO - Auto de Infração nº ${dadosMulta.numeroAuto}`,
+        argumentacao: documentoArt267,
+        fundamentacao_legal: `Art. 267 do Código de Trânsito Brasileiro (Lei 9.503/97) - Conversão de multa em advertência por escrito para infrações leves cometidas pela primeira vez.`,
+        pedido: `Conversão da multa em advertência por escrito, com base no Art. 267 do CTB, em substituição à penalidade pecuniária no valor de R$ ${dadosMulta.valorMulta}.`,
+        tipo: 'conversao_advertencia' as const
+      };
+      
+      log.info('✅ Recurso Art. 267 (fallback estático) gerado com sucesso!');
+      log.info('Título do recurso Art. 267:', recursoArt267.titulo);
+      return recursoArt267;
+    }
     
     const documentoCompleto = `AO ${orgaoDestinatario.toUpperCase()}\n\n` +
       `DEFESA PRÉVIA\n` +
@@ -269,9 +348,8 @@ IMPORTANTE:
       tipo: 'defesa_previa' as const
     };
     
-    console.log('✅ Recurso fallback estático gerado com sucesso!');
-    console.log('Título do recurso fallback:', recursoFallback.titulo);
-    console.log('=== FIM DA GERAÇÃO DE RECURSO (FALLBACK ESTÁTICO) ===');
+    log.info('✅ Recurso fallback estático gerado com sucesso!');
+    log.info('Título do recurso fallback:', recursoFallback.titulo);
     
     return recursoFallback;
   }

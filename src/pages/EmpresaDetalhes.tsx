@@ -16,17 +16,19 @@ import {
   UserPlus,
   Shield,
   Eye,
-  EyeOff
+  EyeOff,
+  Wallet
 } from 'lucide-react';
 import { useEmpresasStore } from '../stores/empresasStore';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import SubcontaAsaasTab from '../components/SubcontaAsaasTab';
 
 interface Usuario {
   id: string;
   nome: string;
   email: string;
-  role: 'admin' | 'user' | 'viewer' | 'admin_master' | 'expert';
+  role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | 'admin' | 'user' | 'viewer';
   ativo: boolean;
   ultimo_login: string | null;
   created_at: string;
@@ -44,7 +46,7 @@ export default function EmpresaDetalhes() {
   const navigate = useNavigate();
   const { empresas, isLoading, fetchEmpresas, atualizarEmpresa, suspenderEmpresa, reativarEmpresa } = useEmpresasStore();
   
-  const [activeTab, setActiveTab] = useState<'dados' | 'usuarios' | 'uso' | 'configuracoes'>('dados');
+  const [activeTab, setActiveTab] = useState<'dados' | 'usuarios' | 'uso' | 'subconta' | 'configuracoes'>('dados');
   const [isEditing, setIsEditing] = useState(false);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [showUserModal, setShowUserModal] = useState(false);
@@ -210,6 +212,54 @@ export default function EmpresaDetalhes() {
           return;
         }
         
+        // Criar customer no Asaas se for despachante
+        let asaasCustomerId = null;
+        if (userData.role === 'Despachante') {
+          try {
+            console.log('🏢 Criando customer no Asaas para despachante:', userData.nome);
+            
+            const asaasResponse = await fetch('/api/asaas-proxy/customers', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+              },
+              body: JSON.stringify({
+                name: userData.nome,
+                email: userData.email,
+                cpfCnpj: empresa.cnpj, // Usar CNPJ da empresa
+                mobilePhone: empresa.telefone,
+                address: empresa.endereco,
+                addressNumber: '0',
+                complement: '',
+                province: empresa.cidade,
+                city: empresa.cidade,
+                postalCode: empresa.cep,
+                externalReference: `despachante_${authUser.user?.id}`,
+                notificationDisabled: false,
+                additionalEmails: userData.email,
+                municipalInscription: '',
+                stateInscription: '',
+                observations: `Despachante da empresa ${empresa.nome}`
+              })
+            });
+            
+            if (asaasResponse.ok) {
+              const asaasData = await asaasResponse.json();
+              asaasCustomerId = asaasData.id;
+              console.log('✅ Customer criado no Asaas:', asaasCustomerId);
+              toast.success('Customer criado no Asaas com sucesso!');
+            } else {
+              const errorData = await asaasResponse.json();
+              console.error('❌ Erro ao criar customer no Asaas:', errorData);
+              toast.error('Aviso: Erro ao criar customer no Asaas, mas usuário será criado');
+            }
+          } catch (error) {
+            console.error('❌ Erro ao criar customer no Asaas:', error);
+            toast.error('Aviso: Erro ao criar customer no Asaas, mas usuário será criado');
+          }
+        }
+        
         // Criar usuário na tabela customizada
         const { data: newUser, error } = await supabase
           .from('users')
@@ -219,7 +269,8 @@ export default function EmpresaDetalhes() {
             nome: userData.nome,
             email: userData.email,
             role: userData.role,
-            ativo: userData.ativo ?? true
+            ativo: userData.ativo ?? true,
+            asaas_customer_id: asaasCustomerId // Salvar ID do customer do Asaas
           })
           .select()
           .single();
@@ -323,6 +374,7 @@ export default function EmpresaDetalhes() {
     { id: 'dados', label: 'Dados da Empresa', icon: Building2 },
     { id: 'usuarios', label: 'Usuários', icon: Users },
     { id: 'uso', label: 'Uso & Estatísticas', icon: BarChart3 },
+    { id: 'subconta', label: 'Subconta Asaas', icon: Wallet },
     { id: 'configuracoes', label: 'Configurações', icon: Settings }
   ];
 
@@ -565,11 +617,23 @@ export default function EmpresaDetalhes() {
                   
                   <div className="flex items-center space-x-4">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      usuario.role === 'Superadmin' ? 'bg-red-100 text-red-800' :
+                      usuario.role === 'ICETRAN' ? 'bg-purple-100 text-purple-800' :
+                      usuario.role === 'Despachante' ? 'bg-blue-100 text-blue-800' :
+                      usuario.role === 'Usuario/Cliente' ? 'bg-green-100 text-green-800' :
+                      // Compatibilidade com roles antigos durante transição
                       usuario.role === 'admin' ? 'bg-purple-100 text-purple-800' :
                       usuario.role === 'user' ? 'bg-blue-100 text-blue-800' :
                       'bg-gray-100 text-gray-800'
                     }`}>
-                      {usuario.role === 'admin' ? 'Admin' : usuario.role === 'user' ? 'Usuário' : 'Visualizador'}
+                      {usuario.role === 'Superadmin' ? 'Superadmin' :
+                       usuario.role === 'ICETRAN' ? 'ICETRAN' :
+                       usuario.role === 'Despachante' ? 'Despachante' :
+                       usuario.role === 'Usuario/Cliente' ? 'Cliente' :
+                       // Compatibilidade com roles antigos
+                       usuario.role === 'admin' ? 'ICETRAN' :
+                       usuario.role === 'user' ? 'Despachante' :
+                       usuario.role === 'viewer' ? 'Cliente' : 'Desconhecido'}
                     </span>
                     
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -658,6 +722,12 @@ export default function EmpresaDetalhes() {
           </div>
         )}
 
+        {activeTab === 'subconta' && (
+          <div className="p-6">
+            <SubcontaAsaasTab companyId={empresa.id} />
+          </div>
+        )}
+
         {activeTab === 'configuracoes' && (
           <div className="p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-6">Configurações da Empresa</h2>
@@ -721,25 +791,40 @@ function UserModal({ isOpen, onClose, onSave, usuario }: UserModalProps) {
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
-    role: 'user' as 'admin' | 'user' | 'viewer' | 'admin_master' | 'expert',
+    role: 'Usuario/Cliente' as 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente',
     ativo: true
   });
   const [senha, setSenha] = useState('');
   const [confirmarSenha, setConfirmarSenha] = useState('');
+
+  // Função para mapear roles antigos para novos
+  const mapRoleToNew = (role: string): 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' => {
+    switch (role) {
+      case 'Superadmin': return 'Superadmin';
+      case 'ICETRAN': return 'ICETRAN';
+      case 'Despachante': return 'Despachante';
+      case 'Usuario/Cliente': return 'Usuario/Cliente';
+      // Mapeamento de compatibilidade para roles antigos
+      case 'admin': return 'ICETRAN';
+      case 'user': return 'Despachante';
+      case 'viewer': return 'Usuario/Cliente';
+      default: return 'Usuario/Cliente';
+    }
+  };
 
   useEffect(() => {
     if (usuario) {
       setFormData({
         nome: usuario.nome,
         email: usuario.email,
-        role: usuario.role,
+        role: mapRoleToNew(usuario.role),
         ativo: usuario.ativo
       });
     } else {
       setFormData({
         nome: '',
         email: '',
-        role: 'user',
+        role: 'Usuario/Cliente',
         ativo: true
       });
     }
@@ -827,9 +912,10 @@ function UserModal({ isOpen, onClose, onSave, usuario }: UserModalProps) {
               onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="admin">Administrador</option>
-              <option value="user">Usuário</option>
-              <option value="viewer">Visualizador</option>
+              <option value="Superadmin">Superadministrador</option>
+              <option value="ICETRAN">ICETRAN</option>
+              <option value="Despachante">Despachante</option>
+              <option value="Usuario/Cliente">Usuário/Cliente</option>
             </select>
           </div>
           

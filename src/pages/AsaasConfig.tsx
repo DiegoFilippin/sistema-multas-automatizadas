@@ -8,9 +8,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { Badge } from '../components/ui/badge';
 import { Alert, AlertDescription } from '../components/ui/alert';
 import { toast } from 'sonner';
-import { Settings, DollarSign, Key, Shield, Plus, Edit, Trash2, Save, Eye, EyeOff } from 'lucide-react';
+import { Settings, DollarSign, Key, Shield, Plus, Edit, Trash2, Save, Eye, EyeOff, TestTube } from 'lucide-react';
 import { asaasService } from '../services/asaasService';
 import { pricingService, PricingBase } from '../services/pricingService';
+import AsaasTestInterface from '../components/AsaasTestInterface';
 
 interface AsaasConfigLocal {
   id?: string;
@@ -31,9 +32,16 @@ const AsaasConfigPage: React.FC = () => {
   const [newPrice, setNewPrice] = useState({ resource_type: '', price: 0, description: '' });
   const [editingPrice, setEditingPrice] = useState<PricingBase | null>(null);
   const [loading, setLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'checking' | 'connected' | 'error'>('idle');
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResults, setTestResults] = useState<{
+    customer?: any;
+    payment?: any;
+    subscription?: any;
+    errors: string[];
+  } | null>(null);
   const [showSandboxKey, setShowSandboxKey] = useState(false);
   const [showProductionKey, setShowProductionKey] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'checking' | 'connected' | 'error' | null>(null);
 
   useEffect(() => {
     loadConfig();
@@ -43,13 +51,17 @@ const AsaasConfigPage: React.FC = () => {
   const loadConfig = async () => {
     try {
       setLoading(true);
+      console.log('Carregando configuração do Asaas...');
       const configData = await asaasService.getConfig();
+      console.log('Dados carregados:', configData);
       if (configData) {
         setConfig({
           ...configData,
-          api_key_sandbox: '',
-          api_key_production: '',
-          is_active: true
+          is_active: configData.is_active ?? true
+        });
+        console.log('Configuração definida no estado:', {
+          ...configData,
+          is_active: configData.is_active ?? true
         });
       }
     } catch (error) {
@@ -71,19 +83,33 @@ const AsaasConfigPage: React.FC = () => {
   };
 
   const saveConfig = async () => {
+    if (!config.api_key_sandbox && !config.api_key_production) {
+      toast.error('Pelo menos uma API key deve ser configurada');
+      return;
+    }
+
     try {
       setLoading(true);
       
-      // Convert local config to service config format
+      // Use the correct interface format
       const serviceConfig = {
-        apiKey: config.environment === 'sandbox' ? config.api_key_sandbox || '' : config.api_key_production || '',
+        api_key_sandbox: config.api_key_sandbox,
+        api_key_production: config.api_key_production,
         environment: config.environment,
-        webhookUrl: config.webhook_url
+        webhook_url: config.webhook_url,
+        webhook_token: config.webhook_token,
+        is_active: true
       };
       
+      console.log('Salvando configuração:', serviceConfig);
       await asaasService.saveConfig(serviceConfig);
+      console.log('Configuração salva com sucesso!');
       toast.success('Configuração salva com sucesso!');
-      await testConnection();
+      setConnectionStatus('idle'); // Reset connection status after saving
+      
+      // Reload configuration to update UI with saved data
+      console.log('Recarregando configuração após salvamento...');
+      await loadConfig();
     } catch (error) {
       console.error('Erro ao salvar configuração:', error);
       toast.error('Erro ao salvar configuração');
@@ -93,20 +119,119 @@ const AsaasConfigPage: React.FC = () => {
   };
 
   const testConnection = async () => {
+    if (!config.api_key_sandbox && !config.api_key_production) {
+      toast.error('Configure pelo menos uma API key antes de testar a conexão')
+      return
+    }
+
+    setConnectionStatus('checking')
     try {
-      setConnectionStatus('checking');
-      const accountInfo = await asaasService.getAccountInfo();
-      if (accountInfo) {
-        setConnectionStatus('connected');
-        toast.success('Conexão com Asaas estabelecida com sucesso!');
+      const result = await asaasService.testConnection()
+      if (result.success) {
+        setConnectionStatus('connected')
+        toast.success('Conexão testada com sucesso!')
       } else {
-        setConnectionStatus('error');
+        setConnectionStatus('error')
+        toast.error(`Erro na conexão: ${result.error}`)
       }
     } catch (error) {
-      setConnectionStatus('error');
-      toast.error('Erro ao conectar com Asaas. Verifique as chaves API.');
+      setConnectionStatus('error')
+      toast.error('Erro ao testar conexão')
     }
-  };
+  }
+
+  const runTestSuite = async () => {
+    if (connectionStatus !== 'connected') {
+      toast.error('Teste a conexão primeiro')
+      return
+    }
+
+    setTestLoading(true)
+    setTestResults(null)
+    
+    try {
+      const result = await asaasService.runFullTest()
+      setTestResults(result)
+      
+      if (result.errors.length === 0) {
+        toast.success('Todos os testes executados com sucesso!')
+      } else {
+        toast.error(`Testes concluídos com ${result.errors.length} erro(s)`)
+      }
+    } catch (error) {
+      toast.error('Erro ao executar testes')
+      console.error('Erro nos testes:', error)
+    } finally {
+      setTestLoading(false)
+    }
+  }
+
+  const createTestCustomer = async () => {
+    if (connectionStatus !== 'connected') {
+      toast.error('Teste a conexão primeiro')
+      return
+    }
+
+    setTestLoading(true)
+    try {
+      const customer = await asaasService.createTestCustomer()
+      setTestResults(prev => ({ ...prev, customer, errors: [] }))
+      toast.success('Cliente de teste criado com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao criar cliente de teste')
+      console.error('Erro ao criar cliente:', error)
+    } finally {
+      setTestLoading(false)
+    }
+  }
+
+  const createTestPayment = async () => {
+    if (connectionStatus !== 'connected') {
+      toast.error('Teste a conexão primeiro')
+      return
+    }
+
+    if (!testResults?.customer) {
+      toast.error('Crie um cliente de teste primeiro')
+      return
+    }
+
+    setTestLoading(true)
+    try {
+      const payment = await asaasService.createTestPayment(testResults.customer.id)
+      setTestResults(prev => ({ ...prev, payment }))
+      toast.success('Cobrança de teste criada com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao criar cobrança de teste')
+      console.error('Erro ao criar cobrança:', error)
+    } finally {
+      setTestLoading(false)
+    }
+  }
+
+  const createTestSubscription = async () => {
+    if (connectionStatus !== 'connected') {
+      toast.error('Teste a conexão primeiro')
+      return
+    }
+
+    if (!testResults?.customer) {
+      toast.error('Crie um cliente de teste primeiro')
+      return
+    }
+
+    setTestLoading(true)
+    try {
+      const subscription = await asaasService.createTestSubscription(testResults.customer.id)
+      setTestResults(prev => ({ ...prev, subscription }))
+      toast.success('Assinatura de teste criada com sucesso!')
+    } catch (error) {
+      toast.error('Erro ao criar assinatura de teste')
+      console.error('Erro ao criar assinatura:', error)
+    } finally {
+      setTestLoading(false)
+    }
+  }
 
   const addBasePrice = async () => {
     if (!newPrice.resource_type || newPrice.price <= 0) {
@@ -188,6 +313,10 @@ const AsaasConfigPage: React.FC = () => {
           <TabsTrigger value="config" className="flex items-center gap-2">
             <Key className="h-4 w-4" />
             Configuração API
+          </TabsTrigger>
+          <TabsTrigger value="tests" className="flex items-center gap-2">
+            <TestTube className="h-4 w-4" />
+            Testes Avançados
           </TabsTrigger>
           <TabsTrigger value="pricing" className="flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
@@ -308,13 +437,164 @@ const AsaasConfigPage: React.FC = () => {
                   <Save className="h-4 w-4 mr-2" />
                   Salvar Configuração
                 </Button>
-                <Button variant="outline" onClick={testConnection} disabled={loading}>
+                <Button 
+                  variant="outline" 
+                  onClick={testConnection} 
+                  disabled={loading || connectionStatus === 'checking'}
+                >
                   <Shield className="h-4 w-4 mr-2" />
                   Testar Conexão
                 </Button>
               </div>
             </CardContent>
           </Card>
+
+          {/* Seção de Testes */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-4 w-4" />
+                Testes da Integração
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <Alert>
+                <Shield className="h-4 w-4" />
+                <AlertDescription>
+                  Execute testes para verificar se a integração com Asaas está funcionando corretamente.
+                  Certifique-se de que a conexão foi testada com sucesso antes de executar os testes.
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Button 
+                  onClick={runTestSuite} 
+                  disabled={testLoading || connectionStatus !== 'connected'}
+                  className="h-20 flex flex-col gap-2"
+                >
+                  <Settings className="h-6 w-6" />
+                  <span>Teste Completo</span>
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={createTestCustomer} 
+                  disabled={testLoading || connectionStatus !== 'connected'}
+                  className="h-20 flex flex-col gap-2"
+                >
+                  <Plus className="h-6 w-6" />
+                  <span>Criar Cliente</span>
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={createTestPayment} 
+                  disabled={testLoading || connectionStatus !== 'connected' || !testResults?.customer}
+                  className="h-20 flex flex-col gap-2"
+                >
+                  <DollarSign className="h-6 w-6" />
+                  <span>Cobrança Avulsa</span>
+                </Button>
+                
+                <Button 
+                  variant="outline"
+                  onClick={createTestSubscription} 
+                  disabled={testLoading || connectionStatus !== 'connected' || !testResults?.customer}
+                  className="h-20 flex flex-col gap-2"
+                >
+                  <Settings className="h-6 w-6" />
+                  <span>Assinatura</span>
+                </Button>
+              </div>
+
+              {/* Resultados dos Testes */}
+              {testResults && (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold">Resultados dos Testes</h3>
+                  
+                  {testResults.errors.length > 0 && (
+                    <Alert variant="destructive">
+                      <AlertDescription>
+                        <strong>Erros encontrados:</strong>
+                        <ul className="list-disc list-inside mt-2">
+                          {testResults.errors.map((error, index) => (
+                            <li key={index}>{error}</li>
+                          ))}
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {testResults.customer && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Plus className="h-4 w-4" />
+                            Cliente Criado
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <p><strong>ID:</strong> {testResults.customer.id}</p>
+                          <p><strong>Nome:</strong> {testResults.customer.name}</p>
+                          <p><strong>Email:</strong> {testResults.customer.email}</p>
+                          <p><strong>CPF:</strong> {testResults.customer.cpfCnpj}</p>
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {testResults.payment && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <DollarSign className="h-4 w-4" />
+                            Cobrança Criada
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <p><strong>ID:</strong> {testResults.payment.id}</p>
+                          <p><strong>Valor:</strong> R$ {testResults.payment.value}</p>
+                          <p><strong>Vencimento:</strong> {testResults.payment.dueDate}</p>
+                          <p><strong>Status:</strong> {testResults.payment.status}</p>
+                          {testResults.payment.bankSlipUrl && (
+                            <a 
+                              href={testResults.payment.bankSlipUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:underline text-sm"
+                            >
+                              Ver Boleto
+                            </a>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
+
+                    {testResults.subscription && (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Settings className="h-4 w-4" />
+                            Assinatura Criada
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <p><strong>ID:</strong> {testResults.subscription.id}</p>
+                          <p><strong>Valor:</strong> R$ {testResults.subscription.value}</p>
+                          <p><strong>Ciclo:</strong> {testResults.subscription.cycle}</p>
+                          <p><strong>Próximo Venc.:</strong> {testResults.subscription.nextDueDate}</p>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </div>
+                </div>
+               )}
+             </CardContent>
+           </Card>
+        </TabsContent>
+
+        <TabsContent value="tests">
+          <AsaasTestInterface />
         </TabsContent>
 
         <TabsContent value="pricing">

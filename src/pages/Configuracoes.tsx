@@ -178,7 +178,7 @@ export default function Configuracoes() {
     whatsappProvider: 'whatsapp-business'
   });
 
-  const configSections: ConfigSection[] = [
+  const allConfigSections: ConfigSection[] = [
     {
       id: 'perfil',
       title: 'Perfil',
@@ -222,6 +222,22 @@ export default function Configuracoes() {
       description: 'Gerenciar assinatura e pagamentos'
     }
   ];
+
+  // Filtrar seções baseado no tipo de usuário
+  const configSections = allConfigSections.filter(section => {
+    // Se o usuário for despachante, ocultar certas seções
+    if (user?.role === 'Despachante') {
+      const hiddenSections = ['integracoes', 'agente-juridico', 'metricas-ia', 'plano'];
+      return !hiddenSections.includes(section.id);
+    }
+    // Mostrar todas as seções apenas para superadmin
+    if (user?.role === 'Superadmin') {
+      return true;
+    }
+    // Para outros tipos de usuário (ICETRAN, Usuario/Cliente), ocultar seções administrativas
+    const adminSections = ['integracoes', 'agente-juridico', 'metricas-ia', 'plano'];
+    return !adminSections.includes(section.id);
+  });
 
   const handleSaveProfile = async () => {
     setIsLoading(true);

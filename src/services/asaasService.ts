@@ -1,4 +1,8 @@
 import { supabase } from '@/lib/supabase'
+import { splitService } from './splitService'
+import { logger } from '@/utils/logger'
+
+const log = logger.scope('services/asaas')
 
 // Tipos baseados na documentação do Asaas
 export interface AsaasCustomer {
@@ -135,9 +139,15 @@ export interface AsaasWebhook {
 }
 
 export interface AsaasConfig {
-  apiKey: string
+  id?: string
+  api_key_sandbox?: string
+  api_key_production?: string
   environment: 'sandbox' | 'production'
-  webhookUrl?: string
+  webhook_url?: string
+  webhook_token?: string
+  is_active?: boolean
+  created_at?: string
+  updated_at?: string
 }
 
 class AsaasService {
@@ -152,18 +162,22 @@ class AsaasService {
       const { data, error } = await supabase
         .from('asaas_config')
         .select('*')
-        .eq('active', true)
+        .eq('is_active', true)
         .single()
 
       if (error) {
-        console.warn('Configuração do Asaas não encontrada:', error.message)
+        log.warn('Configuração do Asaas não encontrada:', error.message)
         return
       }
 
       this.config = {
-        apiKey: data.api_key,
+        id: data.id,
+        api_key_sandbox: data.api_key_sandbox,
+        api_key_production: data.api_key_production,
         environment: data.environment,
-        webhookUrl: data.webhook_url
+        webhook_url: data.webhook_url,
+        webhook_token: data.webhook_token,
+        is_active: data.is_active
       }
     } catch (error) {
       console.error('Erro ao carregar configuração do Asaas:', error)
@@ -174,18 +188,27 @@ class AsaasService {
     if (!this.config) {
       throw new Error('Configuração do Asaas não carregada')
     }
-    return this.config.environment === 'production'
-      ? 'https://api.asaas.com/v3'
-      : 'https://api-sandbox.asaas.com/v3'
+    // Usar Vercel Functions em produção, proxy local em desenvolvimento
+    const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001'
+    return `${baseUrl}/api/asaas-proxy`
   }
 
   private getHeaders(): Record<string, string> {
     if (!this.config) {
       throw new Error('Configuração do Asaas não carregada')
     }
+    
+    const apiKey = this.config.environment === 'production' 
+      ? this.config.api_key_production 
+      : this.config.api_key_sandbox
+    
+    if (!apiKey) {
+      throw new Error(`API Key não configurada para ambiente ${this.config.environment}`)
+    }
+    
     return {
       'Content-Type': 'application/json',
-      'access_token': this.config.apiKey
+      'access_token': apiKey
     }
   }
 
@@ -290,6 +313,81 @@ class AsaasService {
   // Métodos para Cobranças
   async createPayment(payment: AsaasPaymentCreate): Promise<AsaasPayment> {
     return this.makeRequest<AsaasPayment>('/payments', 'POST', payment)
+  }
+
+  /**
+   * Criar pagamento com split automático
+   */
+  async createPaymentWithSplit(
+    paymentData: AsaasPaymentCreate,
+    despachanteCompanyId: string,
+    serviceType: string
+  ): Promise<AsaasPayment> {
+    try {
+      // 1. Calcular splits
+      const splits = await splitService.calculateSplits(
+        paymentData.value,
+        serviceType,
+        'leve', // tipo de multa padrão
+        despachanteCompanyId
+      );
+
+      // 2. Adicionar splits ao pagamento
+      const paymentWithSplit: AsaasPaymentCreate = {
+        ...paymentData,
+        split: splits.map(split => ({
+          walletId: split.wallet_id,
+          fixedValue: split.split_amount
+        }))
+      };
+
+      // 3. Criar pagamento no Asaas
+      const payment = await this.createPayment(paymentWithSplit);
+
+      // 4. Processar splits no sistema
+      await splitService.processSplits(payment.id, splits);
+
+      return payment;
+    } catch (error) {
+      console.error('Erro ao criar pagamento com split:', error);
+      throw new Error(`Falha ao criar pagamento com split: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+  /**
+   * Criar assinatura com split automático
+   */
+  async createSubscriptionWithSplit(
+    subscriptionData: AsaasSubscription,
+    despachanteCompanyId: string,
+    serviceType: string
+  ): Promise<AsaasSubscription> {
+    try {
+      // 1. Calcular splits
+      const splits = await splitService.calculateSplits(
+        subscriptionData.value,
+        serviceType,
+        'leve', // tipo de multa padrão
+        despachanteCompanyId
+      );
+
+      // 2. Adicionar splits à assinatura
+      const subscriptionWithSplit: AsaasSubscription = {
+        ...subscriptionData,
+        split: splits.map(split => ({
+          walletId: split.wallet_id,
+          fixedValue: split.split_amount
+        }))
+      };
+
+      // 3. Criar assinatura no Asaas
+      const subscription = await this.createSubscription(subscriptionWithSplit);
+
+      return subscription;
+    } catch (error) {
+      console.error('Erro ao criar assinatura com split:', error);
+      throw new Error(`Falha ao criar assinatura com split: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
   }
 
   async getPayment(paymentId: string): Promise<AsaasPayment> {
@@ -404,20 +502,156 @@ class AsaasService {
     return this.makeRequest('/finance/balance')
   }
 
+  async testConnection(): Promise<{ success: boolean; error?: string }> {
+    try {
+      if (!this.isConfigured()) {
+        return {
+          success: false,
+          error: 'Configuração não encontrada ou API key não configurada'
+        }
+      }
+
+      // Tenta obter informações da conta para verificar se a conexão está funcionando
+      const accountInfo = await this.getAccountInfo()
+      
+      if (accountInfo && accountInfo.object === 'account') {
+        return { success: true }
+      } else {
+        return {
+          success: false,
+          error: 'Resposta inválida da API do Asaas'
+        }
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Erro desconhecido ao testar conexão'
+      }
+    }
+  }
+
+  // Métodos de Teste
+  async createTestCustomer(): Promise<AsaasCustomer> {
+    const testCustomer: AsaasCustomer = {
+      name: 'Cliente Teste ICETRAN',
+      email: 'cliente.teste@icetran.com.br',
+      phone: '4738010919',
+      mobilePhone: '47998781877',
+      cpfCnpj: '11144477735', // CPF válido para testes
+      postalCode: '01310100', // CEP sem hífen
+      address: 'Av. Paulista',
+      addressNumber: '1000',
+      complement: 'Sala 100',
+      province: 'Bela Vista',
+      city: 'São Paulo',
+      state: 'SP',
+      country: 'Brasil',
+      externalReference: `teste-${Date.now()}`,
+      observations: 'Cliente criado para teste da integração'
+    }
+    
+    return this.createCustomer(testCustomer)
+  }
+
+  async createTestPayment(customerId: string): Promise<AsaasPayment> {
+    const testPayment: AsaasPaymentCreate = {
+      customer: customerId,
+      billingType: 'BOLETO',
+      value: 50.00,
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 dias
+      description: 'Cobrança de teste - Multa de trânsito',
+      externalReference: `teste-payment-${Date.now()}`,
+      discount: {
+        value: 5.00,
+        dueDateLimitDays: 3,
+        type: 'FIXED'
+      },
+      fine: {
+        value: 2.00,
+        type: 'PERCENTAGE'
+      },
+      interest: {
+        value: 1.00,
+        type: 'PERCENTAGE'
+      }
+    }
+    
+    return this.createPayment(testPayment)
+  }
+
+  async createTestSubscription(customerId: string): Promise<AsaasSubscription> {
+    const testSubscription: AsaasSubscription = {
+      customer: customerId,
+      billingType: 'BOLETO',
+      value: 29.90,
+      nextDueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 dias
+      cycle: 'MONTHLY',
+      description: 'Assinatura de teste - Plano Básico ICETRAN',
+      externalReference: `teste-subscription-${Date.now()}`,
+      maxPayments: 12 // 1 ano
+    }
+    
+    return this.createSubscription(testSubscription)
+  }
+
+  async runFullTest(): Promise<{
+    customer?: AsaasCustomer;
+    payment?: AsaasPayment;
+    subscription?: AsaasSubscription;
+    errors: string[];
+  }> {
+    const errors: string[] = []
+    let customer: AsaasCustomer | undefined
+    let payment: AsaasPayment | undefined
+    let subscription: AsaasSubscription | undefined
+
+    try {
+      // 1. Criar cliente
+      customer = await this.createTestCustomer()
+      log.info('Cliente criado:', customer)
+    } catch (error) {
+      errors.push(`Erro ao criar cliente: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+    }
+
+    if (customer?.id) {
+      try {
+        // 2. Criar cobrança
+        payment = await this.createTestPayment(customer.id)
+        log.info('Cobrança criada:', payment)
+      } catch (error) {
+        errors.push(`Erro ao criar cobrança: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+      }
+
+      try {
+        // 3. Criar assinatura
+        subscription = await this.createTestSubscription(customer.id)
+        log.info('Assinatura criada:', subscription)
+      } catch (error) {
+        errors.push(`Erro ao criar assinatura: ${error instanceof Error ? error.message : 'Erro desconhecido'}`)
+      }
+    }
+
+    return { customer, payment, subscription, errors }
+  }
+
   /**
    * Get Asaas configuration from database
    */
   async getConfig(): Promise<AsaasConfig | null> {
     try {
+      log.info('Buscando configuração no banco...');
       const { data, error } = await supabase
         .from('asaas_config')
         .select('*')
         .single();
 
+      log.info('Resultado da consulta:', { data, error });
+
       if (error && error.code !== 'PGRST116') {
         throw new Error(error.message);
       }
 
+      log.info('Retornando dados:', data);
       return data;
     } catch (error) {
       console.error('Error getting Asaas config:', error);
@@ -435,12 +669,21 @@ class AsaasService {
         .select('id')
         .single();
 
+      const configData = {
+        api_key_sandbox: config.api_key_sandbox,
+        api_key_production: config.api_key_production,
+        environment: config.environment,
+        webhook_url: config.webhook_url,
+        webhook_token: config.webhook_token,
+        is_active: config.is_active ?? true
+      };
+
       if (existingConfig) {
         // Update existing config
         const { data, error } = await supabase
           .from('asaas_config')
           .update({
-            ...config,
+            ...configData,
             updated_at: new Date().toISOString()
           })
           .eq('id', existingConfig.id)
@@ -448,16 +691,24 @@ class AsaasService {
           .single();
 
         if (error) throw new Error(error.message);
+        
+        // Reload config after saving
+        await this.loadConfig();
+        
         return data;
       } else {
         // Create new config
         const { data, error } = await supabase
           .from('asaas_config')
-          .insert(config)
+          .insert(configData)
           .select()
           .single();
 
         if (error) throw new Error(error.message);
+        
+        // Reload config after saving
+        await this.loadConfig();
+        
         return data;
       }
     } catch (error) {
@@ -473,7 +724,13 @@ class AsaasService {
 
   // Método para verificar se está configurado
   isConfigured(): boolean {
-    return this.config !== null && !!this.config.apiKey
+    if (!this.config) return false
+    
+    const apiKey = this.config.environment === 'production' 
+      ? this.config.api_key_production 
+      : this.config.api_key_sandbox
+    
+    return !!apiKey
   }
 
   // Método para obter configuração atual

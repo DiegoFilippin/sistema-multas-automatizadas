@@ -66,9 +66,10 @@ export default function Header({ title, subtitle, className, onMenuClick }: Head
             <div className="flex items-center space-x-3">
               <div className="hidden md:block text-right">
                 <p className="text-sm font-medium text-gray-900">{user.nome}</p>
-                <p className="text-xs text-gray-500 capitalize">
-                  {user.role === 'admin' ? 'Administrador' : 
-                   user.role === 'user' ? 'Usuário' : 'Visualizador'}
+                <p className="text-xs text-gray-500">
+                  {user.role === 'Superadmin' ? 'Superadministrador' :
+                   user.role === 'ICETRAN' ? 'ICETRAN' :
+                   user.role === 'Despachante' ? 'Despachante' : 'Usuário/Cliente'}
                 </p>
               </div>
               <img

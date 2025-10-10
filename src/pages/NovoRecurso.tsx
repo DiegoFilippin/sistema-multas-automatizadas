@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Upload, 
@@ -12,13 +12,18 @@ import {
   FileText,
   Brain,
   Scale,
-  Sparkles
+  Sparkles,
+  Plus
 } from 'lucide-react';
 import { toast } from 'sonner';
 import RecursoService, { DadosInfracao, DadosCliente, DadosVeiculo, ContextoJuridico } from '@/services/recursoService';
 import FeedbackRecurso from '@/components/FeedbackRecurso';
 import HistoricoMultasModal from '@/components/HistoricoMultasModal';
 import { isMultaLeve, podeConverterEmAdvertencia, getTextoConversaoAdvertencia, MultaData } from '@/utils/multaUtils';
+import { useClientsStore } from '@/stores/clientsStore';
+import { useAuthStore } from '@/stores/authStore';
+import { asaasService } from '@/services/asaasService';
+import { clientsService } from '@/services/clientsService';
 
 interface DocumentoProcessado {
   numeroAuto: string;
@@ -39,8 +44,9 @@ interface DocumentoProcessado {
 interface Cliente {
   id: string;
   nome: string;
-  cpf: string;
+  cpf_cnpj: string;
   email?: string;
+  telefone?: string;
   status: 'ativo' | 'inativo';
 }
 
@@ -52,24 +58,144 @@ interface Veiculo {
   ano: number;
 }
 
-const clientesMock: Cliente[] = [
-  { id: '1', nome: 'João Silva', cpf: '123.456.789-00', email: 'joao@email.com', status: 'ativo' },
-  { id: '2', nome: 'Maria Santos', cpf: '987.654.321-00', email: 'maria@email.com', status: 'ativo' },
-];
+// Dados mockados removidos - agora usando dados reais do store
 
 const veiculosMock: Veiculo[] = [
   { id: '1', marca: 'Toyota', modelo: 'Corolla', placa: 'ABC-1234', ano: 2020 },
   { id: '2', marca: 'Honda', modelo: 'Civic', placa: 'XYZ-5678', ano: 2019 },
 ];
 
+// Modal simples para cadastro de cliente
+interface NovoClienteModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (cliente: any) => void;
+}
+
+function NovoClienteModal({ isOpen, onClose, onSave }: NovoClienteModalProps) {
+  const [formData, setFormData] = useState({
+    nome: '',
+    cpf_cnpj: '',
+    email: '',
+    telefone: ''
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!formData.nome || !formData.cpf_cnpj) {
+      toast.error('Nome e CPF/CNPJ são obrigatórios');
+      return;
+    }
+    
+    onSave(formData);
+    setFormData({ nome: '', cpf_cnpj: '', email: '', telefone: '' });
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-semibold text-gray-900">Novo Cliente</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600"
+          >
+            ✕
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nome *
+            </label>
+            <input
+              type="text"
+              value={formData.nome}
+              onChange={(e) => setFormData({ ...formData, nome: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Nome completo"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              CPF/CNPJ *
+            </label>
+            <input
+              type="text"
+              value={formData.cpf_cnpj}
+              onChange={(e) => setFormData({ ...formData, cpf_cnpj: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="000.000.000-00"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Email
+            </label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="email@exemplo.com"
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Telefone
+            </label>
+            <input
+              type="tel"
+              value={formData.telefone}
+              onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="(11) 99999-9999"
+            />
+          </div>
+          
+          <div className="flex gap-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Salvar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function NovoRecurso() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuthStore();
+  const { clients, fetchClients, addClient, isLoading: loadingClientes } = useClientsStore();
   const [etapaAtual, setEtapaAtual] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [buscaCliente, setBuscaCliente] = useState('');
   const [processandoOCR, setProcessandoOCR] = useState(false);
   const [clienteSelecionado, setClienteSelecionado] = useState<Cliente | null>(null);
   const [veiculoSelecionado, setVeiculoSelecionado] = useState<Veiculo | null>(null);
+  const [tipoMultaSelecionado, setTipoMultaSelecionado] = useState<'leve' | 'media' | 'grave' | 'gravissima' | null>(null);
+  const [multaTypes, setMultaTypes] = useState<any[]>([]);
   const [documentoUpload, setDocumentoUpload] = useState<File | null>(null);
   const [dadosExtraidos, setDadosExtraidos] = useState<DadosInfracao | null>(null);
   const [contextoJuridico, setContextoJuridico] = useState<ContextoJuridico | null>(null);
@@ -78,23 +204,188 @@ export default function NovoRecurso() {
   const [recursoId, setRecursoId] = useState<string>('');
   const [mostrarFeedback, setMostrarFeedback] = useState(false);
   const [showHistoricoModal, setShowHistoricoModal] = useState(false);
+  const [showNovoClienteModal, setShowNovoClienteModal] = useState(false);
   const [tipoRecurso, setTipoRecurso] = useState<'normal' | 'conversao'>('normal');
   
   const recursoService = RecursoService.getInstance();
 
-  const clientesFiltrados = clientesMock.filter(cliente =>
+  // Carregar clientes quando acessar etapa 1
+  useEffect(() => {
+    if (etapaAtual === 1 && user?.company_id) {
+      loadClientes();
+      fetchMultaTypes();
+    }
+  }, [etapaAtual, user?.company_id, user?.role]);
+
+  // Verificar se há paymentId na URL para pré-preencher o recurso
+  useEffect(() => {
+    const paymentId = searchParams.get('paymentId');
+    if (paymentId && clients.length > 0) {
+      fetchPaymentData(paymentId);
+    }
+  }, [searchParams, clients]);
+
+  const fetchPaymentData = async (paymentId: string) => {
+    try {
+      console.log('🔍 Buscando dados do pagamento:', paymentId);
+      
+      const response = await fetch(`/api/payments/${paymentId}/recurso`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Erro ao buscar dados do pagamento');
+      }
+      
+      const data = await response.json();
+      console.log('📋 Dados do pagamento recebidos:', data);
+      
+      // Verificar se o pagamento está pago
+      if (!data.canCreateRecurso) {
+        toast.error('Este pagamento não permite criação de recurso. Status: ' + data.status);
+        navigate('/recursos');
+        return;
+      }
+      
+      // Verificar se já existe recurso
+      if (data.existingRecurso) {
+        toast.info('Já existe um recurso para este pagamento. Redirecionando...');
+        navigate(`/recursos/${data.existingRecurso.id}`);
+        return;
+      }
+      
+      // Buscar cliente pelos dados do pagamento
+      if (data.client_id) {
+        const cliente = clients.find(c => c.id === data.client_id);
+        if (cliente) {
+          setClienteSelecionado(cliente);
+          toast.success(`Recurso iniciado para pagamento ${paymentId}`);
+          toast.info(`Cliente: ${data.client_name} - Valor: R$ ${data.amount}`);
+          
+          // Avançar para próxima etapa automaticamente
+          setEtapaAtual(2);
+        } else {
+          toast.error('Cliente não encontrado para este pagamento');
+        }
+      }
+      
+    } catch (error) {
+      console.error('Erro ao buscar dados do pagamento:', error);
+      toast.error('Erro ao carregar dados do pagamento');
+      navigate('/recursos');
+    }
+  };
+
+  const fetchMultaTypes = async () => {
+    try {
+      const response = await fetch('/api/multa-types', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setMultaTypes(data.data || []);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar tipos de multa:', error);
+    }
+  };
+  
+  const loadClientes = async () => {
+    if (!user?.company_id) {
+      toast.error('Usuário não possui empresa associada');
+      navigate('/dashboard');
+      return;
+    }
+
+    try {
+      const filters = { status: 'ativo' as const, companyId: user.company_id };
+      await fetchClients(filters);
+      
+      if (clients.length === 0) {
+        toast.info('Nenhum cliente encontrado para esta empresa. Cadastre clientes primeiro.');
+      }
+    } catch (error) {
+      console.error('Erro ao carregar clientes:', error);
+      toast.error('Erro ao carregar clientes. Verifique sua conexão e tente novamente.');
+    }
+  };
+  
+  const clientesFiltrados = clients.filter(cliente =>
     cliente.nome.toLowerCase().includes(buscaCliente.toLowerCase()) ||
-    cliente.cpf.includes(buscaCliente)
+    cliente.cpf_cnpj.includes(buscaCliente)
   );
+  
+  // Função para salvar novo cliente
+  const handleSalvarNovoCliente = async (dadosCliente: any) => {
+    try {
+      if (!user?.company_id) {
+        toast.error('Empresa do usuário não encontrada');
+        return;
+      }
+      
+      const novoCliente = {
+        ...dadosCliente,
+        company_id: user.company_id,
+        status: 'ativo' as const
+      };
+      
+      const clienteCriado = await addClient(novoCliente);
+      
+      // Criar customer no Asaas
+      if (clienteCriado?.id) {
+        try {
+          const asaasCustomerData = {
+            name: dadosCliente.nome || '',
+            cpfCnpj: dadosCliente.cpf_cnpj || '',
+            email: dadosCliente.email,
+            phone: dadosCliente.telefone
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          
+          // Atualizar cliente com asaas_customer_id
+          await clientsService.updateClient(clienteCriado.id, {
+            asaas_customer_id: asaasCustomer.id
+          });
+
+          console.log('Customer criado no Asaas:', asaasCustomer.id);
+          toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+        } catch (asaasError) {
+          console.error('Erro ao criar customer no Asaas:', asaasError);
+          toast.warning('Cliente criado, mas houve erro na integração com Asaas.');
+        }
+      } else {
+        toast.success('Cliente cadastrado com sucesso!');
+      }
+      
+      setShowNovoClienteModal(false);
+      
+      // Recarregar clientes
+      await fetchClients({ status: 'ativo', companyId: user.company_id });
+    } catch (error) {
+      console.error('Erro ao cadastrar cliente:', error);
+      toast.error('Erro ao cadastrar cliente');
+    }
+  };
 
   const handleSelecionarCliente = (cliente: Cliente) => {
     setClienteSelecionado(cliente);
     setEtapaAtual(2);
   };
 
-  const handleSelecionarVeiculo = (veiculo: Veiculo) => {
+  const handleSelecionarVeiculo = (veiculo: any) => {
     setVeiculoSelecionado(veiculo);
     setEtapaAtual(3);
+  };
+
+  const handleSelecionarTipoMulta = (tipo: 'leve' | 'media' | 'grave' | 'gravissima') => {
+    setTipoMultaSelecionado(tipo);
+    setEtapaAtual(4);
   };
 
   const handleUploadDocumento = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +457,7 @@ export default function NovoRecurso() {
       setContextoJuridico(contexto);
       
       toast.success('Documento processado e contexto jurídico carregado!');
-      setEtapaAtual(4);
+      setEtapaAtual(5);
     } catch (error) {
       console.error('Erro ao processar OCR:', error);
       toast.error('Erro ao processar documento');
@@ -220,7 +511,7 @@ export default function NovoRecurso() {
       const dadosCliente: DadosCliente = {
         id: clienteSelecionado.id,
         nome: clienteSelecionado.nome,
-        cpf: clienteSelecionado.cpf,
+        cpf: clienteSelecionado.cpf_cnpj,
         email: clienteSelecionado.email
       };
       
@@ -245,7 +536,7 @@ export default function NovoRecurso() {
       setRecursoGerado(recurso.conteudo_recurso);
       setRecursoId(recurso.id);
       toast.success('Recurso gerado com sucesso!');
-      setEtapaAtual(5);
+      setEtapaAtual(6);
     } catch (error) {
       console.error('Erro ao gerar recurso:', error);
       toast.error('Erro ao gerar recurso');
@@ -262,54 +553,81 @@ export default function NovoRecurso() {
         <p className="text-gray-600">Escolha o cliente para o qual será gerado o recurso</p>
       </div>
 
-      {/* Busca de Cliente */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
-        <input
-          type="text"
-          placeholder="Buscar por nome ou CPF..."
-          value={buscaCliente}
-          onChange={(e) => setBuscaCliente(e.target.value)}
-          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
+      {/* Busca de Cliente e Botão Novo Cliente */}
+      <div className="flex gap-3">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+          <input
+            type="text"
+            placeholder="Buscar por nome ou CPF..."
+            value={buscaCliente}
+            onChange={(e) => setBuscaCliente(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+        
+        <button
+          onClick={() => setShowNovoClienteModal(true)}
+          className="flex items-center gap-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700"
+        >
+          <Plus className="h-4 w-4" />
+          Novo Cliente
+        </button>
       </div>
 
       {/* Lista de Clientes */}
-      <div className="space-y-3 max-h-96 overflow-y-auto">
-        {clientesFiltrados.map((cliente) => (
-          <div
-            key={cliente.id}
-            onClick={() => handleSelecionarCliente(cliente)}
-            className="p-4 border border-gray-200 rounded-lg hover:bg-blue-50 hover:border-blue-300 cursor-pointer transition-colors"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="font-semibold text-gray-900">{cliente.nome}</h3>
-                <p className="text-sm text-gray-600">CPF: {cliente.cpf}</p>
-                {cliente.email && (
-                  <p className="text-sm text-gray-600">Email: {cliente.email}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  cliente.status === 'ativo' 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  {cliente.status}
-                </span>
-              </div>
-            </div>
+      <div className="bg-white border border-gray-200 rounded-lg">
+        {loadingClientes ? (
+          <div className="p-8 text-center">
+            <Loader2 className="mx-auto h-8 w-8 text-blue-600 animate-spin mb-4" />
+            <p className="text-gray-600">Carregando clientes...</p>
           </div>
-        ))}
+        ) : clientesFiltrados.length === 0 ? (
+          <div className="p-8 text-center">
+            <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-600 mb-2">
+              {buscaCliente ? 'Nenhum cliente encontrado' : 'Nenhum cliente cadastrado'}
+            </p>
+            <button
+              onClick={() => setShowNovoClienteModal(true)}
+              className="text-blue-600 hover:text-blue-700 font-medium"
+            >
+              Cadastrar primeiro cliente
+            </button>
+          </div>
+        ) : (
+          <div className="max-h-96 overflow-y-auto">
+            {clientesFiltrados.map((cliente) => (
+              <div
+                key={cliente.id}
+                onClick={() => handleSelecionarCliente(cliente)}
+                className="p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{cliente.nome}</h3>
+                    <p className="text-sm text-gray-600">CPF/CNPJ: {cliente.cpf_cnpj}</p>
+                    {cliente.email && (
+                      <p className="text-sm text-gray-600">Email: {cliente.email}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      cliente.status === 'ativo' 
+                        ? 'bg-green-100 text-green-800' 
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {cliente.status}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {clientesFiltrados.length === 0 && (
-        <div className="text-center py-8">
-          <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <p className="text-gray-600">Nenhum cliente encontrado</p>
-        </div>
-      )}
+
     </div>
   );
 
@@ -325,7 +643,7 @@ export default function NovoRecurso() {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="font-semibold text-blue-900 mb-2">Cliente Selecionado:</h3>
         <p className="text-blue-800">{clienteSelecionado?.nome}</p>
-        <p className="text-sm text-blue-700">CPF: {clienteSelecionado?.cpf}</p>
+        <p className="text-sm text-blue-700">CPF/CNPJ: {clienteSelecionado?.cpf_cnpj}</p>
       </div>
 
       {/* Lista de Veículos */}
@@ -359,6 +677,81 @@ export default function NovoRecurso() {
   const renderEtapa3 = () => (
     <div className="space-y-6">
       <div className="text-center">
+        <Scale className="h-16 w-16 text-blue-600 mx-auto mb-4" />
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">Selecionar Tipo de Multa</h2>
+        <p className="text-gray-600">Escolha o tipo de multa para calcular o valor do recurso</p>
+      </div>
+
+      {/* Resumo da Seleção */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h3 className="font-semibold text-blue-900 mb-2">Seleção Atual:</h3>
+        <p className="text-blue-800">{clienteSelecionado?.nome}</p>
+        <p className="text-sm text-blue-700">{veiculoSelecionado?.marca} {veiculoSelecionado?.modelo} - {veiculoSelecionado?.placa}</p>
+      </div>
+
+      {/* Lista de Tipos de Multa */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {multaTypes.map((tipo) => {
+          const tipoLabels = {
+            leve: { name: 'Leve', color: 'green', description: 'Infrações de menor gravidade' },
+            media: { name: 'Média', color: 'yellow', description: 'Infrações de gravidade média' },
+            grave: { name: 'Grave', color: 'orange', description: 'Infrações de natureza grave' },
+            gravissima: { name: 'Gravíssima', color: 'red', description: 'Infrações de natureza gravíssima' }
+          };
+          
+          const label = tipoLabels[tipo.type as keyof typeof tipoLabels];
+          
+          return (
+            <div
+              key={tipo.id}
+              onClick={() => handleSelecionarTipoMulta(tipo.type)}
+              className={`p-6 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md ${
+                label.color === 'green' ? 'border-green-200 hover:border-green-400 hover:bg-green-50' :
+                label.color === 'yellow' ? 'border-yellow-200 hover:border-yellow-400 hover:bg-yellow-50' :
+                label.color === 'orange' ? 'border-orange-200 hover:border-orange-400 hover:bg-orange-50' :
+                'border-red-200 hover:border-red-400 hover:bg-red-50'
+              }`}
+            >
+              <div className="text-center">
+                <div className={`w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center ${
+                  label.color === 'green' ? 'bg-green-100' :
+                  label.color === 'yellow' ? 'bg-yellow-100' :
+                  label.color === 'orange' ? 'bg-orange-100' :
+                  'bg-red-100'
+                }`}>
+                  <Scale className={`h-6 w-6 ${
+                    label.color === 'green' ? 'text-green-600' :
+                    label.color === 'yellow' ? 'text-yellow-600' :
+                    label.color === 'orange' ? 'text-orange-600' :
+                    'text-red-600'
+                  }`} />
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-2">{label.name}</h3>
+                <p className="text-sm text-gray-600 mb-3">{label.description}</p>
+                <div className="space-y-1">
+                  <p className="text-xs text-gray-500">ACSM: R$ {tipo.acsm_value?.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">Icetran: R$ {tipo.icetran_value?.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">Fixo: R$ {tipo.fixed_value?.toFixed(2)}</p>
+                  <p className="text-lg font-bold text-gray-900">Total: R$ {tipo.total_price?.toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={() => setEtapaAtual(2)}
+        className="w-full py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+      >
+        Voltar para Seleção de Veículo
+      </button>
+    </div>
+  );
+
+  const renderEtapa4 = () => (
+    <div className="space-y-6">
+      <div className="text-center">
         <Upload className="h-16 w-16 text-blue-600 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Upload do Documento</h2>
         <p className="text-gray-600">Faça upload do auto de infração ou notificação</p>
@@ -369,6 +762,10 @@ export default function NovoRecurso() {
         <h3 className="font-semibold text-gray-900 mb-2">Resumo:</h3>
         <p className="text-sm"><strong>Cliente:</strong> {clienteSelecionado?.nome}</p>
         <p className="text-sm"><strong>Veículo:</strong> {veiculoSelecionado?.marca} {veiculoSelecionado?.modelo} - {veiculoSelecionado?.placa}</p>
+        <p className="text-sm"><strong>Tipo de Multa:</strong> {tipoMultaSelecionado?.charAt(0).toUpperCase() + tipoMultaSelecionado?.slice(1)}</p>
+        {tipoMultaSelecionado && (
+          <p className="text-sm"><strong>Valor do Recurso:</strong> R$ {multaTypes.find(t => t.type === tipoMultaSelecionado)?.total_price?.toFixed(2)}</p>
+        )}
       </div>
 
       {/* Upload Area */}
@@ -407,7 +804,7 @@ export default function NovoRecurso() {
 
       <div className="flex gap-3">
         <button
-          onClick={() => setEtapaAtual(2)}
+          onClick={() => setEtapaAtual(3)}
           className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
         >
           Voltar
@@ -423,7 +820,7 @@ export default function NovoRecurso() {
     </div>
   );
 
-  const renderEtapa4 = () => (
+  const renderEtapa5 = () => (
     <div className="space-y-6">
       <div className="text-center">
         <CheckCircle className="h-16 w-16 text-green-600 mx-auto mb-4" />
@@ -498,7 +895,7 @@ export default function NovoRecurso() {
 
       <div className="flex gap-3">
         <button
-          onClick={() => setEtapaAtual(3)}
+          onClick={() => setEtapaAtual(4)}
           className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
           disabled={gerandoRecurso}
         >
@@ -525,7 +922,7 @@ export default function NovoRecurso() {
     </div>
   );
   
-  const renderEtapa5 = () => (
+  const renderEtapa6 = () => (
     <div className="space-y-6">
       <div className="text-center">
         <Sparkles className="h-16 w-16 text-green-600 mx-auto mb-4" />
@@ -554,7 +951,7 @@ export default function NovoRecurso() {
 
       <div className="flex gap-3">
          <button
-           onClick={() => setEtapaAtual(4)}
+           onClick={() => setEtapaAtual(5)}
            className="flex-1 py-2 px-4 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
          >
            Voltar
@@ -594,9 +991,10 @@ export default function NovoRecurso() {
   const etapas = [
     { numero: 1, titulo: 'Cliente', ativo: etapaAtual >= 1, completo: etapaAtual > 1 },
     { numero: 2, titulo: 'Veículo', ativo: etapaAtual >= 2, completo: etapaAtual > 2 },
-    { numero: 3, titulo: 'Documento', ativo: etapaAtual >= 3, completo: etapaAtual > 3 },
-    { numero: 4, titulo: 'Análise IA', ativo: etapaAtual >= 4, completo: etapaAtual > 4 },
-    { numero: 5, titulo: 'Recurso', ativo: etapaAtual >= 5, completo: false }
+    { numero: 3, titulo: 'Tipo Multa', ativo: etapaAtual >= 3, completo: etapaAtual > 3 },
+    { numero: 4, titulo: 'Documento', ativo: etapaAtual >= 4, completo: etapaAtual > 4 },
+    { numero: 5, titulo: 'Análise IA', ativo: etapaAtual >= 5, completo: etapaAtual > 5 },
+    { numero: 6, titulo: 'Recurso', ativo: etapaAtual >= 6, completo: false }
   ];
 
   return (
@@ -658,6 +1056,7 @@ export default function NovoRecurso() {
         {etapaAtual === 3 && renderEtapa3()}
         {etapaAtual === 4 && renderEtapa4()}
         {etapaAtual === 5 && renderEtapa5()}
+        {etapaAtual === 6 && renderEtapa6()}
       </div>
       
       {/* Modal de Histórico de Multas */}
@@ -672,6 +1071,15 @@ export default function NovoRecurso() {
             codigo_infracao: dadosExtraidos.codigoInfracao,
             descricao_infracao: dadosExtraidos.descricaoInfracao
           }}
+        />
+      )}
+      
+      {/* Modal de Novo Cliente */}
+      {showNovoClienteModal && (
+        <NovoClienteModal
+          isOpen={showNovoClienteModal}
+          onClose={() => setShowNovoClienteModal(false)}
+          onSave={handleSalvarNovoCliente}
         />
       )}
     </div>

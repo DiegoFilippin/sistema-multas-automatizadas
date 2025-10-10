@@ -35,6 +35,9 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { clientsService } from '@/services/clientsService';
 import GeminiOcrService from '@/services/geminiOcrService';
+import { datawashService } from '@/services/datawashService';
+import DataWashService from '@/services/datawashService';
+import { asaasService } from '@/services/asaasService';
 
 interface Endereco {
   id: string;
@@ -398,6 +401,36 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
     setDocumentError(null);
   };
   
+  // Helper: normaliza datas diversas (DD/MM/AAAA, DD-MM-AAAA, DD.MM.AAAA, YYYY-MM-DD, com textos) para 'YYYY-MM-DD' usado por input type="date"
+  const normalizarDataParaInput = (data?: string): string => {
+    if (!data) return '';
+    const s = data.trim();
+    // ISO-like primeiro
+    let m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
+    if (m) {
+      const [, y, mo, d] = m;
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    // Dia primeiro
+    m = s.match(/(\d{1,2})\D+(\d{1,2})\D+(\d{2,4})/);
+    if (m) {
+      const d = m[1];
+      const mo = m[2];
+      let y = m[3];
+      if (y.length === 2) {
+        const yyNum = parseInt(y, 10);
+        y = yyNum >= 50 ? `19${y}` : `20${y}`;
+      }
+      const dNum = parseInt(d, 10);
+      const moNum = parseInt(mo, 10);
+      if (isNaN(dNum) || isNaN(moNum) || dNum < 1 || dNum > 31 || moNum < 1 || moNum > 12) {
+        return '';
+      }
+      return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return '';
+  };
+  
   // Função para consultar CPF na API Datawash via backend
   const consultarCPF = async (cpf: string) => {
     const cpfLimpo = cpf.replace(/\D/g, '');
@@ -406,126 +439,84 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       return;
     }
 
+    // Validar CPF antes de consultar (modo teste: não bloqueia a chamada)
+    if (!DataWashService.validarCPF(cpfLimpo)) {
+      toast.error('CPF inválido (modo teste: consultando mesmo assim)');
+      // Sem retorno: seguir com consulta via webhook
+    }
+
     setIsLoadingCPF(true);
     
     try {
       console.log('Iniciando consulta CPF:', cpfLimpo);
       
-      // Fazer requisição para o backend
-      const response = await fetch(`http://localhost:3001/api/datawash/cpf/${cpfLimpo}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || 'test-token'}` // Token de teste se não houver
-        }
-      });
+      // Usar o novo serviço DataWash com fallback robusto
+      const dados = await datawashService.consultarCPF(cpfLimpo);
       
-      console.log('Resposta do backend:', response.status, response.statusText);
-
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('CPF não encontrado na base de dados.');
-        } else if (response.status === 401) {
-          throw new Error('Não autorizado. Faça login novamente.');
+      console.log('Dados recebidos:', dados);
+      
+      if (dados.success) {
+        // Preencher dados básicos
+        const rawDataNascimentoDW = dados.dataNascimento;
+        const convertedDataNascimentoDW = normalizarDataParaInput(rawDataNascimentoDW);
+        console.log(`📅 Data Nascimento DataWash (raw): "${rawDataNascimentoDW}" → convertido para input: "${convertedDataNascimentoDW}"`);
+        setFormData(prev => ({
+          ...prev,
+          nome: dados.nome || '',
+          cpf: dados.cpf,
+          dataNascimento: convertedDataNascimentoDW || prev.dataNascimento,
+          cnh: ''
+        }));
+        
+        // Preencher primeiro endereço se disponível
+        if (dados.endereco && (dados.endereco.logradouro || dados.endereco.cep)) {
+          setEnderecos([{
+            id: '1',
+            tipo: 'residencial',
+            logradouro: dados.endereco.logradouro || '',
+            numero: dados.endereco.numero || '',
+            complemento: dados.endereco.complemento || '',
+            bairro: dados.endereco.bairro || '',
+            cidade: dados.endereco.cidade || '',
+            estado: dados.endereco.estado || '',
+            cep: dados.endereco.cep || '',
+            principal: true
+          }]);
+        }
+        
+        // Preencher primeiro email se disponível
+        if (dados.email) {
+          setEmails([{
+            id: '1',
+            tipo: 'pessoal',
+            endereco: dados.email,
+            principal: true
+          }]);
+        }
+        
+        // Preencher primeiro telefone se disponível
+        if (dados.telefone) {
+          setTelefones([{
+            id: '1',
+            tipo: 'celular',
+            numero: dados.telefone,
+            principal: true
+          }]);
+        }
+        
+        setCpfConsultado(true);
+        
+        if (dados.source === 'fallback') {
+          toast.warning(dados.warning || 'CPF não encontrado na base de dados. Usando dados simulados para continuar o cadastro.');
         } else {
-          throw new Error('Erro ao consultar CPF. Tente novamente.');
+          toast.success('Dados do CPF carregados com sucesso!');
         }
       }
-
-      const dados = await response.json();
-      console.log('Dados recebidos do backend:', dados);
-      
-      // Preencher dados básicos
-      setFormData({
-        ...formData,
-        nome: dados.nome || '',
-        cpf: cpfLimpo,
-        dataNascimento: dados.dataNascimento || '',
-        cnh: dados.cnh || ''
-      });
-      
-      // Preencher primeiro endereço se disponível
-      if (dados.endereco && (dados.endereco.logradouro || dados.endereco.cep)) {
-        setEnderecos([{
-          id: '1',
-          tipo: 'residencial',
-          logradouro: dados.endereco.logradouro || '',
-          numero: dados.endereco.numero || '',
-          complemento: dados.endereco.complemento || '',
-          bairro: dados.endereco.bairro || '',
-          cidade: dados.endereco.cidade || '',
-          estado: dados.endereco.estado || '',
-          cep: dados.endereco.cep || '',
-          principal: true
-        }]);
-      }
-      
-      // Preencher primeiro email se disponível
-      if (dados.email) {
-        setEmails([{
-          id: '1',
-          tipo: 'pessoal',
-          endereco: dados.email,
-          principal: true
-        }]);
-      }
-      
-      // Preencher primeiro telefone se disponível
-      if (dados.telefone) {
-        setTelefones([{
-          id: '1',
-          tipo: 'celular',
-          numero: dados.telefone,
-          principal: true
-        }]);
-      }
-      
-      setCpfConsultado(true);
-      toast.success('Dados do CPF carregados com sucesso!');
       
     } catch (error) {
-      console.error('Erro ao consultar CPF:', error);
-      
-      // Fallback para dados simulados em caso de erro
-      const dadosSimulados = gerarDadosSimulados(cpfLimpo);
-      
-      setFormData({
-        ...formData,
-        nome: dadosSimulados.nome,
-        cpf: cpfLimpo,
-        dataNascimento: dadosSimulados.dataNascimento,
-        cnh: dadosSimulados.cnh
-      });
-      
-      setEnderecos([{
-        id: '1',
-        tipo: 'residencial',
-        logradouro: dadosSimulados.logradouro,
-        numero: dadosSimulados.numero,
-        complemento: dadosSimulados.complemento,
-        bairro: dadosSimulados.bairro,
-        cidade: dadosSimulados.cidade,
-        estado: dadosSimulados.estado,
-        cep: dadosSimulados.cep,
-        principal: true
-      }]);
-      
-      setEmails([{
-        id: '1',
-        tipo: 'pessoal',
-        endereco: dadosSimulados.email,
-        principal: true
-      }]);
-      
-      setTelefones([{
-        id: '1',
-        tipo: 'celular',
-        numero: dadosSimulados.telefone,
-        principal: true
-      }]);
-      
-      setCpfConsultado(true);
-      toast.warning('Usando dados simulados. ' + (error.message || 'Erro ao consultar API.'));
+      // Apenas erros realmente inesperados chegam aqui
+      console.error('Erro inesperado ao consultar CPF:', error);
+      toast.error('Erro inesperado. Tente novamente ou preencha os dados manualmente.');
     } finally {
       setIsLoadingCPF(false);
     }
@@ -599,7 +590,8 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
     
     try {
       // Fazer requisição para o backend
-      const response = await fetch(`http://localhost:3001/api/cep/${cepLimpo}`, {
+      const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001';
+      const response = await fetch(`${baseUrl}/api/cep/${cepLimpo}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -635,6 +627,38 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       
     } catch (error) {
       console.error('Erro ao consultar CEP:', error);
+
+      // Tentar fallback direto para ViaCEP
+      try {
+        const responseViaCep = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
+        if (responseViaCep.ok) {
+          const dadosViaCep = await responseViaCep.json();
+          if (!dadosViaCep.erro) {
+            const dadosFormatados = {
+              logradouro: dadosViaCep.logradouro || '',
+              bairro: dadosViaCep.bairro || '',
+              cidade: dadosViaCep.localidade || '',
+              estado: dadosViaCep.uf || ''
+            };
+
+            setEnderecos(enderecos.map(endereco => 
+              endereco.id === enderecoId ? {
+                ...endereco,
+                logradouro: dadosFormatados.logradouro,
+                bairro: dadosFormatados.bairro,
+                cidade: dadosFormatados.cidade,
+                estado: dadosFormatados.estado
+              } : endereco
+            ));
+
+            setCepConsultado(prev => ({ ...prev, [enderecoId]: true }));
+            toast.success('Endereço preenchido automaticamente via ViaCEP!');
+            return;
+          }
+        }
+      } catch (fallbackError) {
+        console.warn('Fallback ViaCEP falhou:', fallbackError);
+      }
       
       // Fallback para dados simulados em caso de erro
       const dadosSimulados = {
@@ -655,7 +679,7 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
       ));
       
       setCepConsultado(prev => ({ ...prev, [enderecoId]: true }));
-      toast.warning('Usando dados simulados. ' + (error.message || 'Erro ao consultar CEP.'));
+      toast.warning('Usando dados simulados. ' + (error instanceof Error ? error.message : 'Erro ao consultar CEP.'));
     } finally {
       setIsLoadingCEP(prev => ({ ...prev, [enderecoId]: false }));
     }
@@ -1035,14 +1059,6 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
               <p className="text-xs text-gray-500 mt-1">
                 Os dados serão preenchidos automaticamente após digitar o CPF
               </p>
-              {!cliente && (
-                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <p className="text-xs text-blue-700">
-                    <strong>Modo Demonstração:</strong> Devido a restrições de CORS, estamos usando dados simulados.
-                    Em produção, implemente um endpoint no backend para consultar a API Datawash.
-                  </p>
-                </div>
-              )}
             </div>
             
             {/* Seção de E-mails */}
@@ -1510,14 +1526,24 @@ export default function Clientes() {
   const [showModal, setShowModal] = useState(false);
   const [selectedCliente, setSelectedCliente] = useState<Cliente | undefined>();
   const [isLoading, setIsLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 9;
 
   // Carregar clientes do Supabase com estatísticas
   const carregarClientes = async () => {
     try {
       setIsLoading(true);
       
+      // Preparar filtros baseados no perfil do usuário
+      let filters = {};
+      
+      // Se o usuário não é Superadmin, filtrar por company_id
+      if (user?.role !== 'Superadmin' && user?.company_id) {
+        filters = { companyId: user.company_id };
+      }
+      
       // Usar a nova função que inclui contagem de multas e recursos
-      const clientesComStats = await clientsService.getClientsWithStats();
+      const clientesComStats = await clientsService.getClientsWithStats(filters);
 
       // Converter dados do Supabase para o formato local
       const clientesConvertidos: Cliente[] = clientesComStats.map(cliente => ({
@@ -1724,6 +1750,17 @@ export default function Clientes() {
     return matchesSearch && matchesStatus;
   });
 
+  // Paginação
+  const totalPages = Math.ceil(filteredClientes.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedClientes = filteredClientes.slice(startIndex, endIndex);
+
+  // Reset página quando filtros mudam
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
+
   const handleEdit = (cliente: Cliente) => {
     setSelectedCliente(cliente);
     setShowModal(true);
@@ -1844,15 +1881,16 @@ export default function Clientes() {
         toast.success('Cliente atualizado com sucesso!');
       } else {
         // Criar novo cliente
+        const primeiroEndereco = clienteData.enderecos?.[0];
         const novoClienteData = {
           nome: clienteData.nome,
           cpf_cnpj: clienteData.cpf,
           email: clienteData.emails?.[0]?.endereco || '',
           telefone: clienteData.telefones?.[0]?.numero || '',
-          endereco: clienteData.enderecos?.[0]?.logradouro || '',
-          cidade: clienteData.enderecos?.[0]?.cidade || '',
-          estado: clienteData.enderecos?.[0]?.estado || '',
-          cep: clienteData.enderecos?.[0]?.cep || '',
+          endereco: primeiroEndereco?.logradouro || '',
+          cidade: primeiroEndereco?.cidade || '',
+          estado: primeiroEndereco?.estado || '',
+          cep: primeiroEndereco?.cep || '',
           status: clienteData.status || 'ativo',
           company_id: user?.company_id,
           created_at: new Date().toISOString(),
@@ -1869,6 +1907,43 @@ export default function Clientes() {
           console.error('Erro ao criar cliente:', error);
           toast.error('Erro ao criar cliente: ' + error.message);
           return;
+        }
+
+        // Criar customer no Asaas
+        let asaasCustomerId = null;
+        try {
+          const asaasCustomerData = {
+            name: clienteData.nome || '',
+            cpfCnpj: clienteData.cpf || '',
+            email: clienteData.emails?.[0]?.endereco,
+            phone: clienteData.telefones?.[0]?.numero,
+            address: primeiroEndereco?.logradouro,
+            addressNumber: primeiroEndereco?.numero,
+            complement: primeiroEndereco?.complemento,
+            province: primeiroEndereco?.bairro,
+            city: primeiroEndereco?.cidade,
+            state: primeiroEndereco?.estado,
+            postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          asaasCustomerId = asaasCustomer.id;
+
+          // Atualizar cliente no banco com o asaas_customer_id
+          const { error: updateError } = await supabase
+            .from('clients')
+            .update({ asaas_customer_id: asaasCustomerId })
+            .eq('id', data.id);
+
+          if (updateError) {
+            console.error('Erro ao atualizar asaas_customer_id:', updateError);
+            // Não falha a criação do cliente, apenas loga o erro
+          }
+
+          console.log('Customer criado no Asaas:', asaasCustomerId);
+        } catch (asaasError) {
+          console.error('Erro ao criar customer no Asaas:', asaasError);
+          toast.warning('Cliente criado, mas houve erro na integração com Asaas. Verifique a configuração.');
         }
 
         // Converter dados do Supabase para o formato local
@@ -1890,7 +1965,7 @@ export default function Clientes() {
         };
 
         setClientes([...clientes, novoCliente]);
-        toast.success('Cliente criado com sucesso!');
+        toast.success('Cliente criado com sucesso!' + (asaasCustomerId ? ' Customer Asaas: ' + asaasCustomerId : ''));
       }
     } catch (error) {
       console.error('Erro inesperado:', error);
@@ -2080,7 +2155,7 @@ export default function Clientes() {
 
       {/* Clientes Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredClientes.map((cliente) => (
+        {paginatedClientes.map((cliente) => (
           <ClienteCard
             key={cliente.id}
             cliente={cliente}
@@ -2091,6 +2166,92 @@ export default function Clientes() {
           />
         ))}
       </div>
+
+      {/* Paginação */}
+      {filteredClientes.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0">
+            {/* Informações da paginação */}
+            <div className="text-sm text-gray-700">
+              <span className="font-medium">Página {currentPage} de {totalPages}</span>
+              <span className="mx-2">•</span>
+              <span>
+                Mostrando {startIndex + 1}-{Math.min(endIndex, filteredClientes.length)} de {filteredClientes.length} resultados
+              </span>
+            </div>
+
+            {/* Controles de navegação */}
+            <div className="flex items-center space-x-2">
+              {/* Primeira página */}
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                ««
+              </button>
+
+              {/* Página anterior */}
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+
+              {/* Números das páginas */}
+              <div className="flex items-center space-x-1">
+                {(() => {
+                  const pages = [];
+                  const maxVisiblePages = 5;
+                  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+                  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+                  
+                  if (endPage - startPage + 1 < maxVisiblePages) {
+                    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                  }
+
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i)}
+                        className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                          currentPage === i
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        {i}
+                      </button>
+                    );
+                  }
+                  return pages;
+                })()}
+              </div>
+
+              {/* Próxima página */}
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Próxima
+              </button>
+
+              {/* Última página */}
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                »»
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {filteredClientes.length === 0 && (
         <div className="text-center py-12">

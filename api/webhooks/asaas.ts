@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { supabase } from '../../src/lib/supabase';
 import { billingService } from '../../src/services/billingService';
 import { recursosService } from '../../src/services/recursosService';
+import { splitService } from '../../src/services/splitService';
+import { creditService } from '../services/creditService.js';
 
 interface AsaasWebhookEvent {
   event: string;
@@ -157,13 +159,46 @@ async function handlePaymentConfirmed(paymentId: string, paymentData: AsaasWebho
   try {
     console.log(`Processando pagamento confirmado: ${paymentId}`);
 
+    // Primeiro, verificar se é um pagamento de créditos
+    const { data: creditPayment, error: creditError } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('asaas_payment_id', paymentId)
+      .single();
+
+    if (!creditError && creditPayment) {
+      console.log(`Processando pagamento de créditos: ${paymentId}`);
+      await handleCreditPaymentConfirmed(creditPayment, paymentData);
+      return;
+    }
+
+    // Se não for pagamento de créditos, verificar se é um service_order
+    const { data: serviceOrder, error: serviceOrderError } = await supabase
+      .from('service_orders')
+      .select('*')
+      .eq('asaas_payment_id', paymentId)
+      .single();
+
+    if (!serviceOrderError && serviceOrder) {
+      console.log(`Processando pagamento de service_order: ${paymentId}`);
+      await handleServiceOrderPaymentConfirmed(serviceOrder, paymentData);
+      return;
+    }
+
+    // Se não for pagamento de créditos nem service_order, processar como pagamento de recurso legado
     // Atualizar status do pagamento no banco
     await billingService.updatePaymentStatus(paymentId, 'confirmed');
 
-    // Buscar transação para obter multa_id
+    // Buscar transação para obter informações completas
     const { data: transaction, error } = await supabase
       .from('asaas_payments')
-      .select('multa_id')
+      .select(`
+        *,
+        company_id,
+        resource_type,
+        has_split,
+        split_status
+      `)
       .eq('asaas_payment_id', paymentId)
       .single();
 
@@ -172,6 +207,48 @@ async function handlePaymentConfirmed(paymentId: string, paymentData: AsaasWebho
       return;
     }
 
+    // Processar splits se o pagamento tiver splits configurados
+    if (transaction && transaction.has_split && transaction.split_status === 'pending') {
+      try {
+        console.log(`Processando splits para pagamento ${paymentId}`);
+        
+        // Buscar splits existentes
+        const splits = await splitService.getPaymentSplits(transaction.id);
+        
+        if (splits.length > 0) {
+          // Atualizar status dos splits para processado
+          const { error: splitUpdateError } = await supabase
+            .from('payment_splits')
+            .update({ 
+              status: 'processed',
+              updated_at: new Date().toISOString()
+            })
+            .eq('payment_id', transaction.id);
+
+          if (splitUpdateError) {
+            console.error('Erro ao atualizar status dos splits:', splitUpdateError);
+          } else {
+            // Atualizar status do split no pagamento
+            await supabase
+              .from('asaas_payments')
+              .update({ split_status: 'processed' })
+              .eq('id', transaction.id);
+            
+            console.log(`Splits processados com sucesso para pagamento ${paymentId}`);
+          }
+        }
+      } catch (splitError) {
+        console.error(`Erro ao processar splits para pagamento ${paymentId}:`, splitError);
+        
+        // Marcar splits como falha
+        await supabase
+          .from('asaas_payments')
+          .update({ split_status: 'failed' })
+          .eq('id', transaction.id);
+      }
+    }
+
+    // Processar recurso se existir multa_id
     if (transaction && transaction.multa_id) {
       // Ativar recurso associado
       const recurso = await recursosService.confirmPaymentAndActivateRecurso(transaction.multa_id);
@@ -263,6 +340,106 @@ async function handlePaymentCancelled(paymentId: string): Promise<void> {
     console.log(`Pagamento cancelado ${paymentId} processado`);
   } catch (error) {
     console.error(`Erro ao processar pagamento cancelado ${paymentId}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Trata pagamento de service_order confirmado - SINCRONIZAÇÃO ENTRE TABELAS
+ */
+async function handleServiceOrderPaymentConfirmed(serviceOrder: any, paymentData: AsaasWebhookEvent['payment']): Promise<void> {
+  try {
+    console.log(`🔄 Sincronizando pagamento de service_order confirmado: ${serviceOrder.id}`);
+
+    // 1. Atualizar service_order com status pago e dados do webhook
+    const { error: serviceOrderUpdateError } = await supabase
+      .from('service_orders')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        webhook_response: paymentData,
+        // Sincronizar dados PIX se disponíveis
+        qr_code_image: paymentData.pixQrCodeId || serviceOrder.qr_code_image,
+        pix_payload: paymentData.pixCopyAndPaste || serviceOrder.pix_payload,
+        invoice_url: paymentData.invoiceUrl || serviceOrder.invoice_url
+      })
+      .eq('id', serviceOrder.id);
+
+    if (serviceOrderUpdateError) {
+      console.error('❌ Erro ao atualizar service_order:', serviceOrderUpdateError);
+      throw new Error(`Erro ao atualizar service_order: ${serviceOrderUpdateError.message}`);
+    }
+
+    // 2. Se existe payment_id, atualizar também a tabela payments
+    if (serviceOrder.payment_id) {
+      const { error: paymentUpdateError } = await supabase
+        .from('payments')
+        .update({
+          status: 'confirmed',
+          confirmed_at: new Date().toISOString(),
+          asaas_webhook_data: paymentData,
+          // Sincronizar dados PIX
+          pix_qr_code: paymentData.pixQrCodeId || null,
+          pix_copy_paste: paymentData.pixCopyAndPaste || null
+        })
+        .eq('id', serviceOrder.payment_id);
+
+      if (paymentUpdateError) {
+        console.error('❌ Erro ao atualizar payments:', paymentUpdateError);
+        // Não falhar aqui, pois o service_order já foi atualizado
+      } else {
+        console.log('✅ Tabela payments sincronizada com sucesso');
+      }
+    }
+
+    console.log(`✅ Service_order ${serviceOrder.id} e payment sincronizados com sucesso`);
+  } catch (error) {
+    console.error(`❌ Erro ao processar pagamento de service_order ${serviceOrder.id}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Trata pagamento de créditos confirmado
+ */
+async function handleCreditPaymentConfirmed(creditPayment: any, paymentData: AsaasWebhookEvent['payment']): Promise<void> {
+  try {
+    console.log(`Processando pagamento de créditos confirmado: ${creditPayment.id}`);
+
+    // 1. Atualizar status do pagamento
+    const { error: updateError } = await supabase
+      .from('payments')
+      .update({
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        asaas_webhook_data: paymentData
+      })
+      .eq('id', creditPayment.id);
+
+    if (updateError) {
+      throw new Error(`Erro ao atualizar pagamento: ${updateError.message}`);
+    }
+
+    // 2. Adicionar créditos à conta usando o creditService
+    const ownerType = creditPayment.customer_id ? 'client' : 'company';
+    const ownerId = creditPayment.customer_id || creditPayment.company_id;
+
+    // O creditService já cuida de:
+    // - Buscar ou criar conta de créditos
+    // - Atualizar saldo
+    // - Registrar transação
+    await creditService.addCredits(
+      ownerType,
+      ownerId,
+      creditPayment.credit_amount,
+      creditPayment.id,
+      undefined, // userId
+      `Compra confirmada - ${creditPayment.credit_amount} créditos`
+    );
+
+    console.log(`Créditos adicionados com sucesso: ${creditPayment.credit_amount} para ${ownerType} ${ownerId}`);
+  } catch (error) {
+    console.error(`Erro ao processar pagamento de créditos ${creditPayment.id}:`, error);
     throw error;
   }
 }

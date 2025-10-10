@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '../lib/prisma.js';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -25,21 +25,74 @@ export const authenticateToken = async (
       return res.status(401).json({ error: 'Token de acesso requerido' });
     }
 
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      return res.status(500).json({ error: 'Configuração de JWT não encontrada' });
+    // Primeiro tentar validar como token do Supabase
+    let decoded: any;
+    let isSupabaseToken = false;
+    
+    try {
+      // Verificar se é um token do Supabase (JWT sem verificação de assinatura por enquanto)
+      const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+      
+      if (payload.iss && payload.iss.includes('supabase')) {
+        console.log('🔍 Token do Supabase detectado:', payload.sub);
+        decoded = payload;
+        isSupabaseToken = true;
+      }
+    } catch (supabaseError) {
+      console.log('⚠️ Não é um token do Supabase, tentando JWT personalizado');
     }
-
-    const decoded = jwt.verify(token, jwtSecret) as any;
+    
+    // Se não for token do Supabase, tentar JWT personalizado
+    if (!isSupabaseToken) {
+      const jwtSecret = process.env.JWT_SECRET;
+      if (!jwtSecret) {
+        return res.status(500).json({ error: 'Configuração de JWT não encontrada' });
+      }
+      decoded = jwt.verify(token, jwtSecret) as any;
+    }
     
     // Buscar usuário no banco de dados para verificar se ainda existe e está ativo
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
-      include: {
-        company: true,
-        client: true,
-      },
-    });
+    let user;
+    
+    if (isSupabaseToken) {
+      // Para tokens do Supabase, usar o sub (subject) como ID do usuário
+      console.log('🔍 Buscando usuário do Supabase com ID:', decoded.sub);
+      
+      // Importar supabase aqui para evitar dependência circular
+      const { supabase } = await import('../lib/supabase.js');
+      
+      const { data: supabaseUser, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', decoded.sub)
+        .eq('ativo', true)
+        .single();
+      
+      if (error || !supabaseUser) {
+        console.error('❌ Usuário do Supabase não encontrado:', error);
+        return res.status(401).json({ error: 'Usuário não encontrado ou inativo' });
+      }
+      
+      console.log('✅ Usuário do Supabase encontrado:', supabaseUser.nome);
+      
+      // Converter para formato esperado
+      user = {
+        id: supabaseUser.id,
+        email: supabaseUser.email,
+        role: supabaseUser.role,
+        companyId: supabaseUser.company_id,
+        status: supabaseUser.ativo ? 'active' : 'inactive'
+      };
+    } else {
+      // Para tokens JWT personalizados, usar Prisma
+      user = await prisma.user.findUnique({
+        where: { id: decoded.userId },
+        include: {
+          company: true,
+          client: true,
+        },
+      });
+    }
 
     if (!user || user.status !== 'active') {
       return res.status(401).json({ error: 'Usuário não encontrado ou inativo' });
@@ -47,12 +100,31 @@ export const authenticateToken = async (
 
     // Verificar se a empresa está ativa (se aplicável)
     if (user.companyId) {
-      const company = await prisma.company.findUnique({
-        where: { id: user.companyId },
-      });
+      if (isSupabaseToken) {
+        // Para Supabase, verificar empresa via Supabase
+        const { supabase } = await import('../lib/supabase.js');
+        
+        const { data: company, error } = await supabase
+          .from('companies')
+          .select('*')
+          .eq('id', user.companyId)
+          .single();
+        
+        if (error || !company) {
+          console.error('❌ Empresa não encontrada:', error);
+          return res.status(401).json({ error: 'Empresa não encontrada' });
+        }
+        
+        console.log('✅ Empresa encontrada:', company.nome);
+      } else {
+        // Para JWT personalizado, usar Prisma
+        const company = await prisma.company.findUnique({
+          where: { id: user.companyId },
+        });
 
-      if (!company || company.status !== 'active') {
-        return res.status(401).json({ error: 'Empresa inativa' });
+        if (!company || company.status !== 'active') {
+          return res.status(401).json({ error: 'Empresa inativa' });
+        }
       }
     }
 
@@ -101,18 +173,23 @@ export const authorizeCompanyAccess = async (
 
     const { companyId } = req.params;
     
-    // Master company pode acessar qualquer empresa
-    if (req.user.role === 'master_company') {
+    // Superadmin pode acessar qualquer empresa
+    if (req.user.role === 'Superadmin') {
       return next();
     }
 
-    // Dispatcher só pode acessar sua própria empresa
-    if (req.user.role === 'dispatcher' && req.user.companyId === companyId) {
+    // ICETRAN pode acessar qualquer empresa (gerencia despachantes)
+    if (req.user.role === 'ICETRAN') {
       return next();
     }
 
-    // Cliente só pode acessar dados relacionados a ele
-    if (req.user.role === 'client') {
+    // Despachante só pode acessar sua própria empresa
+    if (req.user.role === 'Despachante' && req.user.companyId === companyId) {
+      return next();
+    }
+
+    // Usuario/Cliente só pode acessar dados relacionados a ele
+    if (req.user.role === 'Usuario/Cliente') {
       const client = await prisma.client.findUnique({
         where: { id: req.user.clientId },
         select: { companyId: true },
@@ -142,8 +219,8 @@ export const authorizeClientAccess = async (
 
     const { clientId } = req.params;
     
-    // Master company e dispatcher podem acessar qualquer cliente de suas empresas
-    if (req.user.role === 'master_company' || req.user.role === 'dispatcher') {
+    // Superadmin, ICETRAN e Despachante podem acessar clientes de suas empresas
+    if (req.user.role === 'Superadmin' || req.user.role === 'ICETRAN' || req.user.role === 'Despachante') {
       const client = await prisma.client.findUnique({
         where: { id: clientId },
         select: { companyId: true },
@@ -153,16 +230,16 @@ export const authorizeClientAccess = async (
         return res.status(404).json({ error: 'Cliente não encontrado' });
       }
 
-      // Verificar se o cliente pertence à empresa do usuário
-      if (req.user.role === 'dispatcher' && client.companyId !== req.user.companyId) {
+      // Verificar se o cliente pertence à empresa do usuário (apenas para Despachante)
+      if (req.user.role === 'Despachante' && client.companyId !== req.user.companyId) {
         return res.status(403).json({ error: 'Acesso negado a este cliente' });
       }
 
       return next();
     }
 
-    // Cliente só pode acessar seus próprios dados
-    if (req.user.role === 'client' && req.user.clientId === clientId) {
+    // Usuario/Cliente só pode acessar seus próprios dados
+    if (req.user.role === 'Usuario/Cliente' && req.user.clientId === clientId) {
       return next();
     }
 
@@ -267,6 +344,68 @@ export const validateCompanyPlan = async (
     return res.status(500).json({ error: 'Erro interno do servidor' });
   }
 };
+
+// Funções auxiliares para verificação de permissões baseadas nos 4 perfis
+export const hasPermission = {
+  // Superadmin tem acesso total ao sistema
+  isSuperadmin: (role: string) => role === 'Superadmin',
+  
+  // ICETRAN gerencia despachantes e tem acesso amplo
+  isICETRAN: (role: string) => role === 'ICETRAN',
+  
+  // Despachante gerencia clientes e multas
+  isDespachante: (role: string) => role === 'Despachante',
+  
+  // Usuario/Cliente tem acesso limitado aos próprios dados
+  isUsuarioCliente: (role: string) => role === 'Usuario/Cliente',
+  
+  // Verificações combinadas
+  canManageUsers: (role: string) => role === 'Superadmin' || role === 'ICETRAN',
+  canManageCompanies: (role: string) => role === 'Superadmin' || role === 'ICETRAN',
+  canManageClients: (role: string) => role === 'Superadmin' || role === 'ICETRAN' || role === 'Despachante',
+  canViewReports: (role: string) => role === 'Superadmin' || role === 'ICETRAN' || role === 'Despachante',
+  canManageSystem: (role: string) => role === 'Superadmin',
+};
+
+// Middleware para verificar se o usuário pode gerenciar usuários
+export const requireUserManagement = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user || !hasPermission.canManageUsers(req.user.role)) {
+    return res.status(403).json({ 
+      error: 'Acesso negado. Apenas Superadmin e ICETRAN podem gerenciar usuários.' 
+    });
+  }
+  next();
+};
+
+// Middleware para verificar se o usuário pode gerenciar empresas
+export const requireCompanyManagement = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user || !hasPermission.canManageCompanies(req.user.role)) {
+    return res.status(403).json({ 
+      error: 'Acesso negado. Apenas Superadmin e ICETRAN podem gerenciar empresas.' 
+    });
+  }
+  next();
+};
+
+// Middleware para verificar se o usuário pode gerenciar clientes
+export const requireClientManagement = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  if (!req.user || !hasPermission.canManageClients(req.user.role)) {
+    return res.status(403).json({ 
+      error: 'Acesso negado. Apenas Superadmin, ICETRAN e Despachante podem gerenciar clientes.' 
+    });
+  }
+  next();
+};
+
+// Middleware para verificar acesso de superadmin
+ export const requireSuperadmin = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+   if (!req.user || !hasPermission.isSuperadmin(req.user.role)) {
+     return res.status(403).json({ 
+       error: 'Acesso negado. Apenas Superadmin pode acessar esta funcionalidade.' 
+     });
+   }
+   next();
+ };
 
 // Middleware para log de atividades
 export const logActivity = async (

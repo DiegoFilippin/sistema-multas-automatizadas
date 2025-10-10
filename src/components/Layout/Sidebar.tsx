@@ -4,17 +4,19 @@ import {
   LayoutDashboard, 
   Building2, 
   Users, 
-  FileText, 
   CreditCard, 
   Settings, 
   LogOut,
   ChevronLeft,
   ChevronRight,
   BarChart3,
-  Zap,
   Shield,
+  Zap,
   Bot,
-  Receipt
+  Receipt,
+  Building,
+  PieChart,
+  Package
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
@@ -28,7 +30,7 @@ interface MenuItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   href: string;
-  roles: ('admin' | 'user' | 'viewer' | 'admin_master' | 'expert')[];
+  roles: ('Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente')[];
   badge?: string;
 }
 
@@ -38,42 +40,56 @@ const menuItems: MenuItem[] = [
     label: 'Dashboard',
     icon: LayoutDashboard,
     href: '/dashboard',
-    roles: ['admin', 'user', 'viewer']
+    roles: ['Superadmin', 'Despachante', 'Usuario/Cliente']
+  },
+  {
+    id: 'dashboard-icetran',
+    label: 'Dashboard ICETRAN',
+    icon: Building,
+    href: '/dashboard-icetran',
+    roles: ['ICETRAN']
+  },
+  {
+    id: 'meus-servicos',
+    label: 'Meus Serviços',
+    icon: Package,
+    href: '/meus-servicos',
+    roles: ['Despachante']
   },
   {
     id: 'empresas',
     label: 'Empresas',
     icon: Building2,
     href: '/empresas',
-    roles: ['admin']
+    roles: ['Superadmin', 'ICETRAN']
   },
   {
     id: 'usuarios',
     label: 'Usuários',
     icon: Users,
     href: '/usuarios',
-    roles: ['admin', 'user']
+    roles: ['Superadmin']
   },
   {
     id: 'clientes',
     label: 'Clientes',
     icon: Shield,
     href: '/clientes',
-    roles: ['admin', 'user']
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
   },
   {
-    id: 'multas',
-    label: 'Multas',
-    icon: FileText,
-    href: '/multas',
-    roles: ['admin', 'user', 'viewer']
+    id: 'cobrancas',
+    label: 'Cobranças',
+    icon: Receipt,
+    href: '/cobrancas',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
   },
   {
     id: 'recursos',
     label: 'Recursos IA',
     icon: Zap,
     href: '/recursos',
-    roles: ['admin', 'user'],
+    roles: ['Superadmin', 'ICETRAN', 'Despachante'],
     badge: 'IA'
   },
   {
@@ -81,37 +97,55 @@ const menuItems: MenuItem[] = [
     label: 'Relatórios Financeiros',
     icon: BarChart3,
     href: '/relatorios-financeiros',
-    roles: ['admin', 'user']
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
   },
   {
     id: 'centro-automacao',
     label: 'Centro de Automação',
     icon: Bot,
     href: '/centro-automacao',
-    roles: ['admin', 'user'],
+    roles: ['Superadmin'],
     badge: 'IA'
   },
+
   {
-    id: 'sistema-cobranca',
-    label: 'Sistema de Cobrança',
-    icon: Receipt,
-    href: '/sistema-cobranca',
-    roles: ['admin', 'user']
+    id: 'servicos-splits',
+    label: 'Serviços e Splits',
+    icon: PieChart,
+    href: '/servicos-splits',
+    roles: ['Superadmin', 'ICETRAN']
   },
+
   {
     id: 'configuracoes',
     label: 'Configurações',
     icon: Settings,
     href: '/configuracoes',
-    roles: ['admin', 'user', 'viewer']
+    roles: ['Superadmin', 'ICETRAN', 'Despachante', 'Usuario/Cliente']
   },
   {
     id: 'asaas-config',
     label: 'Configurações Asaas',
     icon: CreditCard,
     href: '/asaas-config',
-    roles: ['admin', 'admin_master']
-  }
+    roles: ['Superadmin']
+  },
+  {
+    id: 'gerenciar-leads',
+    label: 'Gerenciar Leads',
+    icon: Users,
+    href: '/gerenciar-leads',
+    roles: ['Superadmin']
+  },
+  {
+    id: 'admin-panel',
+    label: 'Painel Administrativo',
+    icon: Settings,
+    href: '/subcontas-admin',
+    roles: ['Superadmin'],
+    badge: 'ADMIN'
+  },
+  
 ];
 
 export default function Sidebar({ className }: SidebarProps) {
@@ -176,11 +210,10 @@ export default function Sidebar({ className }: SidebarProps) {
                 <p className="text-sm font-medium text-gray-900 truncate">
                   {user.nome}
                 </p>
-                <p className="text-xs text-gray-500 capitalize">
-                  {user.role === 'admin_master' ? 'Admin Master' :
-                   user.role === 'admin' ? 'Administrador' : 
-                   user.role === 'user' ? 'Usuário' : 
-                   user.role === 'expert' ? 'Especialista' : 'Visualizador'}
+                <p className="text-xs text-gray-500">
+                  {user.role === 'Superadmin' ? 'Superadministrador' :
+                   user.role === 'ICETRAN' ? 'ICETRAN' :
+                   user.role === 'Despachante' ? 'Despachante' : 'Usuário/Cliente'}
                 </p>
               </div>
             )}

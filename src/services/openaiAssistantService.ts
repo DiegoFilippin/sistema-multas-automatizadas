@@ -2,6 +2,9 @@ import OpenAI from 'openai';
 import type { DocumentoProcessado } from './geminiOcrService';
 import { KnowledgeService } from './knowledgeService';
 import type { DadosInfracao, ContextoJuridico } from './recursoService';
+import { logger } from '@/utils/logger';
+
+const log = logger.scope('services/openai-assistant');
 
 interface RecursoGerado {
   titulo: string;
@@ -21,16 +24,17 @@ class OpenAIAssistantService {
     const assistantId = import.meta.env.VITE_OPENAI_ASSISTANT_ID;
     
     if (!apiKey) {
-      throw new Error('VITE_OPENAI_API_KEY não configurada');
+      log.warn('VITE_OPENAI_API_KEY não configurada - funcionalidades de IA limitadas');
+      return;
     }
     
     if (!assistantId) {
-      throw new Error('VITE_OPENAI_ASSISTANT_ID não configurada');
-    }
-
-    // Validar formato do assistant_id
-    if (!assistantId.startsWith('asst_') || assistantId.length < 10) {
-      throw new Error('VITE_OPENAI_ASSISTANT_ID tem formato inválido. Deve começar com "asst_"');
+      log.warn('VITE_OPENAI_ASSISTANT_ID não configurada - usando modo básico');
+    } else {
+      // Validar formato do assistant_id apenas se fornecido
+      if (!assistantId.startsWith('asst_') || assistantId.length < 10) {
+        log.warn('VITE_OPENAI_ASSISTANT_ID tem formato inválido. Deve começar com "asst_"');
+      }
     }
 
     this.openai = new OpenAI({
@@ -38,9 +42,9 @@ class OpenAIAssistantService {
       dangerouslyAllowBrowser: true // Necessário para uso no frontend
     });
     
-    this.assistantId = assistantId;
+    this.assistantId = assistantId || '';
     this.knowledgeService = KnowledgeService.getInstance();
-    console.log('OpenAI Assistant Service inicializado com assistant_id:', assistantId);
+    log.info('OpenAI Assistant Service inicializado', { assistantId: assistantId ? 'configurado' : 'modo básico' });
   }
 
   static isConfigured(): boolean {
@@ -200,10 +204,10 @@ class OpenAIAssistantService {
 
   async gerarRecurso(dadosMulta: DocumentoProcessado, nomeCliente: string, tipoDocumento: 'defesa_previa' | 'conversao_advertencia' = 'defesa_previa'): Promise<RecursoGerado> {
     try {
-      console.log('Iniciando geração de recurso com OpenAI Assistant');
-      console.log('Assistant ID:', this.assistantId);
-      console.log('Dados da multa:', dadosMulta);
-      console.log('Nome do cliente:', nomeCliente);
+      log.info('Iniciando geração de recurso com OpenAI Assistant');
+      // log.info('Assistant ID:', this.assistantId);
+      log.info('Dados da multa recebidos');
+      log.info('Nome do cliente recebido');
       
       // Validar dados de entrada
       if (!dadosMulta || !nomeCliente) {
@@ -211,7 +215,7 @@ class OpenAIAssistantService {
       }
       
       // Buscar contexto jurídico relevante
-      console.log('Buscando contexto jurídico relevante...');
+      log.info('Buscando contexto jurídico relevante...');
       const dadosInfracao: DadosInfracao = {
         numeroAuto: dadosMulta.numeroAuto,
         descricaoInfracao: dadosMulta.descricaoInfracao,
@@ -225,12 +229,12 @@ class OpenAIAssistantService {
       };
       
       const contextoJuridico = await this.buscarContextoJuridico(dadosInfracao);
-      console.log('Contexto jurídico encontrado:', contextoJuridico);
+      log.info('Contexto jurídico obtido');
       
       // Criar uma thread para a conversa
-      console.log('Criando thread...');
+      log.info('Criando thread...');
       const thread = await this.openai.beta.threads.create();
-      console.log('Thread criada:', thread.id);
+      log.info('Thread criada', { threadId: thread.id });
 
       // Preparar a mensagem com os dados da multa, requerente e contexto jurídico
       const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
@@ -310,17 +314,17 @@ O campo 'argumentacao' deve conter o documento COMPLETO formatado com quebras de
       });
 
       // Executar o assistente
-      console.log('Executando assistente...');
+      log.info('Executando assistente...');
       const run = await this.openai.beta.threads.runs.create(thread.id, {
         assistant_id: this.assistantId
       });
-      console.log('Run criado:', run.id, 'Status:', run.status);
+      log.info('Run criado', { runId: run.id, status: run.status });
 
       // Aguardar a conclusão da execução
         let runStatus = await this.openai.beta.threads.runs.retrieve(run.id, {
           thread_id: thread.id
         });
-        console.log('Status inicial do run:', runStatus.status);
+        log.info('Status inicial do run', { status: runStatus.status });
       
       let attempts = 0;
       const maxAttempts = 60; // Máximo 60 segundos
@@ -331,11 +335,11 @@ O campo 'argumentacao' deve conter o documento COMPLETO formatado com quebras de
             thread_id: thread.id
           });
           attempts++;
-          console.log(`Tentativa ${attempts}: Status do run:`, runStatus.status);
+          // Removido: logs em cada tentativa para reduzir ruído
           
           // Verificar se o run precisa de ação (ex: function calls)
           if (runStatus.status === 'requires_action') {
-            console.log('Run requer ação:', runStatus.required_action);
+            log.warn('Run requer ação', { required_action: runStatus.required_action });
             break;
           }
       }
@@ -345,20 +349,20 @@ O campo 'argumentacao' deve conter o documento COMPLETO formatado com quebras de
       }
 
       if (runStatus.status === 'completed') {
-        console.log('Assistente completou a execução com sucesso');
+        log.info('Assistente completou a execução com sucesso');
         
         // Obter as mensagens da thread
-        console.log('Obtendo mensagens da thread...');
+        log.info('Obtendo mensagens da thread...');
         const messages = await this.openai.beta.threads.messages.list(thread.id);
-        console.log('Número de mensagens:', messages.data.length);
+        log.info('Número de mensagens', { count: messages.data.length });
         
         const lastMessage = messages.data[0];
-        console.log('Última mensagem:', lastMessage);
+        // log.info('Última mensagem:', lastMessage);
         
         if (lastMessage.role === 'assistant' && lastMessage.content[0].type === 'text') {
           const responseText = lastMessage.content[0].text.value;
           
-          console.log('Resposta bruta do OpenAI Assistant:', responseText);
+          // log.info('Resposta bruta do OpenAI Assistant:', responseText);
           
           try {
             // Tentar extrair JSON da resposta
@@ -373,7 +377,7 @@ O campo 'argumentacao' deve conter o documento COMPLETO formatado com quebras de
               jsonStr = jsonMatch[0];
             }
             
-            console.log('JSON extraído para parsing:', jsonStr);
+            // log.info('JSON extraído para parsing:', jsonStr);
             
             const recursoGerado = JSON.parse(jsonStr);
             
@@ -392,7 +396,7 @@ O campo 'argumentacao' deve conter o documento COMPLETO formatado com quebras de
             
           } catch (parseError) {
             console.error('Erro ao fazer parsing da resposta do OpenAI:', parseError);
-            console.error('Resposta que causou erro:', responseText);
+            // console.error('Resposta que causou erro:', responseText);
             
             // Fallback: tentar extrair informações da resposta em texto livre
             return this.criarRecursoFallback(dadosMulta, responseText);
@@ -434,7 +438,7 @@ O campo 'argumentacao' deve conter o documento COMPLETO formatado com quebras de
       }
       
       // Fallback em caso de erro na API
-      console.log('Usando fallback para gerar recurso...');
+      log.info('Usando fallback para gerar recurso...');
       return this.criarRecursoFallback(dadosMulta);
     }
   }

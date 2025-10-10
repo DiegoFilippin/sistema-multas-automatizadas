@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase'
 import type { Database } from '../lib/supabase'
+import { subaccountService } from './subaccountService'
 
 type CompanyMaster = Database['public']['Tables']['companies_master']['Row']
 type CompanyMasterInsert = Database['public']['Tables']['companies_master']['Insert']
@@ -42,6 +43,45 @@ export interface PlanUsage {
 }
 
 class CompaniesService {
+  // Validação para empresas ICETRAN
+  async validateIcetranCompany(companyId: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase
+        .from('companies')
+        .select('company_type, status')
+        .eq('id', companyId)
+        .eq('company_type', 'icetran')
+        .eq('status', 'ativo')
+        .single()
+
+      if (error) {
+        console.error('Erro ao validar empresa ICETRAN:', error)
+        return false
+      }
+
+      return !!data
+    } catch (error) {
+      console.error('Erro ao validar empresa ICETRAN:', error)
+      return false
+    }
+  }
+
+  // Buscar apenas empresas ICETRAN ativas
+  async getIcetranCompanies(): Promise<Company[]> {
+    const { data, error } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('company_type', 'icetran')
+      .eq('status', 'ativo')
+      .order('nome')
+
+    if (error) {
+      throw new Error(`Erro ao buscar empresas ICETRAN: ${error.message}`)
+    }
+
+    return data || []
+  }
+
   // Métodos para Company Master
   async getMasterCompanies(): Promise<CompanyMaster[]> {
     const { data, error } = await supabase
@@ -183,6 +223,37 @@ class CompaniesService {
 
     if (error) {
       throw new Error(`Erro ao criar empresa: ${error.message}`)
+    }
+
+    // Criar subconta no Asaas automaticamente (operação opcional)
+    try {
+      if (data.nome && data.email && data.cnpj) {
+        console.log(`🏢 Criando subconta Asaas para empresa: ${data.nome}`);
+        
+        await subaccountService.createSubaccount(data.id, {
+          name: data.nome,
+          email: data.email,
+          cpfCnpj: data.cnpj,
+          birthDate: '1990-01-01', // Data padrão para empresas
+          mobilePhone: data.telefone || undefined,
+          address: data.endereco ? {
+            postalCode: data.cep || '',
+            address: data.endereco,
+            addressNumber: data.numero || '0',
+            province: data.bairro || '',
+            city: data.cidade || '',
+            state: data.estado || ''
+          } : undefined
+        });
+        
+        console.log(`✅ Subconta Asaas criada com sucesso para empresa: ${data.nome}`);
+      } else {
+        console.warn(`⚠️ Dados insuficientes para criar subconta Asaas para empresa ID: ${data.id}`);
+      }
+    } catch (subaccountError) {
+      // Log do erro mas não falha a criação da empresa
+      console.error(`❌ Erro ao criar subconta Asaas para empresa ${data.nome}:`, subaccountError);
+      console.log(`ℹ️ Empresa criada com sucesso, mas subconta Asaas falhou. Pode ser criada manualmente depois.`);
     }
 
     return data

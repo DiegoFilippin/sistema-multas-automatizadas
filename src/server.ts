@@ -6,7 +6,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import { prisma } from './lib/prisma.js';
 import routes from './api/routes.js';
-import { logActivity } from './middleware/auth.js';
+// import { logActivity } from './middleware/auth.js'; // Comentado temporariamente
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,7 +51,61 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Middleware de log de atividades
-app.use('/api/', logActivity);
+// app.use('/api/', logActivity); // Comentado temporariamente
+
+// Proxy para API do Asaas (resolver CORS)
+app.use('/api/asaas-proxy', async (req, res) => {
+  try {
+    const asaasUrl = req.url.startsWith('/') ? req.url.slice(1) : req.url;
+    const targetUrl = `https://api-sandbox.asaas.com/v3/${asaasUrl}`;
+    
+    // Configurar headers para a requisição
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    
+    // Repassar header de autorização se existir
+    if (req.headers.authorization) {
+      headers['Authorization'] = req.headers.authorization;
+    }
+    
+    if (req.headers['access_token']) {
+      headers['access_token'] = req.headers['access_token'] as string;
+    }
+    
+    // Fazer requisição para API do Asaas
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
+    });
+    
+    // Configurar headers CORS
+    res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, access_token');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    // Repassar status code
+    res.status(response.status);
+    
+    // Repassar response
+    const data = await response.text();
+    try {
+      const jsonData = JSON.parse(data);
+      res.json(jsonData);
+    } catch {
+      res.send(data);
+    }
+    
+  } catch (error) {
+    console.error('Erro no proxy Asaas:', error);
+    res.status(500).json({
+      error: 'Erro no proxy Asaas',
+      message: error instanceof Error ? error.message : 'Erro desconhecido'
+    });
+  }
+});
 
 // Rotas da API
 app.use('/api', routes);
