@@ -243,7 +243,12 @@ export default function DashboardDespachante() {
     { name: 'Outras', value: 10, color: '#EF4444' }
   ];
 
-  const multasPendentes = multas.filter(m => m.status === 'pendente').slice(0, 5);
+  const multasPendentes = multas
+    .filter(m => m.status === 'pendente' && recursos.some(r => r.multa_id === m.id && r.geradoPorIA))
+    .slice(0, 5);
+  const totalPendentesComIA = multas
+    .filter(m => m.status === 'pendente' && recursos.some(r => r.multa_id === m.id && r.geradoPorIA))
+    .length;
   const recursosRecentes = recursos.slice(0, 5);
 
   const handleCriarRecurso = async (multaId: string) => {
@@ -448,7 +453,7 @@ export default function DashboardDespachante() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Multas Pendentes</h3>
-            <span className="text-sm text-gray-600">{multasPendentes.length} de {stats.multasPendentes}</span>
+            <span className="text-sm text-gray-600">{multasPendentes.length} de {totalPendentesComIA}</span>
           </div>
           <div className="space-y-4">
             {multasPendentes.map((multa) => (

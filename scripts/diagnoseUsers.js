@@ -1,141 +1,138 @@
-import { createClient } from '@supabase/supabase-js';
+import 'dotenv/config'
+import { createClient } from '@supabase/supabase-js'
 
-// Configuração do Supabase
-const supabaseUrl = 'https://ktgynzdzvfcpvbdbtplu.supabase.co';
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0Z3luemR6dmZjcHZiZGJ0cGx1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MzIxMDYwOCwiZXhwIjoyMDY4Nzg2NjA4fQ.q31X1QarmN4Ga_V2S0KJosGxSa_Bi-CItRs9KNHslJA';
+const URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://ktgynzdzvfcpvbdbtplu.supabase.co'
+const ANON = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY
+const SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-async function diagnoseUsers() {
-  console.log('🔍 Diagnóstico de Usuários no Supabase');
-  console.log('=' .repeat(50));
-  
-  try {
-    // 1. Verificar usuários na autenticação
-    console.log('\n📋 1. Verificando usuários na autenticação...');
-    const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
-    
-    if (authError) {
-      console.error('❌ Erro ao buscar usuários de autenticação:', authError.message);
-    } else {
-      console.log(`✅ Encontrados ${authUsers.users.length} usuários na autenticação:`);
-      authUsers.users.forEach((user, index) => {
-        console.log(`   ${index + 1}. ID: ${user.id}`);
-        console.log(`      Email: ${user.email}`);
-        console.log(`      Confirmado: ${user.email_confirmed_at ? 'Sim' : 'Não'}`);
-        console.log(`      Criado em: ${user.created_at}`);
-        console.log('      ---');
-      });
-    }
-    
-    // 2. Verificar usuários na tabela users
-    console.log('\n📋 2. Verificando usuários na tabela users...');
-    const { data: dbUsers, error: dbError } = await supabase
-      .from('users')
-      .select('*');
-    
-    if (dbError) {
-      console.error('❌ Erro ao buscar usuários da tabela:', dbError.message);
-    } else {
-      console.log(`✅ Encontrados ${dbUsers.length} usuários na tabela users:`);
-      dbUsers.forEach((user, index) => {
-        console.log(`   ${index + 1}. ID: ${user.id}`);
-        console.log(`      Email: ${user.email}`);
-        console.log(`      Nome: ${user.nome}`);
-        console.log(`      Role: ${user.role}`);
-        console.log(`      Ativo: ${user.ativo}`);
-        console.log('      ---');
-      });
-    }
-    
-    // 3. Verificar correspondência entre auth e tabela users
-    console.log('\n🔗 3. Verificando correspondência entre autenticação e tabela...');
-    if (authUsers && dbUsers) {
-      const authIds = authUsers.users.map(u => u.id);
-      const dbIds = dbUsers.map(u => u.id);
-      
-      console.log('\n📊 Análise de correspondência:');
-      console.log(`   Usuários só na autenticação: ${authIds.filter(id => !dbIds.includes(id)).length}`);
-      console.log(`   Usuários só na tabela: ${dbIds.filter(id => !authIds.includes(id)).length}`);
-      console.log(`   Usuários em ambos: ${authIds.filter(id => dbIds.includes(id)).length}`);
-      
-      // Mostrar IDs que não correspondem
-      const onlyAuth = authIds.filter(id => !dbIds.includes(id));
-      const onlyDb = dbIds.filter(id => !authIds.includes(id));
-      
-      if (onlyAuth.length > 0) {
-        console.log('\n⚠️  IDs só na autenticação:');
-        onlyAuth.forEach(id => console.log(`   - ${id}`));
-      }
-      
-      if (onlyDb.length > 0) {
-        console.log('\n⚠️  IDs só na tabela:');
-        onlyDb.forEach(id => console.log(`   - ${id}`));
-      }
-    }
-    
-    // 4. Testar login com um usuário específico
-    console.log('\n🧪 4. Testando login com admin@test.com...');
-    const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-      email: 'admin@test.com',
-      password: 'Admin@123'
-    });
-    
-    if (loginError) {
-      console.error('❌ Erro no login:', loginError.message);
-    } else {
-      console.log('✅ Login bem-sucedido!');
-      console.log(`   User ID: ${loginData.user.id}`);
-      console.log(`   Email: ${loginData.user.email}`);
-      
-      // Verificar se o perfil existe para este usuário
-      const { data: profile, error: profileError } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', loginData.user.id)
-        .single();
-      
-      if (profileError) {
-        console.error('❌ Erro ao buscar perfil:', profileError.message);
-      } else {
-        console.log('✅ Perfil encontrado:');
-        console.log(`   Nome: ${profile.nome}`);
-        console.log(`   Role: ${profile.role}`);
-      }
-    }
-    
-    // 5. Verificar políticas RLS
-    console.log('\n🔒 5. Verificando políticas RLS na tabela users...');
-    const { data: policies, error: policiesError } = await supabase
-      .rpc('exec_sql', {
-        sql: "SELECT * FROM pg_policies WHERE tablename = 'users'"
-      });
-    
-    if (policiesError) {
-      console.error('❌ Erro ao verificar políticas:', policiesError.message);
-    } else {
-      console.log(`✅ Encontradas ${policies?.length || 0} políticas RLS`);
-      if (policies && policies.length > 0) {
-        policies.forEach((policy, index) => {
-          console.log(`   ${index + 1}. ${policy.policyname}: ${policy.cmd}`);
-        });
-      }
-    }
-    
-  } catch (error) {
-    console.error('💥 Erro inesperado:', error.message);
-  }
-  
-  console.log('\n' + '=' .repeat(50));
-  console.log('🏁 Diagnóstico concluído!');
+if (!URL || !ANON) {
+  console.error('❌ Variáveis de ambiente do Supabase ausentes. Verifique .env (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY)')
+  process.exit(1)
 }
 
-// Executar diagnóstico
-diagnoseUsers()
-  .catch(error => {
-    console.error('💥 Erro fatal:', error);
-    process.exit(1);
+const supabaseAnon = createClient(URL, ANON, { auth: { persistSession: false } })
+const supabaseAdmin = SERVICE ? createClient(URL, SERVICE, { auth: { persistSession: false } }) : null
+
+function log(title, obj) {
+  console.log(`\n${title}`)
+  if (obj) console.dir(obj, { depth: 5 })
+}
+
+async function diagnoseUsers() {
+  console.log('🔍 Diagnóstico de criação de usuário (Auth + RLS)')
+  console.log('==================================================')
+
+  // 1) Login como um usuário administrador existente
+  console.log('\n1) Fazendo login como admin@test.com ...')
+  const { data: loginData, error: loginError } = await supabaseAnon.auth.signInWithPassword({
+    email: 'admin@test.com',
+    password: 'Admin@123'
   })
-  .finally(() => {
-    process.exit(0);
-  });
+
+  if (loginError) {
+    console.error('❌ Erro no login:', loginError.message)
+    return
+  }
+
+  console.log('✅ Login ok')
+  console.log(`   User ID: ${loginData.user.id}`)
+
+  // 2) Descobrir company_id e role do admin
+  console.log('\n2) Buscando perfil deste admin na tabela users ...')
+  const { data: adminProfile, error: adminProfileError } = await supabaseAnon
+    .from('users')
+    .select('id, email, nome, role, company_id')
+    .eq('id', loginData.user.id)
+    .single()
+
+  if (adminProfileError) {
+    console.error('❌ Erro ao buscar perfil admin:', adminProfileError.message)
+    log('Detalhes', adminProfileError)
+    return
+  }
+
+  console.log('✅ Perfil admin encontrado:')
+  console.log(`   role: ${adminProfile.role} | company_id: ${adminProfile.company_id}`)
+
+  // 3) Criar um novo usuário via auth.signUp (igual à UI)
+  const unique = Date.now()
+  const newEmail = `diagnose+${unique}@multastrae.com`
+  console.log(`\n3) Criando usuário de autenticação via signUp: ${newEmail} ...`)
+  const { data: authData, error: authError } = await supabaseAnon.auth.signUp({
+    email: newEmail,
+    password: 'Diag@12345'
+  })
+
+  if (authError) {
+    console.error('❌ Erro na autenticação (signUp):', authError.message)
+    log('Detalhes', authError)
+    return
+  }
+
+  const newUserId = authData.user?.id
+  console.log('✅ signUp ok')
+  console.log(`   New auth user id: ${newUserId}`)
+
+  // 4) Tentar inserir perfil na tabela users com a sessão do admin (testa RLS)
+  console.log('\n4) Tentando inserir perfil na tabela users (RLS) ...')
+  const { data: insertData, error: insertError } = await supabaseAnon
+    .from('users')
+    .insert({
+      id: newUserId,
+      email: newEmail,
+      nome: 'Diagnóstico RLS',
+      role: 'user',
+      company_id: adminProfile.company_id,
+      ativo: true,
+      ultimo_login: new Date().toISOString()
+    })
+    .select()
+    
+  if (insertError) {
+    console.error('❌ Erro na inserção (RLS provável):', insertError.message)
+    log('Detalhes', insertError)
+  } else {
+    console.log('✅ Inserido perfil com sucesso (RLS permitiu)')
+    log('Perfil inserido', insertData)
+  }
+
+  // 5) Inserção usando chave de serviço (bypassa RLS) para comparar
+  if (supabaseAdmin) {
+    console.log('\n5) Tentando inserir perfil via service role (sem RLS) ...')
+    const { data: adminInsertData, error: adminInsertError } = await supabaseAdmin
+      .from('users')
+      .insert({
+        id: newUserId,
+        email: newEmail,
+        nome: 'Diagnóstico Admin',
+        role: 'user',
+        company_id: adminProfile.company_id,
+        ativo: true
+      })
+      .select()
+
+    if (adminInsertError) {
+      console.error('❌ Erro na inserção com service role:', adminInsertError.message)
+      log('Detalhes', adminInsertError)
+    } else {
+      console.log('✅ Inserção via service role ok')
+      log('Perfil inserido (service role)', adminInsertData)
+    }
+  } else {
+    console.log('\nℹ️ Sem chave de serviço configurada, pulando comparação de bypass RLS.')
+  }
+
+  // 6) Resumo
+  console.log('\n==================================================')
+  console.log('Resumo:')
+  console.log('- signUp cria o usuário de autenticação.')
+  console.log('- Inserção na tabela users pode falhar por RLS se o adminProfile.role não for "admin" de acordo com as policies.')
+  console.log('- Se a inserção via service role funcionar, confirma que o bloqueio é RLS e não schema.')
+  console.log('==================================================')
+}
+
+// Run
+await diagnoseUsers().catch(e => {
+  console.error('💥 Erro fatal no diagnóstico:', e)
+  process.exit(1)
+})

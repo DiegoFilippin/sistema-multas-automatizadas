@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useNavigate } from 'react-router-dom';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { splitService } from '@/services/splitService';
+import { logger } from '@/utils/logger';
 
 interface Service {
   id: string;
@@ -130,15 +131,15 @@ interface PaymentResponse {
 }
 
 const MeusServicos: React.FC = () => {
-  console.log('🚀 === COMPONENTE MEUSSERVICOS RENDERIZADO ===');
+  const log = logger.scope('pages/meus-servicos');
+  log.debug('Componente MeusServicos renderizado');
   
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [services, setServices] = useState<ServiceWithPricing[]>([]);
   const [loading, setLoading] = useState(true);
   
-  console.log('👤 User no MeusServicos:', user);
-  console.log('🏢 Company ID:', user?.company_id);
+  log.debug('Contexto inicial', { userId: user?.id, companyId: user?.company_id });
   
   // Estados para criação de cobranças
   const [clients, setClients] = useState<Client[]>([]);
@@ -175,12 +176,10 @@ const MeusServicos: React.FC = () => {
   const itemsPerPage = 10;
 
   useEffect(() => {
-    console.log('🔄 === USEEFFECT PRINCIPAL EXECUTADO ===');
-    console.log('  - User existe:', !!user);
-    console.log('  - User company_id:', user?.company_id);
+    log.debug('useEffect principal executado', { hasUser: !!user, companyId: user?.company_id });
     
     if (user) {
-      console.log('✅ Usuário encontrado, carregando dados...');
+      log.debug('Usuário encontrado, carregando dados');
       loadServices();
       loadClients();
       loadMultaTypes();
@@ -188,7 +187,7 @@ const MeusServicos: React.FC = () => {
       loadServiceSplitConfig();
       testBackendConnection();
     } else {
-      console.log('❌ Usuário não encontrado, não carregando dados');
+      log.warn('Usuário não encontrado, não carregando dados');
     }
   }, [user]);
 
@@ -240,7 +239,7 @@ const MeusServicos: React.FC = () => {
         .limit(1);
       
       if (error || !services || services.length === 0) {
-        console.warn('⚠️ Configuração de splits não encontrada, usando valores padrão');
+        log.warn('Configuração de splits não encontrada, usando valores padrão');
         const defaultConfig = {
           acsm_value: 6.00,
           icetran_value: 6.00,
@@ -266,7 +265,7 @@ const MeusServicos: React.FC = () => {
       const custo = splitConfig.acsm_value + splitConfig.icetran_value + splitConfig.taxa_cobranca;
       setCustoMinimo(custo);
       
-      console.log('💰 Configuração de splits aplicada:', {
+      log.debug('Configuração de splits aplicada', {
         acsm_value: splitConfig.acsm_value,
         icetran_value: splitConfig.icetran_value,
         taxa_cobranca: splitConfig.taxa_cobranca,
@@ -279,7 +278,7 @@ const MeusServicos: React.FC = () => {
       }
       
     } catch (error) {
-      console.error('❌ Erro ao carregar configuração de splits:', error);
+      log.error('Erro ao carregar configuração de splits', error);
       toast.error('Erro ao carregar configuração de preços');
     }
   };
@@ -289,7 +288,7 @@ const MeusServicos: React.FC = () => {
     if (custoMinimo > 0 && customAmount > 0) {
       const margem = Math.max(0, customAmount - custoMinimo);
       setMargemDespachante(margem);
-      console.log('💰 Cálculo de margem:', {
+      log.debug('Cálculo de margem', {
         valorCobranca: customAmount,
         custoMinimo,
         margemDespachante: margem
@@ -298,57 +297,49 @@ const MeusServicos: React.FC = () => {
   }, [customAmount, custoMinimo]);
 
   const loadCobrancas = async (forceRefresh = false) => {
-    console.log('\n🔄 === INICIANDO LOADCOBRANCAS (NOVO SERVICEORDERSSERVICE) ===');
-    console.log('  - forceRefresh:', forceRefresh);
-    console.log('  - loadingCobrancas atual:', loadingCobrancas);
-    console.log('  - user?.company_id:', user?.company_id);
+    log.debug('Iniciando loadCobrancas', { forceRefresh, loadingCobrancas, companyId: user?.company_id });
     
     if (loadingCobrancas && !forceRefresh) {
-      console.log('⏸️ Já está carregando, pulando...');
+      log.debug('Já está carregando, pulando');
       return;
     }
     
     if (!user?.company_id) {
-      console.warn('⚠️ Company ID não disponível, não pode carregar cobranças');
+      log.warn('Company ID não disponível, não pode carregar cobranças');
       return;
     }
     
     setLoadingCobrancas(true);
     try {
-      console.log('🔄 Carregando cobranças via serviceOrdersService...');
-      console.log('  - Company ID:', user?.company_id);
+      log.debug('Carregando cobranças via serviceOrdersService', { companyId: user?.company_id });
       
       const result = await serviceOrdersService.getServiceOrders({
         companyId: user?.company_id,
         all: false
       });
       
-      console.log('📋 Resultado do serviceOrdersService:');
-      console.log('  - Success:', result.success);
-      console.log('  - Total:', result.total);
-      console.log('  - Payments length:', result.payments?.length);
+      log.debug('Resultado do serviceOrdersService', { success: result.success, total: result.total, paymentsLength: result.payments?.length });
       
       if (result.success && Array.isArray(result.payments)) {
-        console.log('✅ Definindo cobranças no estado:', result.payments.length, 'itens');
+        log.debug('Definindo cobranças no estado', { count: result.payments.length });
         setCobrancas(result.payments);
-        console.log(`✅ ${result.payments.length} cobranças carregadas com sucesso`);
+        log.debug('Cobranças carregadas com sucesso', { count: result.payments.length });
         
-        // Log de amostra dos dados
         if (result.payments.length > 0) {
-          console.log('📋 Amostra dos dados carregados:', result.payments[0]);
+          log.debug('Amostra dos dados carregados', { sample: result.payments[0] });
         }
       } else {
-        console.warn('⚠️ Resposta inválida do serviceOrdersService:', result);
+        log.warn('Resposta inválida do serviceOrdersService', { result });
         setCobrancas([]);
       }
       
     } catch (error) {
-      console.error('❌ Erro ao carregar cobranças via serviceOrdersService:', error);
+      log.error('Erro ao carregar cobranças via serviceOrdersService', error);
       toast.error('Erro ao carregar cobranças');
       setCobrancas([]);
     } finally {
       setLoadingCobrancas(false);
-      console.log('🏁 LoadCobrancas finalizado');
+      log.debug('LoadCobrancas finalizado');
     }
   };
 
@@ -361,8 +352,7 @@ const MeusServicos: React.FC = () => {
 
     setSyncingWithAsaas(true);
     try {
-      console.log('🔄 === INICIANDO SINCRONIZAÇÃO COM ASAAS ===');
-      console.log('Company ID:', user.company_id);
+      log.api('Iniciando sincronização com Asaas', { companyId: user.company_id });
       
       const response = await fetch(`/api/payments/sync/${user.company_id}`, {
         method: 'POST',
@@ -375,7 +365,7 @@ const MeusServicos: React.FC = () => {
       const result = await response.json();
       
       if (response.ok && result.success) {
-        console.log('✅ Sincronização concluída:', result);
+        log.info('Sincronização concluída', { synced: result.synced });
         
         if (result.synced > 0) {
           toast.success(`${result.synced} cobranças sincronizadas com sucesso!`);
@@ -383,14 +373,13 @@ const MeusServicos: React.FC = () => {
           toast.info('Nenhuma cobrança nova encontrada no Asaas');
         }
         
-        // Recarregar lista de cobranças após sincronização
         await loadCobrancas(true);
       } else {
-        console.error('❌ Erro na sincronização:', result);
+        log.error('Erro na sincronização', result);
         toast.error(result.error || 'Erro ao sincronizar com Asaas');
       }
     } catch (error) {
-      console.error('❌ Erro na sincronização:', error);
+      log.error('Erro na sincronização', error);
       toast.error('Erro de conexão ao sincronizar com Asaas');
     } finally {
       setSyncingWithAsaas(false);
@@ -405,9 +394,7 @@ const MeusServicos: React.FC = () => {
     }
 
     try {
-      console.log('🔄 === SINCRONIZAÇÃO FORÇADA ===');
-      console.log('Payment ID:', paymentId);
-      console.log('Company ID:', user.company_id);
+      log.api('Sincronização forçada', { paymentId, companyId: user.company_id });
       
       const response = await fetch(`/api/force-sync/${paymentId}`, {
         method: 'POST',
@@ -423,17 +410,16 @@ const MeusServicos: React.FC = () => {
       const result = await response.json();
       
       if (response.ok && result.success) {
-        console.log('✅ Sincronização forçada concluída:', result);
+        log.info('Sincronização forçada concluída', { paymentId });
         toast.success('Cobrança sincronizada com sucesso!');
         
-        // Recarregar lista de cobranças
         await loadCobrancas(true);
       } else {
-        console.error('❌ Erro na sincronização forçada:', result);
+        log.error('Erro na sincronização forçada', result);
         toast.error(result.error || 'Erro ao sincronizar cobrança');
       }
     } catch (error) {
-      console.error('❌ Erro na sincronização forçada:', error);
+      log.error('Erro na sincronização forçada', error);
       toast.error('Erro de conexão ao sincronizar cobrança');
     }
   };
@@ -446,7 +432,7 @@ const MeusServicos: React.FC = () => {
     }
 
     try {
-      console.log('🧪 === TESTE DE CONEXÃO ASAAS ===');
+      log.api('Teste de conexão Asaas', { companyId: user.company_id });
       
       const response = await fetch(`/api/force-sync/test/${user.company_id}`, {
         headers: {
@@ -458,14 +444,14 @@ const MeusServicos: React.FC = () => {
       const result = await response.json();
       
       if (response.ok && result.success) {
-        console.log('✅ Teste de conexão bem-sucedido:', result);
+        log.info('Teste de conexão bem-sucedido', { totalPayments: result.asaas_data?.total_payments });
         toast.success(`Conexão OK! ${result.asaas_data.total_payments} cobranças no Asaas`);
       } else {
-        console.error('❌ Erro no teste:', result);
+        log.error('Erro no teste de conexão', result);
         toast.error(result.error || 'Erro ao testar conexão');
       }
     } catch (error) {
-      console.error('❌ Erro no teste:', error);
+      log.error('Erro no teste de conexão', error);
       toast.error('Erro de conexão ao testar Asaas');
     }
   };
@@ -639,7 +625,7 @@ const MeusServicos: React.FC = () => {
       console.log('🔍 Buscando dados da empresa para wallet_id...');
       const { data: company, error: companyError } = await supabase
         .from('companies')
-        .select('id, nome, asaas_wallet_id')
+        .select('id, nome, manual_wallet_id')
         .eq('id', user?.company_id)
         .single();
       
@@ -649,12 +635,69 @@ const MeusServicos: React.FC = () => {
       }
       
       console.log('✅ Empresa encontrada:', company.nome);
-      console.log('  - Wallet ID:', company.asaas_wallet_id);
+      console.log('  - Wallet ID:', (company as any).manual_wallet_id);
+      
+      // Resolver wallet da ICETRAN exclusivamente via manual_wallet_id
+      let icetranWalletId: string | null = null;
+      try {
+        const { data: companyRow } = await supabase
+          .from('companies')
+          .select('parent_company_id')
+          .eq('id', user?.company_id)
+          .single();
+        if (companyRow?.parent_company_id) {
+          const { data: parent } = await supabase
+            .from('companies')
+            .select('id, nome, manual_wallet_id')
+            .eq('id', companyRow.parent_company_id)
+            .single();
+          if (parent?.manual_wallet_id) {
+            icetranWalletId = parent.manual_wallet_id;
+          }
+        }
+        if (!icetranWalletId) {
+          const { data: icetranCompanies } = await supabase
+            .from('companies')
+            .select('id, nome, manual_wallet_id, company_type, status')
+            .or('company_type.eq.icetran,nome.ilike.%ICETRAN%')
+            .eq('status', 'ativo')
+            .limit(1);
+          const icetran = Array.isArray(icetranCompanies) ? icetranCompanies[0] : null;
+          if (icetran?.manual_wallet_id) {
+            icetranWalletId = icetran.manual_wallet_id;
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️  Falha ao resolver wallet do ICETRAN dinamicamente:', err);
+      }
+      const isDev = import.meta.env?.DEV;
+      // Não usar defaults; exigir manual_wallet_id quando houver valor ICETRAN
+      if (!icetranWalletId && (selectedType.icetran_value && selectedType.icetran_value > 0)) {
+        if (isDev) {
+          console.warn('🔧 DEV: Wallet da ICETRAN ausente; prosseguindo para teste.');
+        } else {
+          toast.error('Wallet da ICETRAN não configurada. Cadastre manual_wallet_id na empresa ICETRAN.');
+          throw new Error('ICETRAN_WALLET_MISSING');
+        }
+      }
+      console.log('🏦 Wallet ICETRAN usada:', icetranWalletId);
+      
+      // Resolver wallet do DESPACHANTE exclusivamente via manual_wallet_id
+      let dispatcherWalletId: string | null = (company as any)?.manual_wallet_id || null;
+      if (!dispatcherWalletId) {
+        if (isDev) {
+          console.warn('🔧 DEV: Wallet do despachante ausente; prosseguindo para teste.');
+        } else {
+          toast.error('Wallet do despachante não configurada. Cadastre manual_wallet_id na empresa.');
+          throw new Error('DESPACHANTE_WALLET_MISSING');
+        }
+      }
+      console.log('🏦 Wallet DESPACHANTE usada:', dispatcherWalletId);
       
       // Construir payload EXATO conforme especificado pelo usuário
       const webhookPayload = {
-        wallet_icetran: "eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0",
-        wallet_despachante: company.asaas_wallet_id || "2bab1d7d-7558-45ac-953d-b9f7a980c4af",
+        wallet_icetran: icetranWalletId,
+        wallet_despachante: dispatcherWalletId,
         Customer_cliente: {
           id: selectedClient.id,
           nome: selectedClient.nome,
@@ -672,7 +715,7 @@ const MeusServicos: React.FC = () => {
         despachante: {
           company_id: user?.company_id,
           nome: company.nome,
-          wallet_id: company.asaas_wallet_id || "2bab1d7d-7558-45ac-953d-b9f7a980c4af",
+          wallet_id: dispatcherWalletId,
           margem: (customAmount || selectedType.suggested_price) - (selectedType.acsm_value || 11) - (selectedType.icetran_value || 11) - (selectedType.taxa_cobranca || 3.5)
         }
       };
@@ -689,21 +732,20 @@ const MeusServicos: React.FC = () => {
       let responseText: string = '';
       
       try {
-        // Obter token de acesso do Supabase
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
-        if (sessionError || !session?.access_token) {
-          console.error('❌ ERRO: Token de acesso não encontrado:', sessionError);
-          throw new Error('Token de acesso não encontrado. Faça login novamente.');
+        // Obter token de acesso da API (JWT)
+        const jwt = localStorage.getItem('token');
+        if (!jwt) {
+          console.warn('⚠️ Aviso: Token de acesso (JWT) não encontrado; prosseguindo sem Authorization');
+        } else {
+          console.log('🔑 Token de acesso (JWT) obtido:', jwt.substring(0, 20) + '...');
         }
         
-        console.log('🔑 Token de acesso obtido do Supabase:', session.access_token.substring(0, 20) + '...');
-        
-        // Fazer a requisição para o webhook N8N e aguardar a resposta completa
-        response = await fetch('https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1', {
+        // Fazer a requisição para o webhook N8N via proxy backend
+        response = await fetch('/api/webhook/n8n/process-payment', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(jwt ? { 'Authorization': `Bearer ${jwt}` } : {})
           },
           body: JSON.stringify(webhookPayload),
           signal: controller.signal
@@ -858,8 +900,26 @@ const MeusServicos: React.FC = () => {
       console.log('  - É array?', Array.isArray(result));
       console.log('  - Tipo:', typeof result);
       console.log('  - Keys/Length:', Array.isArray(result) ? result.length : Object.keys(result));
-      
-      if (Array.isArray(result) && result.length > 0) {
+
+      // Fallback: sucesso com corpo vazio (proxy padroniza emptyResponse)
+      const isEmptySuccess = !!result && result.success === true && (
+        (result.emptyResponse === true) || (!responseText || responseText.trim() === '')
+      );
+
+      if (isEmptySuccess) {
+        console.log('✅ Sucesso com corpo vazio; criando cobrança placeholder enquanto aguarda dados do n8n');
+        paymentData = {
+          id: `pending_${Date.now()}`,
+          value: customAmount || selectedType.suggested_price,
+          status: 'pending',
+          description: `Recurso de Multa - ${selectedType.name} - ${selectedClient.nome}`,
+          dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          invoiceUrl: '',
+          encodedImage: '',
+          payload: ''
+        };
+        console.log('🧩 Placeholder criado para cobrança pendente (sem QR/PIX).');
+      } else if (Array.isArray(result) && result.length > 0) {
         // Webhook retorna array, pegar o primeiro elemento
         paymentData = result[0];
         console.log('✅ Dados extraídos do array (primeiro elemento)');
@@ -1042,10 +1102,12 @@ const MeusServicos: React.FC = () => {
       console.log('  - URL:', 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1');
       console.log('  - Dados:', webhookData);
       
-      const response = await fetch('https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1', {
+      const jwt = localStorage.getItem('token');
+      const response = await fetch('/api/webhook/n8n/process-payment', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(jwt ? { 'Authorization': `Bearer ${jwt}` } : {})
         },
         body: JSON.stringify(webhookData)
       });
@@ -1274,7 +1336,6 @@ const MeusServicos: React.FC = () => {
   };
   
   const handleUseSuggested = (type: MultaType) => {
-    console.log('Usando valor sugerido para:', type.name, 'Valor:', type.suggested_price);
     setCustomAmount(type.suggested_price);
     toast.success(`Valor definido para R$ ${type.suggested_price.toFixed(2)}`);
   };
@@ -1289,14 +1350,11 @@ const MeusServicos: React.FC = () => {
   };
 
   const loadServices = async (forceRefresh = false) => {
-    console.log('🔄 === CARREGANDO SERVIÇOS ===');
-    console.log('  - forceRefresh:', forceRefresh);
-    console.log('  - user?.id:', user?.id);
+    log.debug('Carregando serviços', { forceRefresh, userId: user?.id });
     
     try {
       setLoading(true);
 
-      // Buscar serviços com suas configurações de split (com cache busting se necessário)
       const query = supabase
         .from('services')
         .select(`
@@ -1306,21 +1364,20 @@ const MeusServicos: React.FC = () => {
         .eq('is_active', true)
         .order('updated_at', { ascending: false });
       
-      // Se forceRefresh, adicionar timestamp para evitar cache
       if (forceRefresh) {
-        console.log('🔄 Forçando refresh com timestamp:', Date.now());
+        log.debug('Forçando refresh', { timestamp: Date.now() });
       }
       
       const { data: servicesData, error: servicesError } = await query;
 
       if (servicesError) {
-        console.error('❌ Erro ao buscar serviços:', servicesError);
+        log.error('Erro ao buscar serviços', servicesError);
         throw servicesError;
       }
       
-      console.log('📋 Serviços encontrados:', servicesData?.length || 0);
+      log.debug('Serviços encontrados', { count: servicesData?.length || 0 });
       servicesData?.forEach((service, i) => {
-        console.log(`  ${i+1}. ${service.name} - ACSM: R$${service.acsm_value} - Sugerido: R$${service.suggested_price}`);
+        log.debug('Serviço', { index: i + 1, name: service.name, acsm_value: service.acsm_value, suggested_price: service.suggested_price });
       });
 
       // Buscar preços já definidos pelo despachante
@@ -2073,7 +2130,7 @@ const MeusServicos: React.FC = () => {
             <div className="flex justify-end">
               <Button
                 onClick={createServiceOrder}
-                disabled={!selectedClient || !selectedMultaType || creatingPayment || (customAmount < custoMinimo)}
+                disabled={!selectedClient || !selectedMultaType || creatingPayment || (!import.meta.env.DEV && (customAmount < custoMinimo))}
                 className="min-w-[220px] bg-violet-600 hover:bg-violet-700 text-white shadow-lg focus:outline-none focus:ring-4 focus:ring-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 size="lg"
               >

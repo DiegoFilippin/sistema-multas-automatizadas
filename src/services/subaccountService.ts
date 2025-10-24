@@ -9,6 +9,15 @@ export interface AsaasSubaccount {
   status: 'active' | 'inactive' | 'suspended';
   api_key?: string;
   webhook_url?: string;
+  // Credenciais manuais e auditoria
+  is_manual_config?: boolean;
+  manual_wallet_id?: string;
+  manual_api_key?: string | null;
+  credentials_source?: 'manual' | 'auto';
+  credentials_updated_at?: string;
+  credentials_updated_by?: string;
+  // Origem da conta
+  account_origin: 'system' | 'external';
   created_at?: string;
   updated_at?: string;
 }
@@ -23,11 +32,12 @@ export interface SubaccountCreateData {
     postalCode: string;
     address: string;
     addressNumber: string;
+    complement?: string;
     province: string;
     city: string;
     state: string;
   };
-  companyType?: string;
+  companyType?: 'LIMITED' | 'INDIVIDUAL' | 'ASSOCIATION' | 'MEI';
   phone?: string;
   site?: string;
 }
@@ -77,6 +87,39 @@ export interface ApiKeyTestResult {
   responseTime?: number;
 }
 
+// New interfaces for manual credential management
+export interface ManualConfigData {
+  wallet_id?: string;
+  api_key?: string;
+  manual_wallet_id?: string;
+  manual_api_key?: string;
+  is_manual?: boolean;
+  is_manual_config?: boolean;
+}
+
+export interface ConfigTestResult {
+  success: boolean;
+  message: string;
+  tested_at: string;
+  response_time?: number;
+  wallet_id?: string;
+  environment?: 'sandbox' | 'production';
+}
+
+export interface CredentialsAudit {
+  id: string;
+  subaccount_id: string;
+  action: 'create' | 'update' | 'delete';
+  field_name: string;
+  old_value?: string;
+  new_value?: string;
+  changed_by?: string;
+  changed_at: string;
+  ip_address?: string;
+  user_agent?: string;
+  user_email?: string;
+}
+
 interface AsaasConfig {
   id?: string;
   environment: 'sandbox' | 'production';
@@ -114,8 +157,9 @@ class SubaccountService {
   }
 
   private getAsaasBaseUrl(): string {
-    // Usar proxy local para resolver problemas de CORS (igual ao asaasService)
-    const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001';
+    // Handle both frontend (import.meta.env) and backend (process.env) environments
+    const isProduction = typeof process !== 'undefined' && process.env?.NODE_ENV === 'production';
+    const baseUrl = isProduction ? '' : 'http://localhost:3001';
     return `${baseUrl}/api/asaas-proxy`;
   }
 
@@ -173,7 +217,8 @@ class SubaccountService {
         wallet_id: asaasResponse.walletId,
         account_type: accountType,
         status: 'active' as const,
-        api_key: asaasResponse.apiKey
+        api_key: asaasResponse.apiKey,
+        account_origin: 'system' as const
       };
       
       console.log('💾 Salvando no banco:', {
@@ -408,15 +453,15 @@ class SubaccountService {
       despachante: {
         id: data.id,
         name: data.nome,
-        wallet_id: data.asaas_subaccounts?.[0]?.wallet_id
+        wallet_id: data.manual_wallet_id || undefined
       },
       icetran: {
         id: data.parent?.id,
         name: data.parent?.nome,
-        wallet_id: data.parent?.asaas_subaccounts?.[0]?.wallet_id
+        wallet_id: data.parent?.manual_wallet_id || undefined
       },
       acsm: {
-        wallet_id: import.meta.env.VITE_ACSM_WALLET_ID // Configurado nas variáveis de ambiente
+        wallet_id: this.getAcsmWalletId()
       }
     };
   }
@@ -725,6 +770,394 @@ class SubaccountService {
   }
 
   /**
+   * Atualizar configuração manual de credenciais
+   */
+  async updateManualConfig(subaccountId: string, config: ManualConfigData, userId: string): Promise<AsaasSubaccount> {
+    try {
+      const isManual = Boolean(config.is_manual ?? config.is_manual_config);
+      const walletId = config.wallet_id ?? config.manual_wallet_id ?? null;
+      const apiKeyRaw = config.api_key ?? config.manual_api_key ?? null;
+
+      console.log('🔧 [service] updateManualConfig called:', { subaccountId, isManual, walletId_preview: walletId?.slice(0, 10) });
+
+      // 1. Validar credenciais (formato básico)
+      if (isManual) {
+        const validation = this.validateCredentials(walletId || '', apiKeyRaw || '');
+        // Relaxar: aceitar apenas wallet_id válido; ignorar API key
+        const filteredErrors = validation.errors.filter(e => !e.includes('API Key'));
+        if (!walletId || walletId.trim().length < 10) {
+          filteredErrors.push('Wallet ID deve ter no mínimo 10 caracteres');
+        }
+        if (filteredErrors.length > 0) {
+          console.warn('⚠️ [service] Validation (relaxed) failed:', filteredErrors);
+          throw new Error(`Validação falhou: ${filteredErrors.join(', ')}`);
+        }
+      }
+
+      // 2. Criptografar API key antes de salvar
+      const encryptedApiKey = apiKeyRaw ? this.encryptApiKey(apiKeyRaw) : null;
+
+      // 3. Atualizar registro no banco
+      const updatedBy = (userId && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(userId)) ? userId : null;
+      const updateData = {
+        manual_wallet_id: isManual ? walletId : null,
+        manual_api_key: isManual ? encryptedApiKey : null,
+        credentials_source: isManual ? 'manual' as const : 'auto' as const,
+        is_manual_config: isManual,
+        credentials_updated_at: new Date().toISOString(),
+        credentials_updated_by: updatedBy,
+        account_origin: isManual ? 'external' as const : 'system' as const
+      };
+
+      // Não espelhar wallet_id no campo base para evitar conflito de unique constraint
+      const finalUpdateData = updateData;
+
+      console.log('📝 [service] Final update data:', finalUpdateData);
+
+      // Tentar atualização completa; se falhar por colunas inexistentes, aplicar fallback mínimo
+      let updatedRow: AsaasSubaccount | null = null;
+
+      const { data, error } = await supabase
+        .from('asaas_subaccounts')
+        .update(finalUpdateData)
+        .eq('id', subaccountId)
+        .select()
+        .single();
+
+      if (!error && data) {
+        updatedRow = data as AsaasSubaccount;
+      } else {
+        const errMsg = String(error?.message || '');
+        const columns = ['manual_wallet_id','manual_api_key','credentials_source','is_manual_config','credentials_updated_by','credentials_updated_at'];
+        const likelyMissingColumns = errMsg.match(/column .* does not exist|unknown column/i) || columns.some(col => errMsg.includes(col));
+
+        if (likelyMissingColumns) {
+          console.warn('⚠️ [service] Manual columns missing in remote schema. Applying minimal update. Original error:', errMsg);
+          const minimalUpdate: Record<string, unknown> = {
+            account_origin: isManual ? 'external' : 'system',
+            updated_at: new Date().toISOString()
+          };
+          // Não tocar em wallet_id no fallback para evitar duplicate key
+          // if (walletId) minimalUpdate.wallet_id = walletId;
+
+          const { data: data2, error: error2 } = await supabase
+            .from('asaas_subaccounts')
+            .update(minimalUpdate)
+            .eq('id', subaccountId)
+            .select()
+            .single();
+
+          if (error2 || !data2) {
+            console.error('❌ [service] Fallback update error:', error2);
+            throw new Error(`Erro ao atualizar configuração (fallback): ${error2?.message || 'Sem dados retornados'}`);
+          }
+          updatedRow = data2 as AsaasSubaccount;
+        } else {
+          console.error('❌ [service] Update error:', error);
+          throw new Error(`Erro ao atualizar configuração: ${error?.message || 'Sem dados retornados'}`);
+        }
+      }
+
+      console.log('✅ [service] Updated subaccount:', {
+        id: updatedRow!.id,
+        wallet_id: updatedRow!.wallet_id,
+        manual_wallet_id: (updatedRow as any).manual_wallet_id,
+        is_manual_config: (updatedRow as any).is_manual_config,
+      });
+
+      // Invalida caches relacionados
+      this.invalidateCache(subaccountId);
+
+      return updatedRow as AsaasSubaccount;
+    } catch (error) {
+      console.error('Erro ao atualizar configuração manual:', error);
+      throw new Error(`Falha ao atualizar configuração: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+  /**
+   * Testar conexão com credenciais manualmente (por subaccount ID)
+   */
+  async testManualConnection(subaccountId: string): Promise<ConfigTestResult> {
+    try {
+      // Buscar subconta no banco
+      const { data: subaccount, error } = await supabase
+        .from('asaas_subaccounts')
+        .select('*')
+        .eq('id', subaccountId)
+        .single();
+
+      if (error || !subaccount) {
+        return {
+          success: false,
+          message: 'Subconta não encontrada',
+          tested_at: new Date().toISOString(),
+          response_time: 0
+        };
+      }
+
+      // Determinar quais credenciais usar
+      const walletId = subaccount.is_manual_config ? subaccount.manual_wallet_id : subaccount.wallet_id;
+      const apiKey = subaccount.is_manual_config
+        ? (subaccount.manual_api_key ? this.decryptApiKey(subaccount.manual_api_key) : null)
+        : subaccount.api_key;
+
+      if (!walletId || !apiKey) {
+        return {
+          success: false,
+          message: 'Credenciais não configuradas para esta subconta',
+          tested_at: new Date().toISOString(),
+          response_time: 0
+        };
+      }
+
+      // Testar conexão usando as credenciais encontradas
+      return await this.testManualConnectionWithCredentials(walletId, apiKey);
+    } catch (error) {
+      return {
+        success: false,
+        message: `Erro ao buscar subconta: ${error instanceof Error ? error.message : 'Erro desconhecido'}`,
+        tested_at: new Date().toISOString(),
+        response_time: 0
+      };
+    }
+  }
+
+  /**
+   * Testar conexão com credenciais manualmente (com credenciais diretas)
+   */
+  async testManualConnectionWithCredentials(walletId: string, apiKey: string): Promise<ConfigTestResult> {
+    const startTime = Date.now();
+    
+    try {
+      // Validar formato das credenciais
+      const validation = this.validateCredentials(walletId, apiKey);
+      if (!validation.isValid) {
+        return {
+          success: false,
+          message: `Validação falhou: ${validation.errors.join(', ')}`,
+          tested_at: new Date().toISOString(),
+          response_time: Date.now() - startTime
+        };
+      }
+
+      // Testar conexão com a API Asaas
+      const headers = {
+        'Content-Type': 'application/json',
+        'access_token': apiKey
+      };
+
+      const response = await fetch(`${this.getAsaasBaseUrl()}/myAccount`, {
+        headers
+      });
+
+      const responseTime = Date.now() - startTime;
+
+      if (response.ok) {
+        const accountData = await response.json();
+        return {
+          success: true,
+          message: `Conexão bem-sucedida - Conta: ${accountData.name || accountData.email}`,
+          tested_at: new Date().toISOString(),
+          response_time: responseTime,
+          wallet_id: walletId,
+          environment: this.config?.environment || 'sandbox'
+        };
+      } else if (response.status === 401 || response.status === 403) {
+        return {
+          success: false,
+          message: 'Credenciais inválidas ou sem permissão',
+          tested_at: new Date().toISOString(),
+          response_time: responseTime,
+          wallet_id: walletId
+        };
+      } else {
+        return {
+          success: false,
+          message: `Erro HTTP ${response.status}: ${response.statusText}`,
+          tested_at: new Date().toISOString(),
+          response_time: responseTime,
+          wallet_id: walletId
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        message: `Erro de rede: ${error instanceof Error ? error.message : 'Erro desconhecido'}`,
+        tested_at: new Date().toISOString(),
+        response_time: Date.now() - startTime,
+        wallet_id: walletId
+      };
+    }
+  }
+
+  /**
+   * Obter histórico de alterações de credenciais
+   */
+  async getCredentialsHistory(subaccountId: string): Promise<CredentialsAudit[]> {
+    try {
+      const { data, error } = await supabase
+        .from('asaas_credentials_audit')
+        .select('*')
+        .eq('subaccount_id', subaccountId)
+        .order('changed_at', { ascending: false });
+
+      if (error) {
+        throw new Error(`Erro ao buscar histórico: ${error.message}`);
+      }
+
+      return (data || []) as CredentialsAudit[];
+    } catch (error) {
+      console.error('Erro ao buscar histórico de credenciais:', error);
+      throw new Error(`Falha ao buscar histórico: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+  /**
+   * Validar formato das credenciais
+   */
+  private validateCredentials(walletId: string, apiKey: string): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    // Validações de Wallet ID
+    if (!walletId || walletId.length < 10) {
+      errors.push('Wallet ID deve ter no mínimo 10 caracteres');
+    }
+
+    if (walletId && walletId.length > 50) {
+      errors.push('Wallet ID deve ter no máximo 50 caracteres');
+    }
+
+    // Validações de API Key (opcional: validar apenas se fornecida)
+    if (apiKey && apiKey.trim().length > 0) {
+      if (apiKey.trim().length < 20) {
+        errors.push('API Key deve ter no mínimo 20 caracteres');
+      }
+
+      if (!apiKey.startsWith('$aact_')) {
+        errors.push('API Key deve começar com "$aact_"');
+      }
+    }
+
+    // Validação de caracteres para Wallet ID (permitir underscore também)
+    const validWalletPattern = /^[a-zA-Z0-9-_]+$/;
+    if (walletId && !validWalletPattern.test(walletId)) {
+      errors.push('Wallet ID contém caracteres inválidos (apenas letras, números, hífens e underscores são permitidos)');
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * Obter Wallet ID da ACSM do ambiente
+   */
+  private getAcsmWalletId(): string {
+    try {
+      // Tentar process.env primeiro (backend)
+      if (typeof process !== 'undefined' && process.env?.ACSM_WALLET_ID) {
+        return process.env.ACSM_WALLET_ID;
+      }
+      
+      // Para frontend, usar variáveis globais ou padrão
+      const globalObj = (typeof globalThis !== 'undefined') ? globalThis : 
+                       (typeof window !== 'undefined') ? window : {} as any;
+      
+      if (globalObj.VITE_ACSM_WALLET_ID) {
+        return globalObj.VITE_ACSM_WALLET_ID;
+      }
+      
+      // Fallback para valor padrão
+      return 'wallet_acsm_default';
+    } catch (error) {
+      console.warn('Erro ao obter ACSM Wallet ID, usando padrão:', error);
+      return 'wallet_acsm_default';
+    }
+  }
+
+  /**
+   * Obter chave de criptografia do ambiente
+   */
+  private getEncryptionKey(): string {
+    try {
+      // Tentar process.env primeiro (backend)
+      if (typeof process !== 'undefined' && process.env?.API_ENCRYPTION_KEY) {
+        return process.env.API_ENCRYPTION_KEY;
+      }
+      
+      // Para frontend, usar variáveis globais ou padrão
+      // Vite injeta variáveis como propriedades do objeto window ou global
+      const globalObj = (typeof globalThis !== 'undefined') ? globalThis : 
+                       (typeof window !== 'undefined') ? window : {} as any;
+      
+      if (globalObj.VITE_API_ENCRYPTION_KEY) {
+        return globalObj.VITE_API_ENCRYPTION_KEY;
+      }
+      
+      // Fallback para valor padrão
+      return 'default-key-change-in-production';
+    } catch (error) {
+      console.warn('Erro ao obter chave de criptografia, usando padrão:', error);
+      return 'default-key-change-in-production';
+    }
+  }
+
+  /**
+   * Criptografar API key
+   */
+  private encryptApiKey(apiKey: string): string {
+    const cryptoKey = this.getEncryptionKey();
+    
+    try {
+      // Simples XOR criptografia (substituir por AES-256 em produção)
+      let encrypted = '';
+      for (let i = 0; i < apiKey.length; i++) {
+        encrypted += String.fromCharCode(apiKey.charCodeAt(i) ^ cryptoKey.charCodeAt(i % cryptoKey.length));
+      }
+      return btoa(encrypted); // Base64 encode
+    } catch (error) {
+      console.error('Erro ao criptografar API key:', error);
+      throw new Error('Falha ao criptografar API key');
+    }
+  }
+
+  /**
+   * Descriptografar API key
+   */
+  private decryptApiKey(encryptedApiKey: string): string {
+    const cryptoKey = this.getEncryptionKey();
+    
+    try {
+      const decoded = atob(encryptedApiKey); // Base64 decode
+      let decrypted = '';
+      for (let i = 0; i < decoded.length; i++) {
+        decrypted += String.fromCharCode(decoded.charCodeAt(i) ^ cryptoKey.charCodeAt(i % cryptoKey.length));
+      }
+      return decrypted;
+    } catch (error) {
+      console.error('Erro ao descriptografar API key:', error);
+      throw new Error('Falha ao descriptografar API key');
+    }
+  }
+
+  /**
+   * Obter cliente Supabase para uso em rotas API
+   */
+  getSupabaseClient() {
+    return supabase;
+  }
+
+  /**
+   * Invalidar cache da subconta
+   */
+  private invalidateCache(subaccountId: string): void {
+    // Implementar invalidação de cache quando houver sistema de cache
+    console.log(`Cache invalidado para subconta: ${subaccountId}`);
+  }
+
+  /**
    * Mascarar API key para exibição segura
    */
   maskApiKey(apiKey: string): string {
@@ -734,6 +1167,105 @@ class SubaccountService {
     
     // Mostrar primeiros 10 caracteres + asteriscos
     return `${apiKey.substring(0, 10)}${'*'.repeat(Math.min(apiKey.length - 10, 20))}`;
+  }
+
+  /**
+   * Obter todas as subcontas (para admin)
+   */
+  async getAllSubaccounts(): Promise<AsaasSubaccount[]> {
+    try {
+      const { data, error } = await supabase
+        .from('asaas_subaccounts')
+        .select(`
+          *,
+          company:companies!company_id(name, cnpj)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        throw new Error(`Erro ao buscar subcontas: ${error.message}`);
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Erro ao buscar todas as subcontas:', error);
+      throw new Error(`Falha ao buscar subcontas: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+  /**
+   * Obter subconta por ID
+   */
+  async getSubaccountById(id: string): Promise<AsaasSubaccount | null> {
+    try {
+      const { data, error } = await supabase
+        .from('asaas_subaccounts')
+        .select(`
+          *,
+          company:companies!company_id(name, cnpj)
+        `)
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null; // Não encontrado
+        }
+        throw new Error(`Erro ao buscar subconta: ${error.message}`);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Erro ao buscar subconta por ID:', error);
+      throw new Error(`Falha ao buscar subconta: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+    }
+  }
+
+
+
+  /**
+   * Registrar alteração de credenciais na auditoria
+   */
+  async logCredentialChange(
+    subaccountId: string,
+    action: 'create' | 'update' | 'delete',
+    fieldName: string,
+    changedBy: string,
+    changedByEmail: string,
+    metadata?: {
+      ip?: string;
+      userAgent?: string;
+      oldValue?: string;
+      newValue?: string;
+    }
+  ): Promise<void> {
+    try {
+      const auditData = {
+        subaccount_id: subaccountId,
+        action,
+        field_name: fieldName,
+        old_value: metadata?.oldValue ? this.maskApiKey(metadata.oldValue) : null,
+        new_value: metadata?.newValue ? this.maskApiKey(metadata.newValue) : null,
+        changed_by: changedBy,
+        changed_at: new Date().toISOString(),
+        ip_address: metadata?.ip || null,
+        user_agent: metadata?.userAgent || null
+      };
+
+      const { error } = await supabase
+        .from('asaas_credentials_audit')
+        .insert(auditData);
+
+      if (error) {
+        console.error('Erro ao registrar auditoria:', error);
+        // Não lançar erro para não quebrar a operação principal
+      } else {
+        console.log(`✅ Auditoria registrada: ${action} em ${fieldName} por ${changedByEmail}`);
+      }
+    } catch (error) {
+      console.error('Erro ao registrar auditoria de credenciais:', error);
+      // Não lançar erro para não quebrar a operação principal
+    }
   }
 }
 

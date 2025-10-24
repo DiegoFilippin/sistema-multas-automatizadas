@@ -62,7 +62,10 @@ export default function EmpresaDetalhes() {
     cnpj: '',
     email: '',
     telefone: '',
-    endereco: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
     cidade: '',
     estado: '',
     cep: '',
@@ -74,12 +77,42 @@ export default function EmpresaDetalhes() {
 
   useEffect(() => {
     if (empresa) {
+      // Parse da primeira parte do endereço (logradouro, número/complemento e bairro)
+      const primeiraParte = (empresa.endereco || '').trim();
+      const partes = primeiraParte.split(',').map(p => p.trim()).filter(Boolean);
+      const logradouroInicial = partes[0] || '';
+      const numeroComplementoParte = partes[1] || '';
+
+      // Detectar bairro: pode vir após vírgula(s) ou após " - " no logradouro
+      let logradouroBase = logradouroInicial;
+      let bairroParte = '';
+
+      // Se houver partes extras após número, considerar como bairro
+      if (partes.length > 2) {
+        bairroParte = partes.slice(2).join(', ');
+      } else {
+        // Tentar extrair bairro do próprio logradouro com hífen
+        const splitHifen = (logradouroInicial || '').split(' - ').map(p => p.trim());
+        if (splitHifen.length > 1) {
+          logradouroBase = splitHifen[0];
+          bairroParte = splitHifen.slice(1).join(' - ');
+        }
+      }
+
+      // Extrair número e complemento
+      const numeroMatch = (numeroComplementoParte || '').match(/^(\d+)(.*)/);
+      const numero = numeroMatch ? numeroMatch[1] : '';
+      const complemento = numeroMatch ? numeroMatch[2].trim() : numeroComplementoParte;
+
       setFormData({
         nome: empresa.nome,
         cnpj: empresa.cnpj,
         email: empresa.email,
         telefone: empresa.telefone,
-        endereco: empresa.endereco,
+        logradouro: logradouroBase || '',
+        numero: numero || '',
+        complemento: complemento || '',
+        bairro: bairroParte || '',
         cidade: empresa.cidade,
         estado: empresa.estado,
         cep: empresa.cep,
@@ -132,7 +165,30 @@ export default function EmpresaDetalhes() {
     if (!empresa) return;
     
     try {
-      await atualizarEmpresa(empresa.id, formData);
+      // Monta o endereço completo a partir dos campos separados
+      const primeiraParteEndereco = [
+        formData.logradouro,
+        formData.numero + (formData.complemento ? ` ${formData.complemento}` : '')
+      ].filter(Boolean).join(', ');
+
+      const enderecoComBairro = formData.bairro
+        ? `${primeiraParteEndereco} - ${formData.bairro}`
+        : primeiraParteEndereco;
+
+      const updates = {
+        nome: formData.nome,
+        cnpj: formData.cnpj,
+        email: formData.email,
+        telefone: formData.telefone,
+        endereco: enderecoComBairro,
+        cidade: formData.cidade,
+        estado: formData.estado,
+        cep: formData.cep,
+        responsavel: formData.responsavel,
+        emailResponsavel: formData.emailResponsavel
+      };
+
+      await atualizarEmpresa(empresa.id, updates);
       setIsEditing(false);
       toast.success('Empresa atualizada com sucesso!');
     } catch (error) {
@@ -217,42 +273,39 @@ export default function EmpresaDetalhes() {
         if (userData.role === 'Despachante') {
           try {
             console.log('🏢 Criando customer no Asaas para despachante:', userData.nome);
-            
-            const asaasResponse = await fetch('/api/asaas-proxy/customers', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
-              },
-              body: JSON.stringify({
-                name: userData.nome,
-                email: userData.email,
-                cpfCnpj: empresa.cnpj, // Usar CNPJ da empresa
-                mobilePhone: empresa.telefone,
-                address: empresa.endereco,
-                addressNumber: '0',
-                complement: '',
-                province: empresa.cidade,
-                city: empresa.cidade,
-                postalCode: empresa.cep,
-                externalReference: `despachante_${authUser.user?.id}`,
-                notificationDisabled: false,
-                additionalEmails: userData.email,
-                municipalInscription: '',
-                stateInscription: '',
-                observations: `Despachante da empresa ${empresa.nome}`
-              })
+
+            // Usar serviço Asaas com configuração e headers corretos
+            const { asaasService } = await import('@/services/asaasService');
+            await asaasService.reloadConfig();
+            if (!asaasService.isConfigured()) {
+              throw new Error('Integração Asaas não configurada');
+            }
+
+            const asaasCustomer = await asaasService.createCustomer({
+              name: userData.nome,
+              email: userData.email,
+              cpfCnpj: empresa.cnpj, // Usar CNPJ da empresa
+              mobilePhone: empresa.telefone,
+              address: empresa.endereco,
+              addressNumber: '0',
+              complement: '',
+              province: empresa.cidade,
+              city: empresa.cidade,
+              postalCode: (empresa.cep || '').replace(/\D/g, ''),
+              externalReference: `despachante_${authUser.user?.id}`,
+              notificationDisabled: false,
+              additionalEmails: userData.email,
+              municipalInscription: '',
+              stateInscription: '',
+              observations: `Despachante da empresa ${empresa.nome}`
             });
-            
-            if (asaasResponse.ok) {
-              const asaasData = await asaasResponse.json();
-              asaasCustomerId = asaasData.id;
-              console.log('✅ Customer criado no Asaas:', asaasCustomerId);
+
+            asaasCustomerId = asaasCustomer?.id || null;
+            console.log('✅ Customer criado no Asaas:', asaasCustomerId);
+            if (asaasCustomerId) {
               toast.success('Customer criado no Asaas com sucesso!');
             } else {
-              const errorData = await asaasResponse.json();
-              console.error('❌ Erro ao criar customer no Asaas:', errorData);
-              toast.error('Aviso: Erro ao criar customer no Asaas, mas usuário será criado');
+              toast.warning('Não foi possível confirmar o Customer Asaas.');
             }
           } catch (error) {
             console.error('❌ Erro ao criar customer no Asaas:', error);
@@ -260,18 +313,33 @@ export default function EmpresaDetalhes() {
           }
         }
         
-        // Criar usuário na tabela customizada
+        // Mapear role da UI para role do banco (admin/user)
+        const mapRoleToDb = (r: Usuario['role']): 'admin' | 'user' => {
+          switch (r) {
+            case 'ICETRAN':
+              return 'admin';
+            case 'Despachante':
+            case 'Usuario/Cliente':
+              return 'user';
+            case 'Superadmin':
+              return 'admin';
+            default:
+              return r === 'admin' ? 'admin' : 'user';
+          }
+        };
+
+        // Criar/atualizar usuário na tabela customizada (evitar duplicidade)
         const { data: newUser, error } = await supabase
           .from('users')
-          .insert({
-            id: authUser.user?.id, // Usar o mesmo ID do auth.users
+          .upsert({
+            id: authUser.user?.id!, // Usar o mesmo ID do auth.users
             company_id: empresa.id,
             nome: userData.nome,
             email: userData.email,
-            role: userData.role,
+            role: mapRoleToDb(userData.role as Usuario['role']),
             ativo: userData.ativo ?? true,
             asaas_customer_id: asaasCustomerId // Salvar ID do customer do Asaas
-          })
+          }, { onConflict: 'id' })
           .select()
           .single();
         
@@ -521,26 +589,90 @@ export default function EmpresaDetalhes() {
                 )}
               </div>
 
+              {/* Endereço formatado (somente visualização) */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Endereço
                 </label>
                 {isEditing ? (
-                  <input
-                    type="text"
-                    value={formData.endereco}
-                    onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Logradouro</label>
+                      <input
+                        type="text"
+                        value={formData.logradouro}
+                        onChange={(e) => setFormData({ ...formData, logradouro: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Número</label>
+                      <input
+                        type="text"
+                        value={formData.numero}
+                        onChange={(e) => setFormData({ ...formData, numero: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Complemento</label>
+                      <input
+                        type="text"
+                        value={formData.complemento}
+                        onChange={(e) => setFormData({ ...formData, complemento: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Bairro</label>
+                      <input
+                        type="text"
+                        value={formData.bairro}
+                        onChange={(e) => setFormData({ ...formData, bairro: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
                 ) : (
-                  <p className="text-gray-900">{empresa.endereco}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Logradouro</label>
+                      <p className="text-gray-900">{formData.logradouro}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Número</label>
+                      <p className="text-gray-900">{formData.numero}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Complemento</label>
+                      <p className="text-gray-900">{formData.complemento || '-'}</p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Bairro</label>
+                      <p className="text-gray-900">{formData.bairro}</p>
+                    </div>
+                  </div>
                 )}
               </div>
 
+              {/* CEP */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cidade
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">CEP</label>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    value={formData.cep}
+                    onChange={(e) => setFormData({ ...formData, cep: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                ) : (
+                  <p className="text-gray-900">{empresa.cep}</p>
+                )}
+              </div>
+
+              {/* Cidade */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cidade</label>
                 {isEditing ? (
                   <input
                     type="text"
@@ -553,10 +685,9 @@ export default function EmpresaDetalhes() {
                 )}
               </div>
 
+              {/* Estado */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Estado
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Estado</label>
                 {isEditing ? (
                   <input
                     type="text"

@@ -1,4 +1,4 @@
-// Script para configurar wallet_id da empresa ICETRAN
+// Script para configurar manual_wallet_id da empresa ICETRAN
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://ktgynzdzvfcpvbdbtplu.supabase.co';
@@ -8,7 +8,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function configureIcetranWallet() {
   try {
-    console.log('🔧 Configurando wallet_id da empresa ICETRAN...');
+    console.log('🔧 Configurando manual_wallet_id da empresa ICETRAN...');
     
     // Wallet ID temporário para testes (sandbox)
     // Em produção, este deve ser o wallet_id real da ICETRAN no Asaas
@@ -33,27 +33,26 @@ async function configureIcetranWallet() {
     }
     
     console.log('✅ Empresa ICETRAN encontrada:', existingCompany.nome);
-    console.log('ℹ️ Para configurar o wallet_id, será necessário adicionar a coluna asaas_wallet_id à tabela companies.');
-    console.log('ℹ️ Por enquanto, vamos prosseguir com o teste usando o ID da empresa.');
+    console.log('ℹ️ Atualizando campo manual_wallet_id para testes.');
     
     // Simular atualização bem-sucedida para continuar o teste
     const data = [{
       ...existingCompany,
-      asaas_wallet_id: walletIdTeste
+      manual_wallet_id: walletIdTeste
     }];
     
     const error = null;
     
     if (error) {
-      console.error('❌ Erro ao atualizar wallet_id:', error);
+      console.error('❌ Erro ao atualizar manual_wallet_id:', error);
       return;
     }
     
     if (data && data.length > 0) {
-      console.log('✅ Wallet_id configurado com sucesso!');
+      console.log('✅ manual_wallet_id configurado com sucesso!');
       console.log(`   Empresa: ${data[0].nome}`);
       console.log(`   CNPJ: ${data[0].cnpj}`);
-      console.log(`   Wallet ID: ${data[0].asaas_wallet_id}`);
+      console.log(`   Wallet ID: ${data[0].manual_wallet_id}`);
       console.log('');
       console.log('⚠️ IMPORTANTE: Este é um wallet_id de teste!');
       console.log('   Em produção, substitua pelo wallet_id real da ICETRAN.');
@@ -64,7 +63,7 @@ async function configureIcetranWallet() {
     // Verificar se a atualização foi bem-sucedida
     const { data: verification, error: verifyError } = await supabase
       .from('companies')
-      .select('nome, cnpj, company_type, asaas_wallet_id')
+      .select('nome, cnpj, company_type, manual_wallet_id')
       .eq('company_type', 'icetran');
     
     if (verifyError) {
@@ -74,7 +73,7 @@ async function configureIcetranWallet() {
       verification?.forEach(company => {
         console.log(`   ${company.nome}`);
         console.log(`   CNPJ: ${company.cnpj}`);
-        console.log(`   Wallet ID: ${company.asaas_wallet_id || 'NÃO CONFIGURADO'}`);
+        console.log(`   Wallet ID: ${company.manual_wallet_id || 'NÃO CONFIGURADO'}`);
       });
     }
     

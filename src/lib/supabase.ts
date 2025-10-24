@@ -1,24 +1,37 @@
 import { createClient } from '@supabase/supabase-js'
 import { createMockSupabaseClient } from './mockSupabase'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Detect environment (browser vs Node)
+const isNode = typeof process !== 'undefined' && !!(process.versions?.node)
+
+// Resolve environment variables for URL and keys
+const envSupabaseUrl = isNode
+  ? (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL)
+  : import.meta.env.VITE_SUPABASE_URL
+
+const envAnonKey = isNode
+  ? (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY)
+  : import.meta.env.VITE_SUPABASE_ANON_KEY
+
+const envServiceKey = isNode
+  ? (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY)
+  : undefined
+
+const usingServiceKey = isNode && !!envServiceKey
 
 // Check if we should use mock client
 const shouldUseMock = (
-  !supabaseUrl || 
-  !supabaseAnonKey || 
-  supabaseUrl.includes('your-supabase-project-url') || 
-  supabaseUrl.includes('demo.supabase.co') ||
-  supabaseAnonKey.includes('your-supabase-anon-key') ||
-  supabaseAnonKey.includes('demo-key-placeholder')
+  !envSupabaseUrl ||
+  (!usingServiceKey && !envAnonKey) ||
+  (envSupabaseUrl?.includes('your-supabase-project-url') || envSupabaseUrl?.includes('demo.supabase.co')) ||
+  (!usingServiceKey && (envAnonKey?.includes('your-supabase-anon-key') || envAnonKey?.includes('demo-key-placeholder')))
 )
 
 if (shouldUseMock) {
   console.warn('⚠️  Supabase not configured properly. Using mock client for development.')
   console.warn('📝 To use real Supabase:')
-  console.warn('   1. Create a project at https://supabase.com')
-  console.warn('   2. Update VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env')
+  console.warn('   1. Set SUPABASE_URL and either SUPABASE_ANON_KEY (frontend) or SUPABASE_SERVICE_ROLE_KEY (backend) in .env')
+  console.warn('   2. Update VITE_* variables for frontend builds when applicable')
   console.warn('   3. Run the SQL migrations provided in the setup')
 }
 
@@ -29,17 +42,19 @@ if (shouldUseMock) {
   supabaseClient = createMockSupabaseClient()
 } else {
   try {
-    new URL(supabaseUrl)
-    supabaseClient = createClient(supabaseUrl, supabaseAnonKey)
-    console.log('✅ Connected to Supabase')
+    new URL(envSupabaseUrl as string)
+    const keyToUse = usingServiceKey ? (envServiceKey as string) : (envAnonKey as string)
+    supabaseClient = createClient(envSupabaseUrl as string, keyToUse)
+    console.log(`✅ Connected to Supabase (${usingServiceKey ? 'service role' : 'anon'})`)
   } catch (error) {
-    console.error('❌ Invalid Supabase URL format:', supabaseUrl)
+    console.error('❌ Invalid Supabase URL format:', envSupabaseUrl)
     console.warn('🎭 Falling back to mock client')
     supabaseClient = createMockSupabaseClient()
   }
 }
 
 export const supabase = supabaseClient
+export const isSupabaseMock = shouldUseMock
 
 // Database types
 export interface Database {

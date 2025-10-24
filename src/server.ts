@@ -4,12 +4,13 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { prisma } from './lib/prisma.js';
-import routes from './api/routes.js';
+import { prisma } from './lib/prisma';
+import routes from './api/routes';
 // import { logActivity } from './middleware/auth.js'; // Comentado temporariamente
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const dbEnabled = !!process.env.DATABASE_URL;
 
 // Middlewares de segurança
 app.use(helmet({
@@ -28,7 +29,7 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'access_token', 'x-asaas-env'],
 }));
 
 // Rate limiting
@@ -57,22 +58,27 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/api/asaas-proxy', async (req, res) => {
   try {
     const asaasUrl = req.url.startsWith('/') ? req.url.slice(1) : req.url;
-    const targetUrl = `https://api-sandbox.asaas.com/v3/${asaasUrl}`;
+
+    // Escolher ambiente dinamicamente via header x-asaas-env
+    const envHeader = (req.headers['x-asaas-env'] || 'production').toString();
+    const isProduction = envHeader === 'production';
+    const baseApi = isProduction ? 'https://api.asaas.com/v3' : 'https://api-sandbox.asaas.com/v3';
+    const targetUrl = `${baseApi}/${asaasUrl}`;
     
     // Configurar headers para a requisição
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
     
-    // Repassar header de autorização se existir
+    // Repassar headers de autenticação se existirem
     if (req.headers.authorization) {
-      headers['Authorization'] = req.headers.authorization;
+      headers['Authorization'] = req.headers.authorization as string;
     }
     
     if (req.headers['access_token']) {
       headers['access_token'] = req.headers['access_token'] as string;
     }
-    
+
     // Fazer requisição para API do Asaas
     const response = await fetch(targetUrl, {
       method: req.method,
@@ -80,22 +86,37 @@ app.use('/api/asaas-proxy', async (req, res) => {
       body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined,
     });
     
-    // Configurar headers CORS
-    res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:5173');
+    // Configurar headers CORS (origem dinâmica) e tratar preflight
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, access_token');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, access_token, x-asaas-env');
     res.header('Access-Control-Allow-Credentials', 'true');
+
+    if (req.method === 'OPTIONS') {
+      res.status(200).end();
+      return;
+    };
     
     // Repassar status code
     res.status(response.status);
     
     // Repassar response
+    const contentType = response.headers.get('content-type') || '';
     const data = await response.text();
-    try {
-      const jsonData = JSON.parse(data);
-      res.json(jsonData);
-    } catch {
-      res.send(data);
+    if (contentType.includes('application/json')) {
+      try {
+        const jsonData = JSON.parse(data);
+        res.json(jsonData);
+      } catch (err) {
+        res.json({ error: 'invalid_json', raw: data });
+      }
+    } else {
+      res.json({
+        error: 'non_json_response',
+        status: response.status,
+        contentType,
+        body: data?.slice(0, 500) || null
+      });
     }
     
   } catch (error) {
@@ -113,17 +134,17 @@ app.use('/api', routes);
 // Rota de health check
 app.get('/health', async (req, res) => {
   try {
-    // Verificar conexão com o banco
-    await prisma.$queryRaw`SELECT 1`;
-    
+    if (dbEnabled) {
+      await prisma.$queryRaw`SELECT 1`;
+    }
     res.json({
       status: 'OK',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
-      database: 'connected',
+      database: dbEnabled ? 'connected' : 'disabled',
       version: process.env.npm_package_version || '1.0.0',
     });
-  } catch (error) {
+  } catch (error: any) {
     res.status(503).json({
       status: 'ERROR',
       timestamp: new Date().toISOString(),
@@ -168,7 +189,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Middleware para rotas não encontradas
-app.use('*', (req, res) => {
+app.use((req, res) => {
   res.status(404).json({
     error: 'Rota não encontrada',
     path: req.originalUrl,
@@ -179,30 +200,29 @@ app.use('*', (req, res) => {
 // Função para inicializar o servidor
 const startServer = async () => {
   try {
-    // Conectar ao banco de dados
-    await prisma.$connect();
-    console.log('✅ Conectado ao banco de dados');
-    
-    // Verificar se as tabelas existem
-    try {
-      await prisma.user.findFirst();
-      console.log('✅ Tabelas do banco verificadas');
-    } catch (error) {
-      console.log('⚠️  Executando migrações do banco...');
-      // Aqui você pode executar as migrações automaticamente se necessário
+    if (dbEnabled) {
+      // Conectar ao banco de dados
+      await prisma.$connect();
+      console.log('✅ Conectado ao banco de dados');
+      // Verificar se as tabelas existem
+      try {
+        await prisma.user.findFirst();
+        console.log('✅ Tabelas do banco verificadas');
+      } catch (error) {
+        console.log('⚠️  Executando migrações do banco...');
+      }
+    } else {
+      console.warn('⚠️ DATABASE_URL não definido. Iniciando servidor sem conexão ao Prisma.');
     }
-    
     // Iniciar servidor
     app.listen(PORT, () => {
       console.log(`🚀 Servidor rodando na porta ${PORT}`);
       console.log(`📊 Health check: http://localhost:${PORT}/health`);
       console.log(`🔗 API: http://localhost:${PORT}/api`);
-      
       if (process.env.NODE_ENV === 'development') {
         console.log('🔧 Modo de desenvolvimento ativo');
       }
     });
-    
   } catch (error) {
     console.error('❌ Erro ao inicializar servidor:', error);
     process.exit(1);
@@ -212,13 +232,13 @@ const startServer = async () => {
 // Tratamento de sinais de encerramento
 process.on('SIGINT', async () => {
   console.log('\n🛑 Encerrando servidor...');
-  await prisma.$disconnect();
+  if (dbEnabled) await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log('\n🛑 Encerrando servidor...');
-  await prisma.$disconnect();
+  if (dbEnabled) await prisma.$disconnect();
   process.exit(0);
 });
 
@@ -233,9 +253,7 @@ process.on('unhandledRejection', (reason, promise) => {
   process.exit(1);
 });
 
-// Inicializar servidor
-if (require.main === module) {
-  startServer();
-}
+// Inicializar servidor sempre em dev (ESM)
+startServer();
 
 export default app;

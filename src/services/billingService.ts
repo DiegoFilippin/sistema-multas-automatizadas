@@ -216,6 +216,10 @@ class BillingService {
       }
 
       // Se não encontrou, cria novo cliente
+      await asaasService.reloadConfig();
+      if (!asaasService.isConfigured()) {
+        throw new Error('Integração Asaas não configurada');
+      }
       return await this.asaasService.createCustomer(customerData);
     } catch (error) {
       console.error('Erro ao buscar/criar cliente no Asaas:', error);

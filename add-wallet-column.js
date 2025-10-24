@@ -6,7 +6,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function addWalletColumn() {
   try {
-    console.log('🔧 Adicionando coluna asaas_wallet_id à tabela companies...');
+    console.log('🔧 Adicionando coluna manual_wallet_id à tabela companies...');
     
     // Verificar estrutura atual da tabela
     const { data: columns, error: columnsError } = await supabase
@@ -24,9 +24,9 @@ async function addWalletColumn() {
       .rpc('exec_sql', {
         sql: `
           ALTER TABLE companies 
-          ADD COLUMN IF NOT EXISTS asaas_wallet_id VARCHAR(255);
+          ADD COLUMN IF NOT EXISTS manual_wallet_id VARCHAR(255);
           
-          COMMENT ON COLUMN companies.asaas_wallet_id IS 'ID do wallet no Asaas para recebimento de splits';
+          COMMENT ON COLUMN companies.manual_wallet_id IS 'ID do wallet no Asaas para recebimento de splits';
         `
       });
     
@@ -38,15 +38,15 @@ async function addWalletColumn() {
       
       const { error: altError } = await supabase
         .from('companies')
-        .select('asaas_wallet_id')
+        .select('manual_wallet_id')
         .limit(1);
       
       if (altError && altError.code === '42703') {
         console.log('❌ Coluna realmente não existe. Será necessário adicionar via SQL direto no Supabase.');
         console.log('\n📝 Execute este SQL no Supabase Dashboard:');
         console.log('=====================================');
-        console.log('ALTER TABLE companies ADD COLUMN IF NOT EXISTS asaas_wallet_id VARCHAR(255);');
-        console.log('COMMENT ON COLUMN companies.asaas_wallet_id IS \'ID do wallet no Asaas para recebimento de splits\';');
+        console.log('ALTER TABLE companies ADD COLUMN IF NOT EXISTS manual_wallet_id VARCHAR(255);');
+        console.log('COMMENT ON COLUMN companies.manual_wallet_id IS \'ID do wallet no Asaas para recebimento de splits\';');
         console.log('=====================================');
       } else {
         console.log('✅ Coluna já existe!');
@@ -58,7 +58,7 @@ async function addWalletColumn() {
     // Verificar se a coluna existe agora
     const { data: testData, error: testError } = await supabase
       .from('companies')
-      .select('id, nome, asaas_wallet_id')
+      .select('id, nome, manual_wallet_id')
       .limit(1);
     
     if (testError) {
@@ -71,7 +71,7 @@ async function addWalletColumn() {
       
       const { data: updated, error: updateError } = await supabase
         .from('companies')
-        .update({ asaas_wallet_id: correctWalletId })
+        .update({ manual_wallet_id: correctWalletId })
         .eq('nome', 'ICETRAN INSTITUTO DE CERTIFICACAO E ESTUDOS DE TRANSITO E TRANSPORTE LTDA')
         .select()
         .single();
@@ -81,7 +81,7 @@ async function addWalletColumn() {
       } else {
         console.log('\n✅ ICETRAN atualizada com wallet correto!');
         console.log('  - Nome:', updated.nome);
-        console.log('  - Wallet ID:', updated.asaas_wallet_id);
+        console.log('  - Wallet ID:', updated.manual_wallet_id);
       }
     }
     

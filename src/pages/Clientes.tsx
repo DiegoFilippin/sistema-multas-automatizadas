@@ -106,7 +106,7 @@ function ClienteCard({ cliente, onEdit, onDelete, onViewDetails, onAddVeiculo }:
   const [showMenu, setShowMenu] = useState(false);
   
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+    <div className="p-4 md:p-5 my-6 hover:bg-gray-50 transition-colors">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center space-x-3">
           <div className={cn(
@@ -183,35 +183,24 @@ function ClienteCard({ cliente, onEdit, onDelete, onViewDetails, onAddVeiculo }:
       </div>
       
       <div className="space-y-3">
-        <div className="flex items-center space-x-2 text-sm text-gray-600">
-          <Mail className="w-4 h-4" />
-          <span>{cliente.emails.find(e => e.principal)?.endereco || cliente.emails[0]?.endereco || 'Sem email'}</span>
-        </div>
-        
-        <div className="flex items-center space-x-2 text-sm text-gray-600">
-          <Phone className="w-4 h-4" />
-          <span>{cliente.telefones.find(t => t.principal)?.numero || cliente.telefones[0]?.numero || 'Sem telefone'}</span>
-        </div>
-        
-        <div className="flex items-center space-x-2 text-sm text-gray-600">
-          <Car className="w-4 h-4" />
-          <span>{cliente.veiculos.length} veículo(s)</span>
-        </div>
-        
-        <div className="grid grid-cols-3 gap-4 pt-3 border-t border-gray-100">
-          <div className="text-center">
-            <p className="text-lg font-semibold text-gray-900">{cliente.multas}</p>
-            <p className="text-xs text-gray-600">Multas</p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
+          <div className="flex items-center gap-1.5">
+            <Mail className="w-4 h-4 text-gray-400" />
+            <span>{cliente.emails.find(e => e.principal)?.endereco || cliente.emails[0]?.endereco || 'Sem email'}</span>
           </div>
-          <div className="text-center">
-            <p className="text-lg font-semibold text-blue-600">{cliente.recursosAtivos}</p>
-            <p className="text-xs text-gray-600">Recursos</p>
+          <div className="hidden sm:block h-4 w-px bg-gray-200" />
+          <div className="flex items-center gap-1.5">
+            <Phone className="w-4 h-4 text-gray-400" />
+            <span>{cliente.telefones.find(t => t.principal)?.numero || cliente.telefones[0]?.numero || 'Sem telefone'}</span>
           </div>
-          <div className="text-center">
-            <p className="text-lg font-semibold text-green-600">R$ {(cliente.valorEconomizado || 0).toFixed(0)}</p>
-            <p className="text-xs text-gray-600">Economizado</p>
+          <div className="hidden sm:block h-4 w-px bg-gray-200" />
+          <div className="flex items-center gap-1.5">
+            <Car className="w-4 h-4 text-gray-400" />
+            <span>{cliente.veiculos.length} veículo(s)</span>
           </div>
         </div>
+        
+
         
         <div className="flex items-center justify-between pt-2">
           <span className={cn(
@@ -1016,7 +1005,7 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
                 CPF *
                 {isLoadingCPF && (
                   <span className="ml-2 text-xs text-blue-600">
-                    Consultando dados...
+                    Processando dados... aguarde
                   </span>
                 )}
               </label>
@@ -1912,38 +1901,63 @@ export default function Clientes() {
         // Criar customer no Asaas
         let asaasCustomerId = null;
         try {
-          const asaasCustomerData = {
-            name: clienteData.nome || '',
-            cpfCnpj: clienteData.cpf || '',
-            email: clienteData.emails?.[0]?.endereco,
-            phone: clienteData.telefones?.[0]?.numero,
-            address: primeiroEndereco?.logradouro,
-            addressNumber: primeiroEndereco?.numero,
-            complement: primeiroEndereco?.complemento,
-            province: primeiroEndereco?.bairro,
-            city: primeiroEndereco?.cidade,
-            state: primeiroEndereco?.estado,
-            postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
-          };
+          await asaasService.reloadConfig();
+          if (!asaasService.isConfigured()) {
+            throw new Error('Integração Asaas não configurada');
+          }
+          const cpfCnpjSanitized = (clienteData.cpf || '').replace(/\D/g, '');
+          const emailEndereco = clienteData.emails?.[0]?.endereco || '';
+          let asaasCustomer: any | null = null;
 
-          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
-          asaasCustomerId = asaasCustomer.id;
+          if (!cpfCnpjSanitized) {
+            console.warn('⚠️ CPF/CNPJ ausente ou inválido; não criando customer Asaas.');
+            toast.warning('Informe CPF/CNPJ válido para criar o customer no Asaas.');
+          } else {
+            const asaasCustomerData = {
+              name: clienteData.nome || '',
+              cpfCnpj: cpfCnpjSanitized,
+              email: emailEndereco || undefined,
+              phone: clienteData.telefones?.[0]?.numero,
+              address: primeiroEndereco?.logradouro,
+              addressNumber: primeiroEndereco?.numero,
+              complement: primeiroEndereco?.complemento,
+              province: primeiroEndereco?.bairro,
+              city: primeiroEndereco?.cidade,
+              state: primeiroEndereco?.estado,
+              postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+            };
 
-          // Atualizar cliente no banco com o asaas_customer_id
-          const { error: updateError } = await supabase
-            .from('clients')
-            .update({ asaas_customer_id: asaasCustomerId })
-            .eq('id', data.id);
-
-          if (updateError) {
-            console.error('Erro ao atualizar asaas_customer_id:', updateError);
-            // Não falha a criação do cliente, apenas loga o erro
+            console.log('📨 Payload Asaas (customer):', asaasCustomerData);
+            asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
           }
 
-          console.log('Customer criado no Asaas:', asaasCustomerId);
+          if (asaasCustomer?.id) {
+            asaasCustomerId = asaasCustomer.id;
+
+            // Atualizar cliente no banco com o asaas_customer_id
+            const { error: updateError } = await supabase
+              .from('clients')
+              .update({ asaas_customer_id: asaasCustomerId })
+              .eq('id', data.id);
+
+            if (updateError) {
+              console.error('Erro ao atualizar asaas_customer_id:', updateError);
+              // Não falha a criação do cliente, apenas loga o erro
+            }
+
+            console.log('Customer criado no Asaas:', asaasCustomerId);
+          } else {
+            console.warn('Customer Asaas criado sem ID válido:', asaasCustomer);
+          }
         } catch (asaasError) {
+          const cfg = asaasService.getCurrentConfig();
+          const emailDbg = clienteData.emails?.[0]?.endereco || '';
+          const cpfDbg = (clienteData.cpf || '').replace(/\D/g, '');
           console.error('Erro ao criar customer no Asaas:', asaasError);
-          toast.warning('Cliente criado, mas houve erro na integração com Asaas. Verifique a configuração.');
+          console.log('🔧 Asaas config atual:', cfg);
+          console.log('📧 Email usado:', emailDbg, ' | CPF/CNPJ:', cpfDbg);
+          const msg = asaasError instanceof Error ? asaasError.message : String(asaasError);
+          toast.error(`Erro na integração Asaas: ${msg}`);
         }
 
         // Converter dados do Supabase para o formato local
@@ -2153,8 +2167,8 @@ export default function Clientes() {
         </div>
       </div>
 
-      {/* Clientes Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Lista de Clientes */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 divide-y">
         {paginatedClientes.map((cliente) => (
           <ClienteCard
             key={cliente.id}

@@ -171,101 +171,125 @@ class DataWashService {
     console.log('   URL:', webhookUrl);
     console.log('   CPF:', cpfLimpo);
 
-    try {
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cpf: cpfLimpo }),
-        signal: AbortSignal.timeout(10000)
-      });
+    // Implementar retry com backoff exponencial para lidar com tempo de processamento do n8n
+    const maxAttempts = 3;
+    const baseDelayMs = 2000; // 2s base
 
-      if (!response.ok) {
-        console.log('❌ Webhook retornou erro:', response.status, response.statusText);
-        throw new Error(`Erro ao consultar CPF via webhook (${response.status})`);
-      }
+    let lastError: Error | null = null;
 
-      let raw: WebhookPayload;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        raw = await response.json() as WebhookPayload;
-        console.log('📦 Webhook payload bruto:', raw);
-      } catch (err) {
-        console.error('❌ Falha ao parsear JSON do webhook:', err);
-        throw new Error('Resposta inválida do webhook');
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cpf: cpfLimpo }),
+          // Aumentar timeout para 30 segundos para aguardar processamento do n8n
+          signal: AbortSignal.timeout(30000)
+        });
+
+        if (!response.ok) {
+          console.log('❌ Webhook retornou erro:', response.status, response.statusText);
+          throw new Error(`Erro ao consultar CPF via webhook (${response.status})`);
+        }
+
+        let raw: WebhookPayload;
+        try {
+          raw = await response.json() as WebhookPayload;
+          console.log('📦 Webhook payload bruto:', raw);
+        } catch (err) {
+          console.error('❌ Falha ao parsear JSON do webhook:', err);
+          throw new Error('Resposta inválida do webhook');
+        }
+
+        // Normalizar estruturas possíveis vindas do n8n/DataWash
+        let mapped: DataWashResponse;
+
+        // Suportar respostas como array ou objeto
+        let root: any = raw as any;
+        if (Array.isArray(root)) {
+          // Escolher item que contenha a estrutura do DataWash se existir
+          root = root.find((item: any) => item && (item.ConsultaCPFCompleta || item.DADOS)) || root[0] || {};
+        }
+
+        const compl = root?.ConsultaCPFCompleta || (raw as any)?.ConsultaCPFCompleta || null;
+        if (compl) {
+          const dados = compl.DADOS || compl.Dados || compl.dados || {};
+          const enderecos = dados.ENDERECOS?.ENDERECO;
+          const enderecoObj = Array.isArray(enderecos) ? (enderecos[0] || {}) : (enderecos || {});
+
+          const telefones = dados.TELEFONES_MOVEIS?.TELEFONE;
+          const telefoneStr = Array.isArray(telefones)
+            ? (telefones[0] || '')
+            : (typeof telefones === 'string' ? telefones : '');
+
+          const emails = dados.EMAILS?.EMAIL;
+          const emailStr = Array.isArray(emails)
+            ? (emails[0] || '')
+            : (typeof emails === 'string' ? emails : '');
+
+          mapped = {
+            nome: dados.NOME || root.nome || '',
+            cpf: dados.CPF || cpfLimpo,
+            dataNascimento: dados.DATA_NASC || root.dataNascimento || '',
+            endereco: {
+              logradouro: enderecoObj.LOGRADOURO || root.logradouro || '',
+              numero: enderecoObj.NUMERO || root.numero || '',
+              complemento: enderecoObj.COMPLEMENTO || root.complemento || '',
+              bairro: enderecoObj.BAIRRO || root.bairro || '',
+              cidade: enderecoObj.CIDADE || root.cidade || '',
+              estado: enderecoObj.UF || enderecoObj.estado || root.uf || root.estado || '',
+              cep: enderecoObj.CEP || root.cep || ''
+            },
+            telefone: telefoneStr || root.telefone || root.celular || root.fone || '',
+            email: emailStr || root.email || '',
+            success: true,
+            source: 'datawash'
+          };
+        } else {
+          // Fallback para payload plano (sem ConsultaCPFCompleta)
+          const enderecoRaw = (raw as any).endereco || {};
+          mapped = {
+            nome: (raw as any).nome || (raw as any).Nome || '',
+            cpf: cpfLimpo,
+            dataNascimento: (raw as any).dataNascimento || (raw as any).nascimento || (raw as any).data_nascimento || '',
+            endereco: {
+              logradouro: enderecoRaw.logradouro || (raw as any).logradouro || '',
+              numero: enderecoRaw.numero || (raw as any).numero || '',
+              complemento: enderecoRaw.complemento || (raw as any).complemento || '',
+              bairro: enderecoRaw.bairro || (raw as any).bairro || '',
+              cidade: enderecoRaw.cidade || (raw as any).cidade || '',
+              estado: enderecoRaw.estado || enderecoRaw.uf || (raw as any).estado || (raw as any).uf || '',
+              cep: enderecoRaw.cep || (raw as any).cep || ''
+            },
+            telefone: (raw as any).telefone || (raw as any).celular || (raw as any).fone || '',
+            email: (raw as any).email || '',
+            success: true,
+            source: 'datawash'
+          };
+        }
+
+        console.log('✅ Dados mapeados do webhook:', mapped);
+        return mapped;
+      } catch (err: any) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        const isTimeout = /Timeout|time|timed/i.test(String(lastError.message || ''));
+        console.warn(`⚠️ Tentativa ${attempt} falhou: ${lastError.message}`);
+
+        // Se não for timeout ou for a última tentativa, propagar erro
+        if (!isTimeout || attempt === maxAttempts) {
+          console.error('❌ Erro de rede ao chamar webhook:', lastError);
+          throw new Error('Erro de rede ao consultar CPF');
+        }
+
+        // Backoff exponencial com jitter
+        const delay = baseDelayMs * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 500);
+        console.log(`⏳ Timeout no webhook. Aguardando ${delay}ms antes do retry...`);
+        await new Promise((res) => setTimeout(res, delay));
       }
-
-      // Normalizar estruturas possíveis vindas do n8n/DataWash
-      let mapped: DataWashResponse;
-
-      // Suportar respostas como array ou objeto
-      let root: any = raw as any;
-      if (Array.isArray(root)) {
-        // Escolher item que contenha a estrutura do DataWash se existir
-        root = root.find((item: any) => item && (item.ConsultaCPFCompleta || item.DADOS)) || root[0] || {};
-      }
-
-      const compl = root?.ConsultaCPFCompleta || (raw as any)?.ConsultaCPFCompleta || null;
-      if (compl) {
-        const dados = compl.DADOS || compl.Dados || compl.dados || {};
-        const enderecos = dados.ENDERECOS?.ENDERECO;
-        const enderecoObj = Array.isArray(enderecos) ? (enderecos[0] || {}) : (enderecos || {});
-
-        const telefones = dados.TELEFONES_MOVEIS?.TELEFONE;
-        const telefoneStr = Array.isArray(telefones)
-          ? (telefones[0] || '')
-          : (typeof telefones === 'string' ? telefones : '');
-
-        const emails = dados.EMAILS?.EMAIL;
-        const emailStr = Array.isArray(emails)
-          ? (emails[0] || '')
-          : (typeof emails === 'string' ? emails : '');
-
-        mapped = {
-          nome: dados.NOME || root.nome || '',
-          cpf: dados.CPF || cpfLimpo,
-          dataNascimento: dados.DATA_NASC || root.dataNascimento || '',
-          endereco: {
-            logradouro: enderecoObj.LOGRADOURO || root.logradouro || '',
-            numero: enderecoObj.NUMERO || root.numero || '',
-            complemento: enderecoObj.COMPLEMENTO || root.complemento || '',
-            bairro: enderecoObj.BAIRRO || root.bairro || '',
-            cidade: enderecoObj.CIDADE || root.cidade || '',
-            estado: enderecoObj.UF || enderecoObj.estado || root.uf || root.estado || '',
-            cep: enderecoObj.CEP || root.cep || ''
-          },
-          telefone: telefoneStr || root.telefone || root.celular || root.fone || '',
-          email: emailStr || root.email || '',
-          success: true,
-          source: 'datawash'
-        };
-      } else {
-        // Fallback para payload plano (sem ConsultaCPFCompleta)
-        const enderecoRaw = (raw as any).endereco || {};
-        mapped = {
-          nome: (raw as any).nome || (raw as any).Nome || '',
-          cpf: cpfLimpo,
-          dataNascimento: (raw as any).dataNascimento || (raw as any).nascimento || (raw as any).data_nascimento || '',
-          endereco: {
-            logradouro: enderecoRaw.logradouro || (raw as any).logradouro || '',
-            numero: enderecoRaw.numero || (raw as any).numero || '',
-            complemento: enderecoRaw.complemento || (raw as any).complemento || '',
-            bairro: enderecoRaw.bairro || (raw as any).bairro || '',
-            cidade: enderecoRaw.cidade || (raw as any).cidade || '',
-            estado: enderecoRaw.estado || enderecoRaw.uf || (raw as any).estado || (raw as any).uf || '',
-            cep: enderecoRaw.cep || (raw as any).cep || ''
-          },
-          telefone: (raw as any).telefone || (raw as any).celular || (raw as any).fone || '',
-          email: (raw as any).email || '',
-          success: true,
-          source: 'datawash'
-        };
-      }
-
-      console.log('✅ Dados mapeados do webhook:', mapped);
-      return mapped;
-    } catch (err) {
-      console.error('❌ Erro de rede ao chamar webhook:', err);
-      throw new Error('Erro de rede ao consultar CPF');
     }
+
+    // Se chegou aqui, lançar o último erro conhecido
+    throw lastError || new Error('Falha ao consultar CPF via webhook');
   }
   
   private gerarEmailDoNome(nome: string): string {

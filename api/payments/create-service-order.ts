@@ -75,11 +75,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 2. Buscar wallet da empresa (despachante)
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('asaas_wallet_id, nome')
+      .select('manual_wallet_id, nome')
       .eq('id', company_id)
       .single();
     
-    if (companyError || !company?.asaas_wallet_id) {
+    if (companyError || !company?.manual_wallet_id) {
       console.error('❌ Wallet da empresa não configurado:', companyError);
       res.status(400).json({ 
         success: false,
@@ -89,7 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return;
     }
     
-    console.log('✅ Empresa encontrada:', company.nome, 'Wallet:', company.asaas_wallet_id);
+    console.log('✅ Empresa encontrada:', company.nome, 'Wallet:', company.manual_wallet_id);
     
     // 3. Calcular splits dinamicamente
     const custoMinimo = (service.acsm_value || 0) + (service.icetran_value || 0) + (service.taxa_cobranca || 3.50);
@@ -140,9 +140,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 5. Enviar para webhook externo
     console.log('🌐 Enviando para webhook externo...');
     
+    // Resolver wallet do ICETRAN dinamicamente
+    let icetranWalletId: string | null = null;
+    try {
+      // 5.1 Tentar via empresa pai do despachante
+      const { data: companyRow } = await supabase
+        .from('companies')
+        .select('parent_company_id')
+        .eq('id', company_id)
+        .single();
+
+      if (companyRow?.parent_company_id) {
+        const { data: parent } = await supabase
+          .from('companies')
+          .select('id, nome, manual_wallet_id')
+          .eq('id', companyRow.parent_company_id)
+          .single();
+        
+        if (parent?.manual_wallet_id) {
+          icetranWalletId = parent.manual_wallet_id;
+        }
+      }
+
+      // 5.2 Fallback: buscar empresa ICETRAN ativa (por tipo ou nome), usando somente manual_wallet_id
+      if (!icetranWalletId) {
+        const { data: icetranCompanies } = await supabase
+          .from('companies')
+          .select('id, nome, manual_wallet_id, company_type, status')
+          .or('company_type.eq.icetran,nome.ilike.%ICETRAN%')
+          .eq('status', 'ativo')
+          .limit(1);
+        const icetran = Array.isArray(icetranCompanies) ? icetranCompanies[0] : null;
+        if (icetran?.manual_wallet_id) {
+          icetranWalletId = icetran.manual_wallet_id;
+        }
+      }
+    } catch (resolveErr) {
+      console.warn('⚠️  Falha ao resolver wallet do ICETRAN dinamicamente:', resolveErr);
+    }
+
+    // Não usar defaults ou subcontas; exigir manual_wallet_id quando houver icetran_value
+    if (!icetranWalletId && service.icetran_value && service.icetran_value > 0) {
+      return res.status(400).json({ 
+        error: 'Wallet da ICETRAN não configurada. Cadastre manual_wallet_id na empresa ICETRAN.',
+        code: 'ICETRAN_WALLET_MISSING'
+      });
+    }
+    console.log('🏦 Wallet ICETRAN usada:', icetranWalletId);
+    
     const webhookData = {
-      wallet_icetran: 'eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0',
-      wallet_despachante: company.asaas_wallet_id,
+      wallet_icetran: icetranWalletId,
+      wallet_despachante: company.manual_wallet_id,
       Customer_cliente: {
         id: customer_id,
         nome: client.nome,
@@ -160,7 +208,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       despachante: {
         company_id: company_id,
         nome: company.nome,
-        wallet_id: company.asaas_wallet_id,
+        wallet_id: company.manual_wallet_id,
         margem: margemDespachante
       }
     };
@@ -178,7 +226,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let webhookResult;
     try {
       webhookResult = await webhookResponse.json();
-    } catch (e) {
+    } catch {
       webhookResult = { message: 'Resposta não é JSON válido' };
     }
     

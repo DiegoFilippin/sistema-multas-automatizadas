@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase'
 import { splitService } from './splitService'
 import { logger } from '@/utils/logger'
+import { n8nWebhookService } from './n8nWebhookService'
 
 const log = logger.scope('services/asaas')
 
@@ -197,27 +198,31 @@ class AsaasService {
     if (!this.config) {
       throw new Error('Configuração do Asaas não carregada')
     }
-    
-    const apiKey = this.config.environment === 'production' 
-      ? this.config.api_key_production 
-      : this.config.api_key_sandbox
-    
+
+    // Respeitar ambiente configurado (sandbox ou production)
+    const env = this.config.environment === 'sandbox' ? 'sandbox' : 'production'
+    const apiKey = env === 'production' ? (this.config.api_key_production || '') : (this.config.api_key_sandbox || '')
+
     if (!apiKey) {
-      throw new Error(`API Key não configurada para ambiente ${this.config.environment}`)
+      throw new Error(`API Key do Asaas não configurada para o ambiente ${env}`)
     }
-    
+
     return {
       'Content-Type': 'application/json',
-      'access_token': apiKey
+      // Compatível com ambos padrões de autenticação do Asaas
+      'access_token': apiKey,
+      'Authorization': `Bearer ${apiKey}`,
+      // Informar ambiente ao proxy
+      'x-asaas-env': env
     }
   }
 
   private async makeRequest<T>(
     endpoint: string,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
-    data?: any
+    data?: unknown
   ): Promise<T> {
-    const url = `${this.getBaseUrl()}${endpoint}`
+    const proxyUrl = `${this.getBaseUrl()}${endpoint}`
     const headers = this.getHeaders()
 
     const options: RequestInit = {
@@ -229,23 +234,185 @@ class AsaasService {
       options.body = JSON.stringify(data)
     }
 
-    try {
-      const response = await fetch(url, options)
-      const result = await response.json()
+    const maxRetries = 3
+    const timeoutMs = 12000
+    const isRetryableStatus = (status: number) => [429, 500, 502, 503, 504].includes(status)
 
-      if (!response.ok) {
-        throw new Error(`Erro na API do Asaas: ${result.message || response.statusText}`)
-      }
+    // Preparar headers para chamada direta (remover header específico do proxy)
+    const directHeaders: Record<string, string> = { ...headers }
+    delete directHeaders['x-asaas-env']
 
-      return result
-    } catch (error) {
-      console.error('Erro na requisição para Asaas:', error)
-      throw error
+    const directBase = this.config?.environment === 'production'
+      ? 'https://api.asaas.com/v3'
+      : 'https://api-sandbox.asaas.com/v3'
+    const directUrl = `${directBase}${endpoint}`
+
+    const toMessage = (e: unknown) => e instanceof Error ? e.message : String(e)
+    const extractApiMsg = (obj: unknown): string | undefined => {
+      const o = (obj || {}) as Record<string, unknown>
+      const msg = typeof o.message === 'string' ? o.message : undefined
+      const err = typeof o.error === 'string' ? o.error : undefined
+      const errs = Array.isArray(o.errors) ? o.errors : undefined
+      const first = (errs && errs.length > 0 ? errs[0] : undefined) as Record<string, unknown> | undefined
+      const desc = typeof (first?.description) === 'string' ? first?.description : undefined
+      return msg || desc || err
     }
+
+    // Helper para executar fetch com timeout e parsing
+    const doFetch = async (url: string, useDirect = false): Promise<{ ok: boolean; status: number; result?: unknown; rawText?: string; contentType?: string; statusText?: string }> => {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        const response = await fetch(url, { ...(useDirect ? { headers: directHeaders } : options), method: options.method, body: options.body, signal: controller.signal })
+        clearTimeout(timeoutId)
+
+        const contentType = response.headers.get('content-type') || ''
+        let result: unknown = null
+        let rawText: string | null = null
+
+        if (contentType.includes('application/json')) {
+          try {
+            result = await response.json()
+          } catch {
+            rawText = await response.text()
+          }
+        } else {
+          rawText = await response.text()
+        }
+
+        return { ok: response.ok, status: response.status, result, rawText: rawText || undefined, contentType, statusText: response.statusText }
+      } catch (err: unknown) {
+        clearTimeout(timeoutId)
+        throw err
+      }
+    }
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const proxyResp = await doFetch(proxyUrl)
+
+        if (!proxyResp.ok) {
+          const apiMsg = extractApiMsg(proxyResp.result)
+          const msgBase = `${proxyResp.status} ${proxyResp.statusText}${apiMsg ? ` - ${apiMsg}` : ''}`
+          const extra = proxyResp.rawText ? ` | corpo: ${proxyResp.rawText.slice(0, 200)}` : ''
+          const isProxyNonJson = (proxyResp.result as Record<string, unknown> | undefined)?.error === 'non_json_response' || (proxyResp.rawText && proxyResp.rawText.includes('Erro no proxy Asaas'))
+
+          if (attempt < maxRetries && (isRetryableStatus(proxyResp.status) || isProxyNonJson)) {
+            await new Promise(r => setTimeout(r, attempt * 600))
+            continue
+          }
+
+          // Fallback direto ao Asaas quando proxy falhar ou responder inválido
+          try {
+            const directResp = await doFetch(directUrl, true)
+            if (!directResp.ok) {
+              const dApiMsg = extractApiMsg(directResp.result)
+              const dMsgBase = `${directResp.status} ${directResp.statusText}${dApiMsg ? ` - ${dApiMsg}` : ''}`
+              const dExtra = directResp.rawText ? ` | corpo: ${directResp.rawText.slice(0, 200)}` : ''
+              throw new Error(`Erro na API do Asaas (direto): ${dMsgBase}${dExtra}`)
+            }
+
+            if (!directResp.result && directResp.rawText) {
+              return { ok: true, raw: directResp.rawText } as unknown as T
+            }
+
+            return directResp.result as T
+          } catch (fallbackErr: unknown) {
+            throw new Error(`Erro na API do Asaas: ${msgBase}${extra}. Fallback direto falhou: ${toMessage(fallbackErr)}`)
+          }
+        }
+
+        if (!proxyResp.result && proxyResp.rawText) {
+          return { ok: true, raw: proxyResp.rawText } as unknown as T
+        }
+
+        return proxyResp.result as T
+      } catch (error: unknown) {
+        const msg = toMessage(error)
+        const isAbort = (error as { name?: string })?.name === 'AbortError'
+        const isNetwork = msg.includes('Failed to fetch') || msg.includes('NetworkError') || isAbort
+
+        if (attempt < maxRetries && isNetwork) {
+          await new Promise(r => setTimeout(r, attempt * 600))
+          continue
+        }
+
+        // Fallback direto ao Asaas em caso de erro de rede do proxy
+        try {
+          const directResp = await doFetch(directUrl, true)
+          if (!directResp.ok) {
+            const dApiMsg = extractApiMsg(directResp.result)
+            const dMsgBase = `${directResp.status} ${directResp.statusText}${dApiMsg ? ` - ${dApiMsg}` : ''}`
+            const dExtra = directResp.rawText ? ` | corpo: ${directResp.rawText.slice(0, 200)}` : ''
+            throw new Error(`Erro na API do Asaas (direto): ${dMsgBase}${dExtra}`)
+          }
+
+          if (!directResp.result && directResp.rawText) {
+            return { ok: true, raw: directResp.rawText } as unknown as T
+          }
+
+          return directResp.result as T
+        } catch (fallbackErr: unknown) {
+          if (!import.meta.env.PROD) {
+            throw new Error(`Falha ao chamar o proxy local do Asaas e fallback direto também falhou. Verifique se o servidor backend está rodando em http://localhost:3001 (use \`npm run dev:full\`). Detalhe: ${msg}. Fallback: ${toMessage(fallbackErr)}`)
+          }
+          throw error
+        }
+      }
+    }
+
+    throw new Error('Falha ao comunicar com a API do Asaas após múltiplas tentativas')
   }
 
   // Métodos para Clientes
   async createCustomer(customer: AsaasCustomer): Promise<AsaasCustomer> {
+    const cpf = (customer.cpfCnpj || '').replace(/\D/g, '')
+    const nome = (customer.name || '').trim()
+    const email = (customer.email || '').trim()
+
+    const canUseWebhook = !!cpf && !!nome && !!email
+
+    // 1) Tenta via webhook n8n para evitar CORS e mover lógica ao n8n
+    if (canUseWebhook) {
+      try {
+        if (typeof window !== 'undefined') {
+          // Ambiente browser: chama backend para evitar CORS
+          const resp = await fetch('/api/webhook/n8n/create-customer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cpf, nome, email })
+          })
+          const text = await resp.text()
+          if (!resp.ok) {
+            let apiMsg = ''
+            try { const json = JSON.parse(text) as Record<string, unknown>; apiMsg = typeof json.error === 'string' ? json.error : JSON.stringify(json) } catch { apiMsg = text.slice(0, 200) }
+            throw new Error(`Webhook n8n falhou: HTTP ${resp.status} ${resp.statusText}${apiMsg ? ` - ${apiMsg}` : ''}`)
+          }
+          let parsed: unknown
+          try { parsed = JSON.parse(text) } catch { parsed = { raw: text } }
+          const obj = parsed as Record<string, unknown>
+          const cid = obj['customerId']
+          const customerId = typeof cid === 'string' ? cid : undefined
+          if (customerId) {
+            return { ...customer, id: customerId }
+          }
+        } else {
+          // Ambiente servidor: chama serviço diretamente
+          const result = await n8nWebhookService.createCustomer({ cpf, nome, email })
+          if (result.success && result.customerId) {
+            return { ...customer, id: result.customerId }
+          }
+          if (!result.success) {
+            throw new Error(result.message || 'Falha no webhook n8n')
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        log.warn(`Webhook n8n falhou, usando Asaas direto: ${msg}`)
+      }
+    }
+
+    // 2) Fallback: chama API Asaas via proxy/fallback já implementado
     return this.makeRequest<AsaasCustomer>('/customers', 'POST', customer)
   }
 

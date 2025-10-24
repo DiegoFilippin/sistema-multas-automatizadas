@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { parseEndereco } from '../lib/endereco';
 
 export interface Plano {
   id: string;
@@ -43,11 +44,29 @@ export interface EmpresasState {
   
   // Actions
   fetchEmpresas: () => Promise<void>;
+  fetchEmpresaById: (id: string) => Promise<void>;
   fetchPlanos: () => Promise<void>;
-  criarEmpresa: (dados: Omit<Empresa, 'id' | 'dataAssinatura' | 'recursosUsados' | 'clientesCadastrados'>) => Promise<void>;
+  criarEmpresa: (dados: {
+    nome: string;
+    cnpj: string;
+    email: string;
+    telefone?: string;
+    endereco: string;
+    cidade: string;
+    estado: string;
+    cep: string;
+    responsavel: string;
+    emailResponsavel: string;
+    planoId: string;
+    status: 'ativa' | 'suspensa' | 'cancelada';
+    dataAssinatura: string;
+    dataVencimento: string;
+    masterCompanyId?: string;
+  }) => Promise<void>;
   atualizarEmpresa: (id: string, dados: Partial<Empresa>) => Promise<void>;
   suspenderEmpresa: (id: string) => Promise<void>;
   reativarEmpresa: (id: string) => Promise<void>;
+  deleteCompany: (id: string) => Promise<void>;
   getEstatisticasGerais: () => {
     totalEmpresas: number;
     empresasAtivas: number;
@@ -187,7 +206,6 @@ export const useEmpresasStore = create<EmpresasState>((set, get) => ({
     set({ isLoading: true });
     
     try {
-      // Buscar empresas do Supabase
       const { data: empresasDb, error } = await supabase
         .from('companies')
         .select('*')
@@ -198,11 +216,9 @@ export const useEmpresasStore = create<EmpresasState>((set, get) => ({
         throw new Error(`Erro ao carregar empresas: ${error.message}`);
       }
       
-      // Converter dados do banco para o formato do store
       const empresas: Empresa[] = (empresasDb || []).map(empresaDb => {
-        // Extrair informações do endereço
-        const enderecoCompleto = empresaDb.endereco || '';
-        const partesEndereco = enderecoCompleto.split(', ');
+        const enderecoCompleto = (empresaDb.endereco || '').trim();
+        const { endereco, cidade, estado, cep } = parseEndereco(enderecoCompleto);
         
         return {
           id: empresaDb.id,
@@ -210,21 +226,21 @@ export const useEmpresasStore = create<EmpresasState>((set, get) => ({
           cnpj: empresaDb.cnpj,
           email: empresaDb.email,
           telefone: empresaDb.telefone || '',
-          endereco: partesEndereco[0] || '',
-          cidade: partesEndereco[1] || '',
-          estado: partesEndereco[2]?.split(' ')[0] || '',
-          cep: partesEndereco[2]?.split(' ')[1] || '',
-          responsavel: '', // Campo não está no banco, manter vazio
-          emailResponsavel: '', // Campo não está no banco, manter vazio
-          planoId: 'plan_basic', // Plano padrão
+          endereco,
+          cidade,
+          estado,
+          cep,
+          responsavel: '',
+          emailResponsavel: '',
+          planoId: 'plan_basic',
           status: empresaDb.status === 'ativo' ? 'ativa' : 'suspensa',
           dataAssinatura: empresaDb.data_inicio_assinatura?.split('T')[0] || new Date().toISOString().split('T')[0],
           dataVencimento: empresaDb.data_fim_assinatura?.split('T')[0] || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
           dataCriacao: empresaDb.created_at,
-          totalClientes: 0, // Calcular posteriormente se necessário
-          receitaMensal: 0, // Calcular posteriormente se necessário
-          recursosUsados: 0, // Calcular posteriormente se necessário
-          clientesCadastrados: 0, // Calcular posteriormente se necessário
+          totalClientes: 0,
+          receitaMensal: 0,
+          recursosUsados: 0,
+          clientesCadastrados: 0,
           masterCompanyId: empresaDb.master_company_id
         };
       });
@@ -237,151 +253,267 @@ export const useEmpresasStore = create<EmpresasState>((set, get) => ({
     }
   },
 
-  fetchPlanos: async () => {
-    set({ isLoading: true });
-    
+  fetchEmpresaById: async (id: string) => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 400));
-      set({ planos: mockPlanos, isLoading: false });
-    } catch (error) {
-      set({ isLoading: false });
-      throw error;
-    }
-  },
-
-  criarEmpresa: async (dados) => {
-    set({ isLoading: true });
-    
-    try {
-      // Buscar ou criar empresa master
-      let masterCompanyId = '00000000-0000-0000-0000-000000000001'; // UUID padrão
-      
-      // Tentar buscar uma empresa master existente
-      const { data: masterCompanies } = await supabase
-        .from('companies_master')
-        .select('id')
-        .limit(1);
-      
-      if (masterCompanies && masterCompanies.length > 0) {
-        masterCompanyId = masterCompanies[0].id;
-      }
-      
-      // Preparar dados para o Supabase
-      const empresaData = {
-        nome: dados.nome,
-        cnpj: dados.cnpj,
-        email: dados.email,
-        telefone: dados.telefone || null,
-        endereco: `${dados.endereco || ''}, ${dados.cidade || ''}, ${dados.estado || ''} ${dados.cep || ''}`.trim(),
-        master_company_id: masterCompanyId,
-        status: 'ativo' as const,
-        data_inicio_assinatura: new Date().toISOString()
-      };
-      
-      // Inserir no Supabase
-      const { data: novaEmpresaDb, error } = await supabase
+      const { data: empresaDb, error } = await supabase
         .from('companies')
-        .insert([empresaData])
-        .select()
+        .select('*')
+        .eq('id', id)
         .single();
-      
-      if (error) {
-        console.error('Erro ao criar empresa:', error);
-        throw new Error(`Erro ao salvar empresa: ${error.message}`);
-      }
-      
-      // Converter dados do banco para o formato do store
-      const novaEmpresa: Empresa = {
-        id: novaEmpresaDb.id,
-        nome: novaEmpresaDb.nome,
-        cnpj: novaEmpresaDb.cnpj,
-        email: novaEmpresaDb.email,
-        telefone: novaEmpresaDb.telefone || '',
-        endereco: dados.endereco || '',
-        cidade: dados.cidade || '',
-        estado: dados.estado || '',
-        cep: dados.cep || '',
-        responsavel: dados.responsavel || '',
-        emailResponsavel: dados.emailResponsavel || '',
-        planoId: 'plan_basic', // Plano padrão para todas as empresas
-        status: novaEmpresaDb.status === 'ativo' ? 'ativa' : 'suspensa',
-        dataAssinatura: novaEmpresaDb.data_inicio_assinatura.split('T')[0],
-        dataVencimento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 dias
-        dataCriacao: novaEmpresaDb.created_at,
+
+      if (error) throw error;
+
+      const enderecoCompleto = (empresaDb.endereco || '').trim();
+      const { endereco, cidade, estado, cep } = parseEndereco(enderecoCompleto);
+
+      const empresa: Empresa = {
+        id: empresaDb.id,
+        nome: empresaDb.nome,
+        cnpj: empresaDb.cnpj,
+        email: empresaDb.email,
+        telefone: empresaDb.telefone || '',
+        endereco,
+        cidade,
+        estado,
+        cep,
+        responsavel: '',
+        emailResponsavel: '',
+        planoId: 'plan_basic',
+        status: empresaDb.status === 'ativo' ? 'ativa' : 'suspensa',
+        dataAssinatura: empresaDb.data_inicio_assinatura?.split('T')[0] || new Date().toISOString().split('T')[0],
+        dataVencimento: empresaDb.data_fim_assinatura?.split('T')[0] || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        dataCriacao: empresaDb.created_at,
         totalClientes: 0,
         receitaMensal: 0,
         recursosUsados: 0,
         clientesCadastrados: 0,
-        masterCompanyId: novaEmpresaDb.master_company_id
+        masterCompanyId: empresaDb.master_company_id
       };
-      
-      // Atualizar estado local
-      set(state => ({
-        empresas: [...state.empresas, novaEmpresa],
-        isLoading: false
-      }));
+
+      // Atualiza no estado: substitui se já existir, ou adiciona
+      set(state => {
+        const exists = state.empresas.some(e => e.id === empresa.id);
+        return {
+          empresas: exists
+            ? state.empresas.map(e => (e.id === empresa.id ? empresa : e))
+            : [empresa, ...state.empresas],
+        } as Partial<EmpresasState>;
+      });
     } catch (error) {
-      set({ isLoading: false });
+      console.error('Erro ao buscar empresa por ID:', error);
       throw error;
     }
   },
 
-  atualizarEmpresa: async (id, dados) => {
-    set({ isLoading: true });
-    
+  fetchPlanos: async () => {
+    // Por enquanto, carrega os planos mockados
+    set({ planos: mockPlanos });
+  },
+
+  // Criar empresa (stub mínimo)
+  criarEmpresa: async (dados) => {
     try {
-      await new Promise(resolve => setTimeout(resolve, 600));
-      
-      set(state => ({
-        empresas: state.empresas.map(empresa => 
-          empresa.id === id ? { ...empresa, ...dados } : empresa
-        ),
-        isLoading: false
-      }));
+      set({ isLoading: true });
+      const payload = {
+        master_company_id: dados.masterCompanyId || 'master_1',
+        plan_id: dados.planoId,
+        nome: dados.nome,
+        cnpj: dados.cnpj,
+        email: dados.email,
+        telefone: dados.telefone || null,
+        endereco: `${dados.endereco}, ${dados.cidade} - ${dados.estado} ${dados.cep}`,
+        status: dados.status === 'ativa' ? 'ativo' : 'inativo',
+        data_inicio_assinatura: dados.dataAssinatura,
+        data_fim_assinatura: dados.dataVencimento,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      } as any;
+
+      const { data, error } = await supabase
+        .from('companies')
+        .insert(payload)
+        .select('*')
+        .single();
+
+      if (error) throw error;
+
+      const { endereco, cidade, estado, cep } = parseEndereco(data.endereco || '');
+      const empresa: Empresa = {
+        id: data.id,
+        nome: data.nome,
+        cnpj: data.cnpj,
+        email: data.email,
+        telefone: data.telefone || '',
+        endereco,
+        cidade: cidade || dados.cidade,
+        estado: estado || dados.estado,
+        cep: cep || dados.cep,
+        responsavel: dados.responsavel,
+        emailResponsavel: dados.emailResponsavel,
+        planoId: dados.planoId,
+        status: data.status === 'ativo' ? 'ativa' : 'suspensa',
+        dataAssinatura: data.data_inicio_assinatura?.split('T')[0] || dados.dataAssinatura,
+        dataVencimento: data.data_fim_assinatura?.split('T')[0] || dados.dataVencimento,
+        dataCriacao: data.created_at,
+        totalClientes: 0,
+        receitaMensal: 0,
+        recursosUsados: 0,
+        clientesCadastrados: 0,
+        masterCompanyId: data.master_company_id
+      };
+
+      set(state => ({ empresas: [empresa, ...state.empresas], isLoading: false }));
     } catch (error) {
+      console.error('Erro ao criar empresa:', error);
       set({ isLoading: false });
       throw error;
     }
   },
 
-  suspenderEmpresa: async (id) => {
-    await get().atualizarEmpresa(id, { status: 'suspensa' });
+  suspenderEmpresa: async (id: string) => {
+    try {
+      set({ isLoading: true });
+      const { data, error } = await supabase
+        .from('companies')
+        .update({ status: 'suspenso', updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+
+      set(state => ({
+        empresas: state.empresas.map(e => e.id === id ? { ...e, status: 'suspensa' } : e),
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Erro ao suspender empresa:', error);
+      set({ isLoading: false });
+      throw error;
+    }
   },
 
-  reativarEmpresa: async (id) => {
-    await get().atualizarEmpresa(id, { status: 'ativa' });
+  reativarEmpresa: async (id: string) => {
+    try {
+      set({ isLoading: true });
+      const { data, error } = await supabase
+        .from('companies')
+        .update({ status: 'ativo', updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+
+      set(state => ({
+        empresas: state.empresas.map(e => e.id === id ? { ...e, status: 'ativa' } : e),
+        isLoading: false
+      }));
+    } catch (error) {
+      console.error('Erro ao reativar empresa:', error);
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  deleteCompany: async (id: string) => {
+    try {
+      set({ isLoading: true });
+      const { error } = await supabase
+        .from('companies')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+
+      set(state => ({ empresas: state.empresas.filter(e => e.id !== id), isLoading: false }));
+    } catch (error) {
+      console.error('Erro ao deletar empresa:', error);
+      set({ isLoading: false });
+      throw error;
+    }
   },
 
   getEstatisticasGerais: () => {
-    const { empresas, planos } = get();
-    
+    const { empresas } = get();
     const totalEmpresas = empresas.length;
-    const empresasAtivas = empresas.filter(e => e.status === 'ativa').length;
-    
-    const receitaMensal = empresas
-      .filter(e => e.status === 'ativa')
-      .reduce((total, empresa) => {
-        const plano = planos.find(p => p.id === empresa.planoId);
-        if (!plano) return total;
-        
-        let receita = plano.preco;
-        
-        // Adicionar receita de recursos extras
-        const recursosExtras = Math.max(0, empresa.recursosUsados - plano.recursosInclusos);
-        receita += recursosExtras * plano.precoRecursoAdicional;
-        
-        return total + receita;
-      }, 0);
-    
-    const recursosProcessados = empresas.reduce((total, empresa) => 
-      total + empresa.recursosUsados, 0
-    );
-    
+    const empresasAtivas = empresas.filter((e) => e.status === 'ativa').length;
+    const receitaMensal = empresas.reduce((acc, e) => acc + (e.receitaMensal || 0), 0);
+    const recursosProcessados = empresas.reduce((acc, e) => acc + (e.recursosUsados || 0), 0);
+
     return {
       totalEmpresas,
       empresasAtivas,
       receitaMensal,
-      recursosProcessados
+      recursosProcessados,
     };
-  }
+  },
+
+  atualizarEmpresa: async (id: string, dados: Partial<Empresa>) => {
+    try {
+      set({ isLoading: true });
+
+      const updatePayload: any = {};
+      if (dados.nome !== undefined) updatePayload.nome = dados.nome;
+      if (dados.cnpj !== undefined) updatePayload.cnpj = dados.cnpj;
+      if (dados.email !== undefined) updatePayload.email = dados.email;
+      if (dados.telefone !== undefined) updatePayload.telefone = dados.telefone;
+      if (dados.endereco !== undefined) {
+        // Monta endereco final incluindo cidade/estado/cep se informados
+        const enderecoComCidade = [
+          dados.endereco,
+          dados.cidade
+        ].filter(Boolean).join(', ');
+        const cauda = [dados.estado, dados.cep].filter(Boolean).join(' ');
+        const enderecoFinal = [
+          enderecoComCidade,
+          cauda
+        ].filter(Boolean).join(' - ');
+        updatePayload.endereco = enderecoFinal;
+      }
+      // Campos cidade/estado/cep são derivados do endereço e podem não existir na tabela
+      // Portanto, não enviamos estes campos para evitar erro de coluna inexistente
+      updatePayload.updated_at = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from('companies')
+        .update(updatePayload)
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      if (error) {
+        console.error('Erro ao atualizar empresa:', error);
+        throw new Error(`Erro ao atualizar empresa: ${error.message}`);
+      }
+
+      const enderecoCompleto = (data.endereco || '').trim();
+      const { endereco, cidade, estado, cep } = parseEndereco(enderecoCompleto);
+
+      set(state => ({
+        empresas: state.empresas.map(e => 
+          e.id === id 
+            ? {
+                ...e,
+                nome: data.nome,
+                cnpj: data.cnpj,
+                email: data.email,
+                telefone: data.telefone || '',
+                endereco,
+                cidade: cidade || e.cidade,
+                estado: estado || e.estado,
+                cep: cep || e.cep,
+                status: data.status === 'ativo' ? 'ativa' : 'suspensa',
+                dataAssinatura: data.data_inicio_assinatura?.split('T')[0] || e.dataAssinatura,
+                dataVencimento: data.data_fim_assinatura?.split('T')[0] || e.dataVencimento,
+                dataCriacao: data.created_at || e.dataCriacao,
+                masterCompanyId: data.master_company_id || e.masterCompanyId
+              }
+            : e
+        ),
+        isLoading: false
+      }));
+    } catch (err) {
+      console.error('Erro ao atualizar empresa:', err);
+      set({ isLoading: false });
+      throw err;
+    }
+  },
 }));

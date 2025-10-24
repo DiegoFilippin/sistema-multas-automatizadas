@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { prisma } from '../lib/prisma.js';
+import { prisma } from '../lib/prisma';
+import { logger } from '../utils/logger';
 
 interface AuthenticatedRequest extends Request {
   user?: {
@@ -22,7 +23,21 @@ export const authenticateToken = async (
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
+      logger.warn('Tentativa de acesso sem token', { 
+        ip: req.ip,
+        path: req.path,
+        method: req.method 
+      });
       return res.status(401).json({ error: 'Token de acesso requerido' });
+    }
+
+    // Validações de segurança no token
+    if (token.length > 4096) {
+      logger.warn('Token muito longo detectado', { 
+        ip: req.ip,
+        tokenLength: token.length 
+      });
+      return res.status(400).json({ error: 'Token inválido' });
     }
 
     // Primeiro tentar validar como token do Supabase
@@ -34,19 +49,25 @@ export const authenticateToken = async (
       const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
       
       if (payload.iss && payload.iss.includes('supabase')) {
-        console.log('🔍 Token do Supabase detectado:', payload.sub);
+        logger.info('Token do Supabase detectado', { 
+          userId: payload.sub,
+          ip: req.ip 
+        });
         decoded = payload;
         isSupabaseToken = true;
       }
     } catch (supabaseError) {
-      console.log('⚠️ Não é um token do Supabase, tentando JWT personalizado');
+      logger.debug('Não é um token do Supabase, tentando JWT personalizado', { 
+        ip: req.ip 
+      });
     }
     
     // Se não for token do Supabase, tentar JWT personalizado
     if (!isSupabaseToken) {
       const jwtSecret = process.env.JWT_SECRET;
       if (!jwtSecret) {
-        return res.status(500).json({ error: 'Configuração de JWT não encontrada' });
+        logger.warn('JWT_SECRET não configurado, retornando 401', { ip: req.ip });
+        return res.status(401).json({ error: 'Autenticação requerida: JWT não configurado' });
       }
       decoded = jwt.verify(token, jwtSecret) as any;
     }
@@ -56,10 +77,13 @@ export const authenticateToken = async (
     
     if (isSupabaseToken) {
       // Para tokens do Supabase, usar o sub (subject) como ID do usuário
-      console.log('🔍 Buscando usuário do Supabase com ID:', decoded.sub);
+      logger.debug('Buscando usuário do Supabase', { 
+        userId: decoded.sub,
+        ip: req.ip 
+      });
       
       // Importar supabase aqui para evitar dependência circular
-      const { supabase } = await import('../lib/supabase.js');
+      const { supabase } = await import('../lib/supabase');
       
       const { data: supabaseUser, error } = await supabase
         .from('users')
@@ -69,11 +93,20 @@ export const authenticateToken = async (
         .single();
       
       if (error || !supabaseUser) {
-        console.error('❌ Usuário do Supabase não encontrado:', error);
+        logger.warn('Usuário do Supabase não encontrado ou inativo', { 
+          userId: decoded.sub,
+          error: error?.message,
+          ip: req.ip 
+        });
         return res.status(401).json({ error: 'Usuário não encontrado ou inativo' });
       }
       
-      console.log('✅ Usuário do Supabase encontrado:', supabaseUser.nome);
+      logger.info('Usuário do Supabase autenticado com sucesso', { 
+        userId: supabaseUser.id,
+        email: supabaseUser.email,
+        role: supabaseUser.role,
+        ip: req.ip 
+      });
       
       // Converter para formato esperado
       user = {
@@ -85,6 +118,10 @@ export const authenticateToken = async (
       };
     } else {
       // Para tokens JWT personalizados, usar Prisma
+      logger.debug('Buscando usuário via Prisma', { 
+        userId: decoded.userId,
+        ip: req.ip 
+      });
       user = await prisma.user.findUnique({
         where: { id: decoded.userId },
         include: {
@@ -102,7 +139,7 @@ export const authenticateToken = async (
     if (user.companyId) {
       if (isSupabaseToken) {
         // Para Supabase, verificar empresa via Supabase
-        const { supabase } = await import('../lib/supabase.js');
+        const { supabase } = await import('../lib/supabase');
         
         const { data: company, error } = await supabase
           .from('companies')
@@ -111,11 +148,19 @@ export const authenticateToken = async (
           .single();
         
         if (error || !company) {
-          console.error('❌ Empresa não encontrada:', error);
+          logger.warn('Empresa não encontrada', { 
+            companyId: user.companyId,
+            error: error?.message,
+            ip: req.ip 
+          });
           return res.status(401).json({ error: 'Empresa não encontrada' });
         }
         
-        console.log('✅ Empresa encontrada:', company.nome);
+        logger.debug('Empresa validada com sucesso', { 
+          companyId: company.id,
+          companyName: company.nome,
+          ip: req.ip 
+        });
       } else {
         // Para JWT personalizado, usar Prisma
         const company = await prisma.company.findUnique({
@@ -123,6 +168,11 @@ export const authenticateToken = async (
         });
 
         if (!company || company.status !== 'active') {
+          logger.warn('Empresa inativa ou não encontrada', { 
+            companyId: user.companyId,
+            status: company?.status,
+            ip: req.ip 
+          });
           return res.status(401).json({ error: 'Empresa inativa' });
         }
       }
@@ -136,9 +186,19 @@ export const authenticateToken = async (
       clientId: user.clientId || undefined,
     };
 
+    logger.info('Autenticação bem-sucedida', { 
+      userId: user.id,
+      role: user.role,
+      companyId: user.companyId,
+      ip: req.ip 
+    });
+
     next();
   } catch (error) {
-    console.error('Erro na autenticação:', error);
+    logger.error('Erro na autenticação', error, { 
+      ip: req.ip,
+      path: req.path 
+    });
     return res.status(403).json({ error: 'Token inválido' });
   }
 };

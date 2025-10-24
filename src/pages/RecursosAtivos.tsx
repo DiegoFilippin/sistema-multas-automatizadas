@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { 
@@ -15,11 +14,10 @@ import {
   Eye,
   Loader2
 } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 interface ServiceOrder {
   id: string;
@@ -59,7 +57,6 @@ const RecursosAtivos: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [uploadProgress, setUploadProgress] = useState<Record<string, UploadProgress>>({});
   const [processingService, setProcessingService] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
 
@@ -99,7 +96,16 @@ const RecursosAtivos: React.FC = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setServiceOrders(data || []);
+
+      // Filtrar apenas orders com processo iniciado
+      const initiated = (data || []).filter((order: ServiceOrder) => {
+        const hasGenerated = Boolean(order.recurso_generated_url) || Boolean(order.ai_analysis);
+        const isProcessingInitiated = order.status === 'processing' && Boolean(order.auto_autuacao_url);
+        const isPaidWithGenerated = order.status === 'paid' && hasGenerated;
+        return hasGenerated || isProcessingInitiated || isPaidWithGenerated;
+      });
+
+      setServiceOrders(initiated);
     } catch (error) {
       console.error('Erro ao carregar serviços ativos:', error);
       toast.error('Erro ao carregar serviços ativos');
@@ -149,7 +155,7 @@ const RecursosAtivos: React.FC = () => {
 
       // Upload do arquivo para o Supabase Storage
       const fileName = `auto-autuacao-${serviceOrderId}-${Date.now()}.${file.name.split('.').pop()}`;
-      const { data: uploadData, error: uploadError } = await supabase.storage
+      const { error: uploadError } = await supabase.storage
         .from('documents')
         .upload(fileName, file);
 

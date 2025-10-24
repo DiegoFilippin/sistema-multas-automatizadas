@@ -30,6 +30,7 @@ import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { recursosService } from '@/services/recursosService';
 import TipoRecursoTag, { Art267Explanation } from '@/components/TipoRecursoTag';
+import { supabase } from '@/lib/supabase';
 
 interface RecursoCardProps {
   recurso: any;
@@ -94,6 +95,11 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
               <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                 <Bot className="w-3 h-3 mr-1" />
                 IA
+              </span>
+            )}
+            {recurso.is_service_order && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                Service Order
               </span>
             )}
           </div>
@@ -491,23 +497,22 @@ export default function Recursos() {
   const [tipoFilter, setTipoFilter] = useState('all');
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedRecurso, setSelectedRecurso] = useState<any>(null);
-  
+  // Estado para recursos provenientes de service_orders iniciados
+  const [soRecursos, setSoRecursos] = useState<any[]>([]);
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 20;
+  const itemsPerPage = 10;
   
   useEffect(() => {
     if (user) {
       // Carregar recursos baseado no tipo de usuário
       if (user.role === 'Superadmin' || user.role === 'ICETRAN') {
-        fetchRecursos(); // Superadmin e ICETRAN veem todos os recursos
+        fetchRecursos();
       } else if (user.role === 'Despachante') {
-        fetchRecursos({ companyId: user.company_id }); // Despachante vê recursos da empresa
+        fetchRecursos({ companyId: user.company_id });
       } else if (user.role === 'Usuario/Cliente') {
-        fetchRecursos({ clientId: user.id }); // Cliente vê apenas seus recursos
-      }
-      // Manter compatibilidade com roles antigos durante transição
-      else if (user.role === 'admin') {
+        fetchRecursos({ clientId: user.id });
+      } else if (user.role === 'admin') {
         fetchRecursos();
       } else if (user.role === 'user') {
         fetchRecursos({ companyId: user.company_id });
@@ -519,26 +524,90 @@ export default function Recursos() {
 
 
   
+  // Buscar service_orders com processos iniciados e mapear para recursos
+  useEffect(() => {
+    const fetchServiceOrdersIniciados = async () => {
+      if (!user) return;
+      try {
+        let query = supabase
+          .from('service_orders')
+          .select('*')
+          .in('status', ['paid', 'processing', 'completed'])
+          .order('created_at', { ascending: false });
+
+        // Filtro por papel do usuário
+        if (user.role === 'Despachante' || user.role === 'user') {
+          query = query.eq('company_id', user.company_id);
+        } else if (user.role === 'Usuario/Cliente' || user.role === 'viewer') {
+          const { data: clientData } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('email', user.email)
+            .single();
+          if (clientData?.id) {
+            query = query.eq('client_id', clientData.id);
+          } else {
+            setSoRecursos([]);
+            return;
+          }
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const initiated = (data || []).filter((order: any) => {
+          const hasGenerated = Boolean(order.recurso_generated_url) || Boolean(order.ai_analysis);
+          const isProcessingInitiated = order.status === 'processing' && Boolean(order.auto_autuacao_url);
+          const isPaidWithGenerated = order.status === 'paid' && hasGenerated;
+          const isCompleted = order.status === 'completed';
+          return hasGenerated || isProcessingInitiated || isPaidWithGenerated || isCompleted;
+        });
+
+        const mapped = initiated.map((order: any) => ({
+          id: `so-${order.id}`,
+          numero_processo: `SO-${String(order.id).slice(0, 8)}`,
+          tipo_recurso: order.multa_type || 'geral',
+          status: order.status === 'completed' ? 'deferido' : 'em_analise',
+          fundamentacao: order.ai_analysis || '',
+          observacoes: order.description || '',
+          created_at: order.created_at,
+          multa_id: order.multa_id || null,
+          client_id: order.client_id,
+          geradoPorIA: Boolean(order.ai_analysis || order.recurso_generated_url),
+          is_service_order: true,
+          recurso_generated_url: order.recurso_generated_url,
+          service_order_status: order.status
+        }));
+
+        setSoRecursos(mapped);
+      } catch (e) {
+        console.error('Erro ao carregar service_orders iniciados:', e);
+        setSoRecursos([]);
+      }
+    };
+
+    fetchServiceOrdersIniciados();
+  }, [user]);
+
   // Filtrar recursos baseado no papel do usuário
-  const filteredRecursos = recursos.filter(recurso => {
-    // Se for cliente, mostrar apenas recursos de suas multas
+  // Base: apenas recursos iniciados dos service_orders
+  const recursosIniciados = soRecursos;
+
+  const filteredRecursos = recursosIniciados.filter(recurso => {
     const multa = multas.find(m => m.id === recurso.multa_id);
     if (user?.role === 'Usuario/Cliente') {
       if (!multa || multa.client_id !== user.id) {
         return false;
       }
     }
-    
     const matchesSearch = (recurso.numero_processo || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (multa?.numero_auto || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                           (recurso.fundamentacao || '').toLowerCase().includes(searchTerm.toLowerCase());
-    
     const matchesStatus = statusFilter === 'all' || recurso.status === statusFilter;
     const matchesTipo = tipoFilter === 'all' || recurso.tipo_recurso === tipoFilter;
-    
     return matchesSearch && matchesStatus && matchesTipo;
   });
-  
+
   // Paginação
   const totalPages = Math.ceil(filteredRecursos.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -812,7 +881,6 @@ export default function Recursos() {
       {paginatedRecursos.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
           {paginatedRecursos.map((recurso) => {
-            // Usar os dados da multa que vêm junto com o recurso (com dados do cliente)
             const multa = multas.find(m => m.id === recurso.multa_id);
             return (
               <RecursoCard
@@ -824,7 +892,7 @@ export default function Recursos() {
                 onSend={handleSendRecurso}
                 onViewDetails={handleViewDetails}
                 onDownloadPDF={handleDownloadPDF}
-                showActions={true}
+                showActions={!recurso.is_service_order}
               />
             );
           })}

@@ -1,0 +1,38 @@
+{
+  "supabase_url": "https://ktgynzdzvfcpvbdbtplu.supabase.co",
+  "totals": {
+    "users": {
+      "count": 6,
+      "error": null
+    },
+    "user_profiles": {
+      "count": 0,
+      "error": null
+    },
+    "auth_users": {
+      "count": null,
+      "error": null
+    }
+  },
+  "distribution_by_company": [
+    {
+      "company_id": "SEM_EMPRESA",
+      "name": "Sem empresa",
+      "total": 5,
+      "roles": {
+        "Superadmin": 2,
+        "Despachante": 1,
+        "Usuario/Cliente": 1,
+        "ICETRAN": 1
+      }
+    },
+    {
+      "company_id": "8e6d04a6-251f-457e-a2c2-84fc3d861f5f",
+      "name": "ACSM - ASSOCIACAO CATARINENSE DE SOCORRO MUTUO",
+      "total": 1,
+      "roles": {
+        "Despachante": 1
+      }
+    }
+  ]
+}

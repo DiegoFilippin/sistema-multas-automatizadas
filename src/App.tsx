@@ -6,7 +6,7 @@ import { useAuthStore } from './stores/authStore';
 import ErrorBoundary from './components/ErrorBoundary';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
-import ContatoLead from './pages/ContatoLead';
+
 import Dashboard from './pages/Dashboard';
 import Empresas from './pages/Empresas';
 import EmpresaDetalhes from './pages/EmpresaDetalhes';
@@ -20,7 +20,7 @@ import ClienteDetalhes from './pages/ClienteDetalhes';
 import CobrancasGerais from './pages/CobrancasGerais';
 import RelatoriosFinanceiros from './pages/RelatoriosFinanceiros';
 import Configuracoes from './pages/Configuracoes';
-import CentroAutomacao from './pages/CentroAutomacao';
+
 
 import AsaasConfig from './pages/AsaasConfig';
 import SubcontasAdmin from './pages/SubcontasAdmin';
@@ -28,7 +28,7 @@ import ServicosEsplits from './pages/ServicosEsplits';
 import MeusServicos from './pages/MeusServicos';
 import GerenciarCreditos from './pages/GerenciarCreditos';
 import DashboardIcetran from './pages/DashboardIcetran';
-import GerenciarLeads from './pages/GerenciarLeads';
+
 import SubcontasSplitTest from './components/SubcontasSplitTest';
 import TesteRecursoIA from './pages/TesteRecursoIA';
 import TesteN8nDemo from './pages/TesteN8nDemo';
@@ -101,15 +101,7 @@ function AppContent() {
             } 
           />
           
-          <Route 
-            path="/contato" 
-            element={
-              <PublicRoute>
-                <ContatoLead />
-              </PublicRoute>
-            } 
-          />
-          
+
           {/* Rotas protegidas */}
           <Route 
             path="/dashboard" 
@@ -246,15 +238,7 @@ function AppContent() {
             } 
           />
           
-          <Route 
-            path="/centro-automacao" 
-            element={
-              <ProtectedRoute>
-                <CentroAutomacao />
-              </ProtectedRoute>
-            } 
-          />
-          
+
 
           
           <Route 
@@ -302,14 +286,7 @@ function AppContent() {
             } 
           />
           
-          <Route 
-            path="/gerenciar-leads" 
-            element={
-              <ProtectedRoute>
-                <GerenciarLeads />
-              </ProtectedRoute>
-            } 
-          />
+
           
           <Route 
             path="/teste-recurso-ia" 

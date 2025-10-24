@@ -42,6 +42,17 @@ export interface CompanyHierarchy {
   };
 }
 
+export interface ServiceConfig {
+  icetran_company_id?: string | null;
+}
+export interface MultaTypeConfig {
+  type: string;
+  acsm_cost: number;
+  icetran_cost: number;
+  fixed_cost?: number;
+  suggested_price?: number;
+}
+
 class SplitService {
   /**
    * Calcular splits para um pagamento com base no tipo de multa
@@ -144,37 +155,37 @@ class SplitService {
   /**
    * Buscar configuração do serviço
    */
-  async getServiceConfiguration(serviceId: string): Promise<any> {
+  async getServiceConfiguration(serviceId: string): Promise<ServiceConfig> {
     const { data, error } = await supabase
       .from('services')
       .select('*')
       .eq('id', serviceId)
       .single();
-
+  
     if (error) {
       throw new Error(`Erro ao buscar configuração do serviço: ${error.message}`);
     }
-
-    return data;
+  
+    return (data as ServiceConfig);
   }
 
   /**
    * Buscar configuração de tipo de multa
    */
-  async getMultaTypeConfiguration(serviceId: string, multaType: string): Promise<any> {
+  async getMultaTypeConfiguration(serviceId: string, multaType: string): Promise<MultaTypeConfig> {
     const { data, error } = await supabase
       .from('multa_types')
       .select('*')
       .eq('service_id', serviceId)
       .eq('type', multaType)
       .single();
-
+  
     if (error) {
       // Se não encontrar configuração específica, usar valores padrão
       return this.getDefaultMultaTypeConfiguration(multaType);
     }
-
-    return data;
+  
+    return (data as MultaTypeConfig);
   }
 
   /**
@@ -183,23 +194,23 @@ class SplitService {
   async getCompanyWallet(companyId: string): Promise<string | null> {
     const { data, error } = await supabase
       .from('companies')
-      .select('asaas_wallet_id')
+      .select('manual_wallet_id')
       .eq('id', companyId)
       .single();
-
+  
     if (error) {
       console.error(`Erro ao buscar wallet da empresa ${companyId}:`, error);
       return null;
     }
-
-    return data?.asaas_wallet_id || null;
+  
+    return (data as { manual_wallet_id: string | null })?.manual_wallet_id || null;
   }
 
   /**
    * Configuração padrão de tipo de multa
    */
-  private getDefaultMultaTypeConfiguration(multaType: string): any {
-    const defaultConfigs: Record<string, any> = {
+  private getDefaultMultaTypeConfiguration(multaType: string): MultaTypeConfig {
+    const defaultConfigs: Record<string, MultaTypeConfig> = {
       'leve': {
         type: 'leve',
         acsm_cost: 50.00,
@@ -225,7 +236,7 @@ class SplitService {
         fixed_cost: 3.50
       }
     };
-
+  
     return defaultConfigs[multaType] || defaultConfigs['leve'];
   }
 

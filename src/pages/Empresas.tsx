@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface EmpresaCardProps {
   empresa: any;
@@ -136,7 +137,12 @@ function EmpresaCard({ empresa, onEdit, onSuspend, onReactivate, onDelete }: Emp
         
         <div className="flex items-center space-x-2 text-sm text-gray-600">
           <MapPin className="w-4 h-4" />
-          <span>{empresa.cidade}, {empresa.estado}</span>
+          <span>
+            {empresa.endereco
+              ? `${empresa.endereco}, ${empresa.cidade}, ${empresa.estado}${empresa.cep ? ' ' + empresa.cep : ''}`
+              : `${empresa.cidade}, ${empresa.estado}${empresa.cep ? ' ' + empresa.cep : ''}`
+            }
+          </span>
         </div>
         
         <div className="flex items-center justify-between pt-3 border-t border-gray-100">
@@ -182,7 +188,10 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
     cnpj: '',
     email: '',
     telefone: '',
-    endereco: '',
+    logradouro: '',
+    numero: '',
+    complemento: '',
+    bairro: '',
     cidade: '',
     estado: '',
     cep: '',
@@ -191,17 +200,31 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
     emailResponsavel: ''
   });
   const [isLoadingCnpj, setIsLoadingCnpj] = useState(false);
+  const [isLoadingCep, setIsLoadingCep] = useState(false);
   
   const { planos } = useEmpresasStore();
   
   useEffect(() => {
     if (empresa) {
+      // Parse da primeira parte do endereço (logradouro, número/complemento - bairro)
+      const primeiraParte = (empresa.endereco || '').trim();
+      const [logradouroParte = '', numeroComplementoParte = ''] = primeiraParte.split(',').map(p => p.trim());
+      const [logradouroBase = logradouroParte, bairroParte = ''] = (logradouroParte || '').split(' - ').map(p => p.trim());
+
+      // Extrair número e complemento
+      const numeroMatch = (numeroComplementoParte || '').match(/^(\d+)(.*)/);
+      const numero = numeroMatch ? numeroMatch[1] : '';
+      const complemento = numeroMatch ? numeroMatch[2].trim() : numeroComplementoParte;
+
       setFormData({
         nome: empresa.nome || '',
         cnpj: empresa.cnpj || '',
         email: empresa.email || '',
         telefone: empresa.telefone || '',
-        endereco: empresa.endereco || '',
+        logradouro: logradouroBase || '',
+        numero: numero || '',
+        complemento: complemento || '',
+        bairro: bairroParte || empresa.bairro || '',
         cidade: empresa.cidade || '',
         estado: empresa.estado || '',
         cep: empresa.cep || '',
@@ -215,7 +238,10 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
         cnpj: '',
         email: '',
         telefone: '',
-        endereco: '',
+        logradouro: '',
+        numero: '',
+        complemento: '',
+        bairro: '',
         cidade: '',
         estado: '',
         cep: '',
@@ -248,7 +274,10 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
           nome: data.razao_social || data.nome_fantasia || '',
           email: data.email || '',
           telefone: data.ddd_telefone_1 || '',
-          endereco: `${data.logradouro || ''}, ${data.numero || ''} ${data.complemento || ''}`.trim(),
+          logradouro: data.logradouro || '',
+          numero: data.numero || '',
+          complemento: data.complemento || '',
+          bairro: data.bairro || '',
           cidade: data.municipio || '',
           estado: data.uf || '',
           cep: data.cep || ''
@@ -266,6 +295,55 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
     }
   };
   
+  // Função para buscar CEP
+  const buscarDadosCep = async (cep: string) => {
+    // Remove caracteres não numéricos
+    const cepLimpo = cep.replace(/\D/g, '');
+    
+    // Verifica se o CEP tem 8 dígitos
+    if (cepLimpo.length !== 8) return;
+    
+    setIsLoadingCep(true);
+    
+    try {
+      const response = await fetch(`/api/cep/${cepLimpo}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Preenche os campos de endereço
+        setFormData(prev => ({
+          ...prev,
+          logradouro: data.logradouro || '',
+          bairro: data.bairro || '',
+          cidade: data.cidade || '',
+          estado: data.estado || ''
+        }));
+        
+        toast.success('CEP encontrado com sucesso!');
+      } else {
+        toast.error('CEP não encontrado ou inválido');
+      }
+    } catch (error) {
+      console.error('Erro ao buscar CEP:', error);
+      toast.error('Erro ao buscar dados do CEP');
+    } finally {
+      setIsLoadingCep(false);
+    }
+  };
+  
+  // Função para lidar com mudanças no CEP
+  const handleCepChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const valor = e.target.value;
+    setFormData({ ...formData, cep: valor });
+    
+    // Se o CEP tiver 8 dígitos (sem formatação), busca automaticamente
+    const cepLimpo = valor.replace(/\D/g, '');
+    if (cepLimpo.length === 8) {
+      buscarDadosCep(valor);
+    }
+  };
+  
   // Função para lidar com mudanças no CNPJ
   const handleCnpjChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const valor = e.target.value;
@@ -280,7 +358,25 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+
+    // Monta apenas a primeira parte do endereço para o store/DB (logradouro, número e complemento)
+    const primeiraParteEndereco = [
+      formData.logradouro,
+      formData.numero + (formData.complemento ? ` ${formData.complemento}` : '')
+    ].filter(Boolean).join(', ');
+
+    // Inclui bairro na primeira parte, se fornecido
+    const enderecoComBairro = formData.bairro
+      ? `${primeiraParteEndereco} - ${formData.bairro}`
+      : primeiraParteEndereco;
+
+    // Cria o objeto com todos os campos necessários
+    const empresaData = {
+      ...formData,
+      endereco: enderecoComBairro
+    };
+
+    onSave(empresaData);
     onClose();
   };
   
@@ -363,14 +459,77 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
               />
             </div>
             
+            {/* Seção de Endereço - CEP vem primeiro */}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Endereço
+                CEP
+                {isLoadingCep && (
+                  <span className="text-blue-600 text-xs ml-2">
+                    Buscando endereço...
+                  </span>
+                )}
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={formData.cep}
+                  onChange={handleCepChange}
+                  placeholder="Digite o CEP para buscar endereço automaticamente"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  disabled={isLoadingCep}
+                />
+                {isLoadingCep && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  </div>
+                )}
+              </div>
+            </div>
+            
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Logradouro
               </label>
               <input
                 type="text"
-                value={formData.endereco}
-                onChange={(e) => setFormData({ ...formData, endereco: e.target.value })}
+                value={formData.logradouro}
+                onChange={(e) => setFormData({ ...formData, logradouro: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Número
+              </label>
+              <input
+                type="text"
+                value={formData.numero}
+                onChange={(e) => setFormData({ ...formData, numero: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Complemento
+              </label>
+              <input
+                type="text"
+                value={formData.complemento}
+                onChange={(e) => setFormData({ ...formData, complemento: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Bairro
+              </label>
+              <input
+                type="text"
+                value={formData.bairro}
+                onChange={(e) => setFormData({ ...formData, bairro: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
             </div>
@@ -409,18 +568,6 @@ function EmpresaModal({ isOpen, onClose, empresa, onSave }: EmpresaModalProps) {
                 <option value="GO">Goiás</option>
                 <option value="DF">Distrito Federal</option>
               </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                CEP
-              </label>
-              <input
-                type="text"
-                value={formData.cep}
-                onChange={(e) => setFormData({ ...formData, cep: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
             </div>
             
 
@@ -481,6 +628,7 @@ export default function Empresas() {
     atualizarEmpresa, 
     suspenderEmpresa, 
     reativarEmpresa,
+    deleteCompany,
     isLoading 
   } = useEmpresasStore();
   
@@ -489,6 +637,9 @@ export default function Empresas() {
   const [planoFilter, setPlanoFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<any>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   useEffect(() => {
     fetchEmpresas();
@@ -529,11 +680,23 @@ export default function Empresas() {
   };
   
   const handleDeleteEmpresa = (id: string) => {
-    if (confirm('Tem certeza que deseja excluir esta empresa? Esta ação não pode ser desfeita.')) {
-      // Simular exclusão da empresa
-      const updatedEmpresas = empresas.filter(e => e.id !== id);
-      // Aqui você atualizaria o estado global das empresas
+    setDeleteTargetId(id);
+    setIsDeleteModalOpen(true);
+  };
+  
+  const confirmDeleteEmpresa = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
+    try {
+      await deleteCompany(deleteTargetId);
       toast.success('Empresa excluída com sucesso!');
+    } catch (error) {
+      console.error('Erro ao excluir empresa:', error);
+      toast.error('Erro ao excluir empresa.');
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
+      setDeleteTargetId(null);
     }
   };
   
@@ -664,6 +827,20 @@ export default function Empresas() {
         }}
         empresa={editingEmpresa}
         onSave={editingEmpresa ? handleUpdateEmpresa : handleCreateEmpresa}
+      />
+
+      <ConfirmationModal
+        open={isDeleteModalOpen}
+        onOpenChange={(open) => {
+          setIsDeleteModalOpen(open);
+          if (!open) setDeleteTargetId(null);
+        }}
+        title="Confirmar Exclusão"
+        message="Esta ação é irreversível. Deseja continuar?"
+        confirmText="Excluir"
+        cancelText="Cancelar"
+        onConfirm={confirmDeleteEmpresa}
+        isLoading={isDeleting}
       />
     </div>
   );

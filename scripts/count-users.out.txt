@@ -1,0 +1,10 @@
+🔎 Supabase: https://ktgynzdzvfcpvbdbtplu.supabase.co
+users total: 6
+user_profiles total: 0
+auth.users total: null
+
+📊 Usuários por empresa:
+- Sem empresa (SEM_EMPRESA): 5 [Superadmin:2, Despachante:1, Usuario/Cliente:1, ICETRAN:1]
+- ACSM - ASSOCIACAO CATARINENSE DE SOCORRO MUTUO (8e6d04a6-251f-457e-a2c2-84fc3d861f5f): 1 [Despachante:1]
+
+✅ Fim

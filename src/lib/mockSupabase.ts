@@ -62,6 +62,22 @@ class MockSupabaseClient {
         status: 'ativo'
       }
     ],
+    // Adicionar tabela mock para asaas_subaccounts
+    asaas_subaccounts: [
+      {
+        id: 'sub_demo_1',
+        company_id: '1',
+        asaas_account_id: 'acc_demo_1',
+        wallet_id: null,
+        manual_wallet_id: null,
+        api_key: 'mock_api_key_123',
+        account_type: 'manual',
+        status: 'active',
+        is_manual_config: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ],
     multas: [
       {
         id: '1',
@@ -74,17 +90,17 @@ class MockSupabaseClient {
         hora_infracao: '14:30:00',
         local_infracao: 'Av. Paulista, 1000 - São Paulo/SP',
         codigo_infracao: '74550',
-        descricao_infracao: 'Excesso de velocidade',
-        valor_original: 195.23,
+        descricao_infracao: 'Avançar sinal vermelho',
+        valor_original: 293.47,
         valor_desconto: 0,
-        valor_final: 195.23,
+        valor_final: 293.47,
         data_vencimento: '2024-02-15',
         status: 'pendente',
         orgao_autuador: 'CET-SP',
-        pontos: 5,
+        pontos: 7,
         observacoes: null,
-        created_at: '2024-01-15T10:00:00Z',
-        updated_at: '2024-01-15T10:00:00Z'
+        created_at: '2024-01-10T10:00:00Z',
+        updated_at: '2024-01-10T10:00:00Z'
       },
       {
         id: '2',

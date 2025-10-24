@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Phone, Mail, MapPin, Car, Edit, Trash2, Plus, MoreVertical, DollarSign, FileText, Calendar, AlertTriangle, CreditCard, Coins, UserPlus } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Car, Edit, Trash2, Plus, MoreVertical, DollarSign, FileText, AlertTriangle, CreditCard, Coins, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { CobrancasCliente } from '@/components/CobrancasCliente';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { useAuthStore } from '@/stores/authStore';
 import type { Database } from '@/lib/supabase';
+import { n8nWebhookService } from '@/services/n8nWebhookService';
 
 type Multa = Database['public']['Tables']['multas']['Row'] & {
   // Campos adicionais para service_orders
@@ -98,7 +99,7 @@ export default function ClienteDetalhes() {
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [showCobrancaModal, setShowCobrancaModal] = useState(false);
-  const [selectedCobranca, setSelectedCobranca] = useState<any>(null);
+  const [selectedCobranca, setSelectedCobranca] = useState<CobrancaData | null>(null);
   const { user } = useAuthStore();
 
   // Função para carregar multas do cliente (incluindo service_orders com processos iniciados)
@@ -205,36 +206,129 @@ export default function ClienteDetalhes() {
 
     setCreatingCustomer(true);
     try {
-      const response = await fetch('/api/users/create-client-customer', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ clientId: cliente.id }),
-      });
+      const cpf = cliente.cpf || '';
+      const nome = cliente.nome || '';
+      const email = cliente.emails?.[0]?.email || '';
 
-      const result = await response.json();
+      const result = await n8nWebhookService.createCustomer({ cpf, nome, email });
 
-      if (result.success) {
-        toast.success('Customer criado no Asaas com sucesso!');
-        // Atualizar dados do cliente localmente
-        setCliente(prev => prev ? {
-          ...prev,
-          asaas_customer_id: result.data.asaasCustomerId
-        } : null);
+      if (result.success && result.customerId) {
+        const { error: updateError } = await supabase
+          .from('clients')
+          .update({ asaas_customer_id: result.customerId })
+          .eq('id', cliente.id);
+
+        if (updateError) {
+          console.error('Erro ao atualizar asaas_customer_id:', updateError);
+        }
+
+        toast.success('Customer criado via Webhook com sucesso!');
+        setCliente(prev => prev ? { ...prev, asaas_customer_id: result.customerId } : null);
       } else {
-        toast.error(result.error || 'Erro ao criar customer no Asaas');
+        const msg = result.message || 'Webhook falhou. Tentando criar direto no Asaas...';
+        toast.warning(msg);
+
+        // Fallback para criação direta no Asaas
+        try {
+          const { asaasService } = await import('@/services/asaasService');
+          await asaasService.reloadConfig();
+          if (!asaasService.isConfigured()) {
+            throw new Error('Integração Asaas não configurada');
+          }
+
+          const primeiroEndereco = cliente.enderecos?.[0];
+          const asaasCustomerData = {
+            name: cliente.nome || '',
+            cpfCnpj: cliente.cpf || '',
+            email: cliente.emails?.[0]?.email,
+            phone: cliente.telefones?.[0]?.numero,
+            address: primeiroEndereco?.logradouro,
+            addressNumber: primeiroEndereco?.numero,
+            complement: primeiroEndereco?.complemento,
+            province: primeiroEndereco?.bairro,
+            city: primeiroEndereco?.cidade,
+            state: primeiroEndereco?.estado,
+            postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+          };
+
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+
+          if (asaasCustomer?.id) {
+            const { error: updateError2 } = await supabase
+              .from('clients')
+              .update({ asaas_customer_id: asaasCustomer.id })
+              .eq('id', cliente.id);
+
+            if (updateError2) {
+              console.error('Erro ao atualizar asaas_customer_id (fallback):', updateError2);
+            }
+
+            toast.success('Customer criado diretamente no Asaas (fallback) com sucesso!');
+            setCliente(prev => prev ? { ...prev, asaas_customer_id: asaasCustomer.id } : null);
+          } else {
+            console.warn('Customer Asaas (fallback) criado sem ID válido:', asaasCustomer);
+            toast.error('Não foi possível criar o Customer via Webhook nem via Asaas.');
+          }
+        } catch (asaasError) {
+          console.error('Erro no fallback Asaas:', asaasError);
+          toast.error(asaasError instanceof Error ? asaasError.message : 'Erro ao criar customer no Asaas (fallback)');
+        }
       }
-    } catch (error) {
-      console.error('Erro ao criar customer:', error);
-      toast.error('Erro ao criar customer no Asaas');
+    } catch (err) {
+      console.error('Erro ao criar customer via Webhook:', err);
+      toast.error(err instanceof Error ? err.message : 'Erro ao criar customer via Webhook');
     } finally {
       setCreatingCustomer(false);
     }
   };
 
+
+  // Tipos auxiliares para evitar uso de any
+  interface MultaLike {
+    service_order_id?: string;
+    id?: string;
+    client_id?: string;
+    valor_final?: number;
+    amount?: number;
+    process_status?: string;
+    status?: string;
+    data_infracao?: string;
+    created_at?: string;
+    updated_at?: string;
+    multa_type?: string;
+    invoice_url?: string;
+    pix_payload?: string;
+    pix_copy_paste?: string;
+    pix_qr_code?: string;
+    qr_code_image?: string;
+    company_id?: string;
+  }
+
+  interface CobrancaData {
+    id: string;
+    asaas_payment_id: string;
+    client_id?: string;
+    client_name: string;
+    customer_name: string;
+    amount: number;
+    status: string;
+    payment_method: string;
+    due_date: string;
+    created_at: string;
+    paid_at: string | null;
+    description: string;
+    invoice_url?: string;
+    pix_code?: string;
+    pix_qr_code?: string;
+    qr_code_image?: string;
+    pix_payload?: string;
+    pix_copy_paste?: string;
+    company_id?: string;
+    payment_data?: unknown;
+  }
+
   // Função para mapear dados do service_order para o formato do modal CobrancaDetalhes
-  const mapServiceOrderToCobranca = (multa: any) => {
+  const mapServiceOrderToCobranca = (multa: MultaLike): CobrancaData => {
     console.log('🔄 === MAPEANDO SERVICE_ORDER PARA COBRANCA ===');
     console.log('  - Multa original:', multa);
     console.log('  - QR Code Image:', multa.qr_code_image);
@@ -244,33 +338,31 @@ export default function ClienteDetalhes() {
     console.log('  - Invoice URL:', multa.invoice_url);
     
     return {
-      id: multa.service_order_id || multa.id,
-      asaas_payment_id: multa.service_order_id || multa.id,
+      id: String(multa.service_order_id || multa.id || ''),
+      asaas_payment_id: String(multa.service_order_id || multa.id || ''),
       client_id: multa.client_id,
       client_name: cliente?.nome || 'Cliente não informado',
       customer_name: cliente?.nome || 'Cliente não informado',
-      amount: multa.valor_final || multa.amount || 0,
-      status: multa.process_status || multa.status || 'pending',
+      amount: (multa.valor_final ?? multa.amount ?? 0) as number,
+      status: (multa.process_status ?? multa.status ?? 'pending') as string,
       payment_method: 'PIX',
-      due_date: multa.data_infracao || multa.created_at || new Date().toISOString(),
-      created_at: multa.created_at || new Date().toISOString(),
-      paid_at: multa.process_status === 'paid' ? multa.updated_at : null,
-      description: `Recurso de Multa - ${multa.multa_type?.toUpperCase() || 'GRAVE'} - ${cliente?.nome || 'Cliente'}`,
-      // ✅ CAMPOS PIX CORRIGIDOS - buscar do service_order
+      due_date: (multa.data_infracao ?? multa.created_at ?? new Date().toISOString()) as string,
+      created_at: (multa.created_at ?? new Date().toISOString()) as string,
+      paid_at: multa.process_status === 'paid' ? (multa.updated_at ?? null) as string | null : null,
+      description: `Recurso de Multa - ${(multa.multa_type ?? 'GRAVE').toUpperCase()} - ${cliente?.nome || 'Cliente'}`,
       invoice_url: multa.invoice_url,
-      pix_code: multa.pix_payload || multa.pix_copy_paste, // Campo principal para copia e cola
-      pix_qr_code: multa.pix_qr_code || multa.qr_code_image, // Campo principal para QR code
+      pix_code: multa.pix_payload ?? multa.pix_copy_paste,
+      pix_qr_code: multa.pix_qr_code ?? multa.qr_code_image,
       qr_code_image: multa.qr_code_image,
-      pix_payload: multa.pix_payload, // Dados do PIX para copia e cola
-      pix_copy_paste: multa.pix_payload || multa.pix_copy_paste, // Fallback para compatibilidade
+      pix_payload: multa.pix_payload,
+      pix_copy_paste: multa.pix_payload ?? multa.pix_copy_paste,
       company_id: multa.company_id,
-      // Dados adicionais para compatibilidade
-      payment_data: multa
+      payment_data: multa as unknown
     };
   };
 
   // Função para abrir modal de detalhes da cobrança
-  const handleOpenCobrancaModal = (multa: any) => {
+  const handleOpenCobrancaModal = (multa: MultaLike) => {
     const cobrancaData = mapServiceOrderToCobranca(multa);
     setSelectedCobranca(cobrancaData);
     setShowCobrancaModal(true);
@@ -564,7 +656,7 @@ export default function ClienteDetalhes() {
                       className="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                     >
                       <UserPlus className={`w-4 h-4 mr-2 ${creatingCustomer ? 'animate-spin' : ''}`} />
-                      {creatingCustomer ? 'Criando Customer...' : 'Criar Customer no Asaas'}
+                      {creatingCustomer ? 'Criando Customer...' : 'Criar Customer via Webhook'}
                     </button>
                   </div>
                 </div>
@@ -899,11 +991,11 @@ export default function ClienteDetalhes() {
             setShowCobrancaModal(false);
             setSelectedCobranca(null);
           }}
-          onResend={async (cobranca) => {
+          onResend={async () => {
             // Implementar reenvio se necessário
             toast.success('Cobrança reenviada!');
           }}
-          onCancel={async (cobranca) => {
+          onCancel={async () => {
             // Implementar cancelamento se necessário
             toast.success('Cobrança cancelada!');
           }}

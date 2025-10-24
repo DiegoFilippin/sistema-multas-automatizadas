@@ -31,14 +31,14 @@ async function fixIcetranWallet() {
     console.log('📋 ICETRAN atual:');
     console.log('  - ID:', icetran.id);
     console.log('  - Nome:', icetran.nome);
-    console.log('  - Wallet ID atual:', icetran.asaas_wallet_id);
+    console.log('  - Wallet ID atual:', icetran.manual_wallet_id);
     console.log('  - Customer ID:', icetran.asaas_customer_id);
     
     // Atualizar com wallet correto
     const { data: updated, error: updateError } = await supabase
       .from('companies')
       .update({ 
-        asaas_wallet_id: correctWalletId 
+        manual_wallet_id: correctWalletId 
       })
       .eq('id', icetran.id)
       .select()
@@ -53,7 +53,7 @@ async function fixIcetranWallet() {
     console.log('📋 ICETRAN atualizada:');
     console.log('  - ID:', updated.id);
     console.log('  - Nome:', updated.nome);
-    console.log('  - Wallet ID novo:', updated.asaas_wallet_id);
+    console.log('  - Wallet ID novo:', updated.manual_wallet_id);
     console.log('  - Customer ID:', updated.asaas_customer_id);
     
     console.log('\n🎯 Próximos passos:');

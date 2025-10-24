@@ -1,19 +1,26 @@
 import express from 'express';
-import { authService } from '../services/authService.js';
-import { multasService } from '../services/multasService.js';
-import { recursosService } from '../services/recursosService.js';
-import { clientsService } from '../services/clientsService.js';
-import { companiesService } from '../services/companiesService.js';
-import { authenticateToken, authorizeRoles } from '../middleware/auth.js';
+import { authService } from '../services/authService';
+import { multasService } from '../services/multasService';
+import { recursosService } from '../services/recursosService';
+import { clientsService } from '../services/clientsService';
+import { companiesService } from '../services/companiesService';
+import { authenticateToken, authorizeRoles } from '../middleware/auth';
 
 // Importar rotas de créditos, webhooks, payments, leads e force-sync
-import creditsRouter from '../../lib/routes/credits.js';
-import webhooksRouter from '../../lib/routes/webhooks.js';
-import paymentsRouter from '../../lib/routes/payments.js';
-import leadsRouter from '../../lib/routes/leads.js';
-import forceSyncRouter from '../../lib/routes/force-sync.js';
+import creditsRouter from '../../lib/routes/credits';
+import webhooksRouter from '../../lib/routes/webhooks';
+import paymentsRouter from '../../lib/routes/payments';
+
+import forceSyncRouter from '../../lib/routes/force-sync';
+import { supabase } from '../lib/supabase';
+import { n8nWebhookService } from '../services/n8nWebhookService';
 
 const router = express.Router();
+
+// Em desenvolvimento, permitir acesso ao proxy n8n sem autenticação
+const maybeAuthForN8nProxy: import('express').RequestHandler = process.env.ENABLE_N8N_PROXY_AUTH === 'true'
+  ? authenticateToken
+  : (req, _res, next) => next();
 
 // Rotas de Autenticação
 router.post('/auth/login', async (req, res) => {
@@ -603,6 +610,68 @@ router.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Webhook n8n: criar customer
+router.post('/webhook/n8n/create-customer', authenticateToken, async (req, res) => {
+  try {
+    const { cpf, nome, email } = req.body as { cpf?: string; nome?: string; email?: string };
+    const result = await n8nWebhookService.createCustomer({ cpf: cpf || '', nome: nome || '', email: email || '' });
+    if (!result.success) {
+      return res.status(502).json({ error: result.message || 'Falha ao criar customer no webhook n8n' });
+    }
+    return res.json({ customerId: result.customerId, message: result.message });
+  } catch (error) {
+    console.error('Erro no webhook n8n (create-customer):', error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro interno' });
+  }
+});
+
+// Webhook n8n: processar pagamento (proxy)
+router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (req, res) => {
+  try {
+    const payload = req.body;
+    const endpoint = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
+
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(30000)
+    });
+
+    const text = await resp.text();
+
+    if (!resp.ok) {
+      let apiMsg = '';
+      try {
+        const json = JSON.parse(text);
+        apiMsg = typeof json?.message === 'string' ? json.message : JSON.stringify(json);
+      } catch {
+        apiMsg = text.slice(0, 200);
+      }
+      return res.status(resp.status).json({ error: `Webhook n8n falhou: HTTP ${resp.status} ${resp.statusText}${apiMsg ? ` - ${apiMsg}` : ''}` });
+    }
+
+    // Sucesso: tratar diferentes formatos de resposta
+    const trimmed = (text || '').trim();
+    if (!trimmed) {
+      // n8n respondeu vazio; considerar sucesso e retornar JSON padrão
+      console.log('ℹ️ Webhook n8n retornou corpo vazio. Tratando como sucesso e retornando emptyResponse:true');
+      return res.json({ success: true, forwarded: true, emptyResponse: true });
+    }
+
+    // Tentar JSON, cair para texto bruto dentro de JSON
+    try {
+      const json = JSON.parse(trimmed);
+      return res.json(json);
+    } catch {
+      return res.json({ success: true, forwarded: true, raw: trimmed });
+    }
+  } catch (error) {
+    console.error('Erro no webhook n8n (process-payment):', error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro interno' });
+  }
+});
+
 // Rotas de créditos e pagamentos
 router.use('/credits', creditsRouter);
 
@@ -612,10 +681,279 @@ router.use('/webhooks', webhooksRouter);
 // Rotas de cobranças/pagamentos
 router.use('/payments', paymentsRouter);
 
-// Rotas de leads
-router.use('/leads', leadsRouter);
 
 // Rotas de sincronização forçada
 router.use('/force-sync', forceSyncRouter);
+
+// Rotas de subcontas
+import subaccountsRouter from '../../lib/routes/subaccounts';
+router.use('/subaccounts', subaccountsRouter);
+
+// Rotas de usuários para criação de customer no Asaas
+router.get('/users/despachantes-without-customer', authenticateToken, authorizeRoles(['superadmin', 'admin_master']), async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, nome, email, telefone, created_at, role, company_id, asaas_customer_id')
+      .is('asaas_customer_id', null)
+      .eq('ativo', true)
+      .or('role.eq.Despachante,role.eq.dispatcher,role.eq.admin_master');
+
+    if (error) {
+      return res.status(500).json({ success: false, error: `Erro ao buscar usuários: ${error.message}` });
+    }
+
+    const result = (data || []).map(u => ({
+      id: u.id,
+      name: u.nome,
+      email: u.email,
+      phone: u.telefone,
+      created_at: u.created_at,
+      asaas_customer_id: u.asaas_customer_id,
+      user_profiles: { role: u.role }
+    }));
+
+    return res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('Erro ao listar despachantes sem customer:', err);
+    return res.status(500).json({ success: false, error: err instanceof Error ? err.message : 'Erro interno' });
+  }
+});
+
+router.post('/users/create-asaas-customer', authenticateToken, authorizeRoles(['superadmin', 'admin_master']), async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ success: false, error: 'userId inválido' });
+    }
+
+    const { data: user, error: userErr } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (userErr || !user) {
+      return res.status(404).json({ success: false, error: 'Usuário não encontrado' });
+    }
+
+    if (user.asaas_customer_id) {
+      return res.json({ success: true, data: { customerId: user.asaas_customer_id } });
+    }
+
+    // Buscar empresa para obter CNPJ/endereços
+    if (!user.company_id) {
+      return res.status(400).json({ success: false, error: 'Usuário não possui company_id associado' });
+    }
+
+    const { data: company, error: compErr } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', user.company_id)
+      .single();
+
+    if (compErr || !company) {
+      return res.status(404).json({ success: false, error: 'Empresa do usuário não encontrada' });
+    }
+
+    const cnpjDigits = (company.cnpj || '').replace(/\D/g, '');
+    if (!cnpjDigits) {
+      return res.status(400).json({ success: false, error: 'Empresa associada não possui CNPJ válido' });
+    }
+
+    const asaasPayload = {
+      name: user.nome || company.nome || 'Usuário',
+      email: user.email || company.email || undefined,
+      cpfCnpj: cnpjDigits,
+      phone: user.telefone || company.telefone || undefined,
+      postalCode: (company.cep || '').replace(/\D/g, '') || undefined,
+      address: company.endereco || undefined,
+      addressNumber: company.numero || undefined,
+      complement: company.complemento || undefined,
+      province: company.bairro || undefined,
+      city: company.cidade || undefined,
+      state: company.estado || undefined,
+      externalReference: `user-${user.id}`
+    };
+
+    const { asaasService } = await import('../services/asaasService');
+    await asaasService.reloadConfig();
+
+    // Fallback seguro em desenvolvimento quando Asaas não estiver configurado
+    if (!asaasService.isConfigured() && process.env.NODE_ENV === 'development') {
+      const mockId = `mock_${user.id}`;
+      const { error: upErr } = await supabase
+        .from('users')
+        .update({ asaas_customer_id: mockId, updated_at: new Date().toISOString() })
+        .eq('id', user.id);
+
+      if (upErr) {
+        return res.status(500).json({ success: false, error: `Falha ao salvar mock customer: ${upErr.message}` });
+      }
+      return res.json({ success: true, data: { customerId: mockId, mocked: true } });
+    }
+
+    // Criar customer real no Asaas
+    const created = await asaasService.createCustomer(asaasPayload);
+    if (!created?.id) {
+      return res.status(502).json({ success: false, error: 'Falha ao criar customer no Asaas' });
+    }
+
+    const { error: updateErr } = await supabase
+      .from('users')
+      .update({ asaas_customer_id: created.id, updated_at: new Date().toISOString() })
+      .eq('id', user.id);
+
+    if (updateErr) {
+      return res.status(500).json({ success: false, error: `Falha ao salvar customer no usuário: ${updateErr.message}` });
+    }
+
+    return res.json({ success: true, data: { customerId: created.id } });
+  } catch (error) {
+    console.error('Erro ao criar customer Asaas para usuário:', error);
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Erro interno' });
+  }
+});
+
+router.post('/users/sync-all-customers', authenticateToken, authorizeRoles(['superadmin', 'admin_master']), async (req, res) => {
+  try {
+    const { data: users, error } = await supabase
+      .from('users')
+      .select('id, nome, email, telefone, created_at, role, company_id, asaas_customer_id')
+      .is('asaas_customer_id', null)
+      .eq('ativo', true)
+      .or('role.eq.Despachante,role.eq.dispatcher,role.eq.admin_master');
+
+    if (error) {
+      return res.status(500).json({ success: false, error: `Erro ao buscar usuários: ${error.message}` });
+    }
+
+    const { asaasService } = await import('../services/asaasService');
+    await asaasService.reloadConfig();
+
+    const total = (users || []).length;
+    let successCount = 0;
+    const errors: Array<{ userId: string; error: string }> = [];
+
+    for (const u of users || []) {
+      try {
+        // Buscar empresa
+        const { data: company, error: compErr } = await supabase
+          .from('companies')
+          .select('*')
+          .eq('id', u.company_id)
+          .single();
+        if (compErr || !company) {
+          throw new Error('Empresa do usuário não encontrada');
+        }
+        const cnpjDigits = (company.cnpj || '').replace(/\D/g, '');
+        if (!cnpjDigits) {
+          throw new Error('Empresa associada não possui CNPJ válido');
+        }
+        const payload = {
+          name: u.nome || company.nome || 'Usuário',
+          email: u.email || company.email || undefined,
+          cpfCnpj: cnpjDigits,
+          phone: u.telefone || company.telefone || undefined,
+          postalCode: (company.cep || '').replace(/\D/g, '') || undefined,
+          address: company.endereco || undefined,
+          addressNumber: company.numero || undefined,
+          complement: company.complemento || undefined,
+          province: company.bairro || undefined,
+          city: company.cidade || undefined,
+          state: company.estado || undefined,
+          externalReference: `user-${u.id}`
+        };
+
+        // Fallback em desenvolvimento
+        if (!asaasService.isConfigured() && process.env.NODE_ENV === 'development') {
+          const mockId = `mock_${u.id}`;
+          const { error: upErr } = await supabase
+            .from('users')
+            .update({ asaas_customer_id: mockId, updated_at: new Date().toISOString() })
+            .eq('id', u.id);
+          if (upErr) {
+            throw new Error(`Falha ao salvar mock: ${upErr.message}`);
+          }
+          successCount++;
+          continue;
+        }
+
+        const created = await asaasService.createCustomer(payload);
+        if (!created?.id) {
+          throw new Error('Falha ao criar customer no Asaas');
+        }
+        const { error: updateErr } = await supabase
+          .from('users')
+          .update({ asaas_customer_id: created.id, updated_at: new Date().toISOString() })
+          .eq('id', u.id);
+        if (updateErr) {
+          throw new Error(`Falha ao salvar customer: ${updateErr.message}`);
+        }
+        successCount++;
+      } catch (e) {
+        errors.push({ userId: u.id, error: e instanceof Error ? e.message : 'Erro desconhecido' });
+      }
+    }
+
+    return res.json({ success: true, data: { total, success: successCount, errors } });
+  } catch (error) {
+    console.error('Erro na sincronização de customers de usuários:', error);
+    return res.status(500).json({ success: false, error: error instanceof Error ? error.message : 'Erro interno' });
+  }
+});
+
+// Rota para criar customer do Asaas para uma empresa
+router.post('/companies/create-asaas-customer', authenticateToken, authorizeRoles(['master_company', 'superadmin']), async (req, res) => {
+  try {
+    const { companyId } = req.body;
+    if (!companyId || typeof companyId !== 'string') {
+      return res.status(400).json({ error: 'companyId inválido' });
+    }
+
+    // Buscar empresa
+    const company = await companiesService.getCompanyById(companyId);
+    if (!company) {
+      return res.status(404).json({ error: 'Empresa não encontrada' });
+    }
+
+    // Se já tiver customer, apenas retorna
+    if (company.asaas_customer_id) {
+      return res.json({ customerId: company.asaas_customer_id });
+    }
+
+    // Montar payload mínimo do cliente Asaas
+    const asaasPayload = {
+      name: company.name || company.fantasyName || 'Empresa',
+      email: company.email || undefined,
+      cpfCnpj: company.cnpj?.replace(/\D/g, '') || '',
+      phone: company.phone || undefined,
+      postalCode: company.cep?.replace(/\D/g, '') || undefined,
+      address: company.address || undefined,
+      addressNumber: company.addressNumber || undefined,
+      complement: company.addressComplement || undefined,
+      province: company.neighborhood || undefined,
+      city: company.city || undefined,
+      state: company.state || undefined,
+      externalReference: `company-${company.id}`
+    };
+
+    // Chamar serviço do Asaas
+    const { asaasService } = await import('../services/asaasService');
+    const created = await asaasService.createCustomer(asaasPayload);
+
+    if (!created?.id) {
+      return res.status(502).json({ error: 'Falha ao criar customer no Asaas' });
+    }
+
+    // Persistir na empresa
+    const updated = await companiesService.updateCompany(companyId, { asaas_customer_id: created.id });
+
+    return res.json({ customerId: created.id, company: updated });
+  } catch (error) {
+    console.error('Erro ao criar customer Asaas para empresa:', error);
+    return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro interno' });
+  }
+});
 
 export default router;

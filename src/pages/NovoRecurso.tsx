@@ -346,15 +346,26 @@ export default function NovoRecurso() {
             phone: dadosCliente.telefone
           };
 
-          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
-          
-          // Atualizar cliente com asaas_customer_id
-          await clientsService.updateClient(clienteCriado.id, {
-            asaas_customer_id: asaasCustomer.id
-          });
+          // Garantir configuração carregada e válida
+          await asaasService.reloadConfig();
+          if (!asaasService.isConfigured()) {
+            throw new Error('Integração Asaas não configurada');
+          }
 
-          console.log('Customer criado no Asaas:', asaasCustomer.id);
-          toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+
+          if (asaasCustomer?.id) {
+            // Atualizar cliente com asaas_customer_id somente se houver ID
+            await clientsService.updateClient(clienteCriado.id, {
+              asaas_customer_id: asaasCustomer.id
+            });
+
+            console.log('Customer criado no Asaas:', asaasCustomer.id);
+            toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+          } else {
+            console.warn('Customer Asaas criado sem ID válido:', asaasCustomer);
+            toast.warning('Cliente criado, mas não foi possível confirmar o Customer Asaas.');
+          }
         } catch (asaasError) {
           console.error('Erro ao criar customer no Asaas:', asaasError);
           toast.warning('Cliente criado, mas houve erro na integração com Asaas.');

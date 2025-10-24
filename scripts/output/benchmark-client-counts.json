@@ -1,0 +1,45 @@
+{
+  "runs": 5,
+  "original": {
+    "avgDurationMs": 1864.3222,
+    "avgQueries": 31,
+    "durations": [
+      2338.787458,
+      1809.97425,
+      1804.867583,
+      1723.7415,
+      1644.240209
+    ],
+    "queries": [
+      31,
+      31,
+      31,
+      31,
+      31
+    ],
+    "successRuns": 5
+  },
+  "optimized": {
+    "avgDurationMs": 301.93885819999997,
+    "avgQueries": 4,
+    "durations": [
+      398.750667,
+      266.649041,
+      274.983708,
+      299.317084,
+      269.993791
+    ],
+    "queries": [
+      4,
+      4,
+      4,
+      4,
+      4
+    ],
+    "successRuns": 5
+  },
+  "improvement": {
+    "durationMs": 1562.3833418000002,
+    "percent": 83.80436288319692
+  }
+}

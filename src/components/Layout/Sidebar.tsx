@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -12,7 +12,7 @@ import {
   BarChart3,
   Shield,
   Zap,
-  Bot,
+
   Receipt,
   Building,
   PieChart,
@@ -99,14 +99,6 @@ const menuItems: MenuItem[] = [
     href: '/relatorios-financeiros',
     roles: ['Superadmin', 'ICETRAN', 'Despachante']
   },
-  {
-    id: 'centro-automacao',
-    label: 'Centro de Automação',
-    icon: Bot,
-    href: '/centro-automacao',
-    roles: ['Superadmin'],
-    badge: 'IA'
-  },
 
   {
     id: 'servicos-splits',
@@ -130,13 +122,7 @@ const menuItems: MenuItem[] = [
     href: '/asaas-config',
     roles: ['Superadmin']
   },
-  {
-    id: 'gerenciar-leads',
-    label: 'Gerenciar Leads',
-    icon: Users,
-    href: '/gerenciar-leads',
-    roles: ['Superadmin']
-  },
+
   {
     id: 'admin-panel',
     label: 'Painel Administrativo',
@@ -153,9 +139,37 @@ export default function Sidebar({ className }: SidebarProps) {
   const { user, logout } = useAuthStore();
   const location = useLocation();
 
-  const filteredMenuItems = menuItems.filter(item => 
-    user && item.roles.includes(user.role)
-  );
+  type UiRole = 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | 'admin' | 'user' | 'viewer' | 'admin_master';
+  const role = (user?.role ?? undefined) as UiRole | undefined;
+  const effectiveRole: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | undefined = role ? (
+    role === 'admin_master' ? 'Superadmin' :
+    role === 'admin' ? 'ICETRAN' :
+    role === 'user' ? 'Despachante' :
+    role === 'viewer' ? 'Usuario/Cliente' :
+    role
+  ) : undefined;
+
+  // Bypass temporário: se localStorage.setItem('sidebar_show_all','1'), mostra todos os itens
+  const showAll = typeof window !== 'undefined' && localStorage.getItem('sidebar_show_all') === '1';
+
+  const filteredMenuItems = (showAll ? menuItems : menuItems.filter(item => 
+    !!effectiveRole && item.roles.includes(effectiveRole)
+  ));
+
+  useEffect(() => {
+    try {
+      const debug = {
+        userRole: user?.role,
+        effectiveRole,
+        count: filteredMenuItems.length,
+        items: filteredMenuItems.map(i => ({ id: i.id, label: i.label }))
+      };
+      // eslint-disable-next-line no-console
+      console.log('[Sidebar Debug]', debug);
+    } catch {
+      // silêncio
+    }
+  }, [user?.role, effectiveRole, filteredMenuItems.length]);
 
   const handleLogout = () => {
     logout();
@@ -211,7 +225,7 @@ export default function Sidebar({ className }: SidebarProps) {
                   {user.nome}
                 </p>
                 <p className="text-xs text-gray-500">
-                  {user.role === 'Superadmin' ? 'Superadministrador' :
+                  {user.role === 'Superadmin' || user.role === 'admin_master' ? 'Superadministrador' :
                    user.role === 'ICETRAN' ? 'ICETRAN' :
                    user.role === 'Despachante' ? 'Despachante' : 'Usuário/Cliente'}
                 </p>

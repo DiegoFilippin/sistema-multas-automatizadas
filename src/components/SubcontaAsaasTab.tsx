@@ -3,29 +3,30 @@ import {
   CreditCard, 
   DollarSign, 
   TrendingUp, 
-  TrendingDown, 
   Clock, 
   CheckCircle, 
   XCircle, 
   AlertCircle,
   Wallet,
   BarChart3,
-  ArrowUpRight,
   ArrowDownLeft,
   RefreshCw,
-  Eye,
-  Calendar,
   Key,
   Shield,
   TestTube,
   Info,
   User,
-  Plus
+  Plus,
+  Edit,
+  Eye,
+  EyeOff
 } from 'lucide-react';
-import { subaccountService, SubaccountDetails, SubaccountStats, SubaccountTransaction, ApiKeyTestResult } from '../services/subaccountService';
-import { useAuthStore } from '../stores/authStore';
+import { subaccountService, SubaccountDetails, SubaccountStats, SubaccountTransaction, ApiKeyTestResult, type AsaasSubaccount } from '../services/subaccountService';
+
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
+import { CreateSubaccountModal } from '@/components/CreateSubaccountModal';
+import { ManualSubaccountConfigModal } from '@/components/ManualSubaccountConfigModal';
 
 interface CompanyData {
   id: string;
@@ -42,8 +43,15 @@ interface SubcontaAsaasTabProps {
   companyId: string;
 }
 
+interface PaymentItem {
+  id: string;
+  customer?: { name?: string; email?: string };
+  value: number;
+  status: string;
+  dateCreated: string;
+}
+
 export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
-  const { user } = useAuthStore();
   const [details, setDetails] = useState<SubaccountDetails | null>(null);
   const [stats, setStats] = useState<SubaccountStats | null>(null);
   const [transactions, setTransactions] = useState<SubaccountTransaction[]>([]);
@@ -54,6 +62,18 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [companyData, setCompanyData] = useState<CompanyData | null>(null);
   const [loadingCompany, setLoadingCompany] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showManualConfigModal, setShowManualConfigModal] = useState(false);
+  const [selectedSubaccount, setSelectedSubaccount] = useState<AsaasSubaccount | null>(null);
+  const [baseSubaccount, setBaseSubaccount] = useState<AsaasSubaccount | null>(null);
+  const [showWallet, setShowWallet] = useState(false);
+  const maskWalletId = (id?: string, reveal?: boolean) => {
+    if (!id) return '';
+    if (reveal) return id;
+    const prefix = id.slice(0, 6);
+    const suffix = id.slice(-6);
+    return `${prefix}•••${suffix}`;
+  };
 
   useEffect(() => {
     loadSubaccountData();
@@ -106,14 +126,15 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
   const loadSubaccountData = async () => {
     try {
       setLoading(true);
-      
-      // Carregar dados em paralelo
-      const [detailsData, statsData, transactionsData] = await Promise.all([
+      // Carregar dados em paralelo, incluindo subconta base (mesmo sem API key)
+      const [baseData, detailsData, statsData, transactionsData] = await Promise.all([
+        subaccountService.getSubaccountByCompany(companyId),
         subaccountService.getSubaccountDetails(companyId),
         subaccountService.getSubaccountStats(companyId),
         subaccountService.getSubaccountTransactions(companyId, 10, 0)
       ]);
-      
+
+      setBaseSubaccount(baseData);
       setDetails(detailsData);
       setStats(statsData);
       setTransactions(transactionsData);
@@ -145,7 +166,7 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
       } else {
         toast.error(`Erro na API Key: ${result.message}`);
       }
-    } catch (error) {
+    } catch {
       toast.error('Erro ao testar API Key');
     } finally {
       setTestingApiKey(false);
@@ -188,6 +209,70 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
       setCreatingCustomer(false);
     }
   };
+
+  // Ações para modais
+  const openCreateSubaccountModal = () => {
+    if (!companyData) {
+      toast.error('Carregue os dados da empresa antes de criar a subconta');
+      return;
+    }
+    setShowCreateModal(true);
+  };
+
+  const openManualConfigModal = async () => {
+    try {
+      if (!companyData) {
+        toast.error('Carregue os dados da empresa antes de editar credenciais');
+        return;
+      }
+
+      // Aproveitar subconta base já carregada se existir
+      if (baseSubaccount) {
+        setSelectedSubaccount(baseSubaccount);
+        setShowManualConfigModal(true);
+        return;
+      }
+
+      const existing = await subaccountService.getSubaccountByCompany(companyId);
+      if (existing) {
+        setSelectedSubaccount(existing);
+        setShowManualConfigModal(true);
+        return;
+      }
+
+      // Criar registro mínimo para permitir configuração manual
+      const suffix = Date.now().toString(36);
+      const placeholder = `manual_${companyId.slice(0, 8)}_${suffix}`;
+      const accountType: 'subadquirente' | 'despachante' = 'despachante';
+
+      const { data: created, error } = await supabase
+        .from('asaas_subaccounts')
+        .insert({
+          company_id: companyId,
+          asaas_account_id: placeholder,
+          wallet_id: '',
+          account_type: accountType,
+          status: 'inactive',
+          account_origin: 'external',
+          is_manual_config: true
+        })
+        .select()
+        .single();
+
+      if (error || !created) {
+        toast.error('Falha ao criar registro para configuração manual');
+        return;
+      }
+
+      toast.success('Registro criado. Informe o Wallet ID e a API Key.');
+      setSelectedSubaccount(created as AsaasSubaccount);
+      setShowManualConfigModal(true);
+    } catch (err) {
+      console.error('Erro ao preparar edição manual:', err);
+      toast.error('Erro ao preparar edição manual');
+    }
+  };
+
 
   const getApiKeyStatusColor = () => {
     if (!apiKeyTest) return 'text-gray-500 bg-gray-100';
@@ -283,13 +368,141 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
   }
 
   if (!details) {
+    // Quando não há detalhes (API key ausente), mas existe registro de subconta, mostrar informações básicas
+    if (baseSubaccount) {
+      return (
+        <div className="space-y-6">
+          <div className="text-center py-12">
+            <Wallet className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">Subconta sem API Key</h3>
+            <p className="text-gray-500 mb-6">
+              Esta empresa possui uma subconta cadastrada, mas ainda não há API Key ativa para carregar os detalhes.
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={openManualConfigModal}
+                className="inline-flex items-center px-4 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors"
+              >
+                <Edit className="w-4 h-4 mr-2" />
+                Editar Wallet ID
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-6">
+            <h4 className="text-md font-medium text-gray-900 mb-4">Informações da Subconta</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ID Asaas</label>
+                <p className="text-gray-900 font-mono text-sm">{baseSubaccount.asaas_account_id}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Wallet ID</label>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-900 font-mono text-sm bg-gray-50 px-3 py-1 rounded border">
+                    {maskWalletId(
+                       (baseSubaccount.manual_wallet_id || baseSubaccount.wallet_id) || '',
+                       showWallet
+                     )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowWallet((v) => !v)}
+                    className="p-1 rounded hover:bg-gray-100 transition-colors"
+                    aria-label={showWallet ? 'Ocultar Wallet ID' : 'Mostrar Wallet ID'}
+                    title="Clique para ver o Wallet ID completo"
+                  >
+                    {showWallet ? (
+                      <EyeOff className="w-4 h-4 text-gray-600" />
+                    ) : (
+                      <Eye className="w-4 h-4 text-gray-600" />
+                    )}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Conta</label>
+                <p className="text-gray-900 capitalize">{baseSubaccount.account_type}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(baseSubaccount.status)}`}>
+                  {getStatusIcon(baseSubaccount.status)}
+                  <span className="ml-2">{baseSubaccount.status}</span>
+                </div>
+              </div>
+              {baseSubaccount.is_manual_config && (
+                <div className="md:col-span-2 lg:col-span-3">
+                  <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium text-blue-600 bg-blue-100">
+                    <Shield className="w-4 h-4 mr-2" />
+                    Configuração Manual Ativa
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Modais */}
+          <ManualSubaccountConfigModal
+            isOpen={showManualConfigModal}
+            onClose={() => setShowManualConfigModal(false)}
+            subaccount={selectedSubaccount}
+            onSuccess={() => {
+              setShowManualConfigModal(false);
+              loadSubaccountData();
+            }}
+          />
+        </div>
+      );
+    }
+
+    // Sem subconta alguma
     return (
-      <div className="text-center py-12">
-        <Wallet className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Subconta não encontrada</h3>
-        <p className="text-gray-500 mb-4">
-          Esta empresa ainda não possui uma subconta Asaas configurada.
-        </p>
+      <div className="space-y-6">
+        <div className="text-center py-12">
+          <Wallet className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Subconta não encontrada</h3>
+          <p className="text-gray-500 mb-6">
+            Esta empresa ainda não possui uma subconta Asaas configurada.
+          </p>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={openCreateSubaccountModal}
+              className="inline-flex items-center px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Criar Subconta
+            </button>
+            <button
+              onClick={openManualConfigModal}
+              className="inline-flex items-center px-4 py-2 text-sm bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors"
+            >
+              <Edit className="w-4 h-4 mr-2" />
+              Editar Wallet ID
+            </button>
+          </div>
+        </div>
+
+        {/* Modais */}
+        <CreateSubaccountModal
+          isOpen={showCreateModal}
+          onClose={() => setShowCreateModal(false)}
+          company={companyData ? { id: companyData.id, nome: companyData.nome, cnpj: companyData.cnpj, email: companyData.email, telefone: companyData.telefone, endereco: companyData.endereco } : null}
+          onSuccess={() => {
+            setShowCreateModal(false);
+            loadSubaccountData();
+          }}
+        />
+
+        <ManualSubaccountConfigModal
+          isOpen={showManualConfigModal}
+          onClose={() => setShowManualConfigModal(false)}
+          subaccount={selectedSubaccount}
+          onSuccess={() => {
+            setShowManualConfigModal(false);
+            loadSubaccountData();
+          }}
+        />
       </div>
     );
   }
@@ -432,7 +645,27 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
           
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Wallet ID</label>
-            <p className="text-gray-900 font-mono text-sm">{details.subaccount.wallet_id}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-900 font-mono text-sm bg-gray-50 px-3 py-1 rounded border">
+                {maskWalletId(
+                  (details.subaccount.manual_wallet_id || details.subaccount.wallet_id) || '',
+                  showWallet
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowWallet((v) => !v)}
+                className="p-1 rounded hover:bg-gray-100 transition-colors"
+                aria-label={showWallet ? 'Ocultar Wallet ID' : 'Mostrar Wallet ID'}
+                title="Clique para ver o Wallet ID completo"
+              >
+                {showWallet ? (
+                  <EyeOff className="w-4 h-4 text-gray-600" />
+                ) : (
+                  <Eye className="w-4 h-4 text-gray-600" />
+                )}
+              </button>
+            </div>
           </div>
           
           <div>
@@ -619,7 +852,7 @@ export default function SubcontaAsaasTab({ companyId }: SubcontaAsaasTabProps) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {details.recentPayments.slice(0, 5).map((payment: any) => (
+                {details.recentPayments.slice(0, 5).map((payment: PaymentItem) => (
                   <tr key={payment.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>

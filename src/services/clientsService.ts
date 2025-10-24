@@ -71,25 +71,7 @@ class ClientsService {
   async getClientsWithStats(filters?: ClientFilters): Promise<(Client & { vehicles: Vehicle[]; multas_count: number; recursos_count: number; valor_economizado: number })[]> {
     let query = supabase
       .from('clients')
-      .select(`
-        *,
-        vehicles!left(
-          id,
-          placa,
-          modelo,
-          marca,
-          ano,
-          cor,
-          renavam,
-          created_at
-        ),
-        multas!left(
-          id,
-          recursos!left(
-            id
-          )
-        )
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
 
     if (filters?.companyId) {
@@ -112,40 +94,56 @@ class ClientsService {
       query = query.eq('cidade', filters.cidade)
     }
 
-    const { data, error } = await query
+    const { data: clients, error } = await query
 
     if (error) {
       throw new Error(`Erro ao buscar clientes com estatísticas: ${error.message}`)
     }
 
-    // Processar os dados para contar multas e recursos
-    const clientsWithStats = (data || []).map(client => {
-      const multasCount = Array.isArray(client.multas) ? client.multas.length : 0
-      const vehicles = Array.isArray(client.vehicles) ? client.vehicles : []
-      
-      // Contar recursos através das multas
-      let recursosCount = 0
-      let valorEconomizado = 0
-      
-      if (Array.isArray(client.multas)) {
-        client.multas.forEach((multa: any) => {
-          if (Array.isArray(multa.recursos)) {
-            recursosCount += multa.recursos.length
-            // Como não temos valor_economizado na tabela recursos, definimos como 0
-            valorEconomizado = 0
-          }
-        })
-      }
+    // Buscar todas as multas e recursos para calcular contagens por cliente
+    const { data: todasMultas } = await supabase
+      .from('multas')
+      .select('*')
 
-      // Remover as propriedades de join para retornar apenas os dados do cliente
-      const { multas, vehicles: vehiclesData, ...clientData } = client
-      
+    const { data: todosRecursos } = await supabase
+      .from('recursos')
+      .select('*')
+
+    type MultaRow = Database['public']['Tables']['multas']['Row']
+    type RecursoRow = Database['public']['Tables']['recursos']['Row']
+
+    const multasByClient = new Map<string, number>()
+    const recursosByClient = new Map<string, number>()
+
+    ;(todasMultas as MultaRow[] | null || []).forEach((m) => {
+      const cid = m.client_id as string
+      multasByClient.set(cid, (multasByClient.get(cid) || 0) + 1)
+    })
+
+    // Mapear multa_id -> client_id para contar recursos por cliente
+    const multaClientIdById = new Map<string, string>()
+    ;(todasMultas as MultaRow[] | null || []).forEach((m) => {
+      multaClientIdById.set(m.id as string, m.client_id as string)
+    })
+
+    ;(todosRecursos as RecursoRow[] | null || []).forEach((r) => {
+      const multaId = r.multa_id as string
+      const cid = multaClientIdById.get(multaId)
+      if (cid) {
+        recursosByClient.set(cid, (recursosByClient.get(cid) || 0) + 1)
+      }
+    })
+
+    const clientsWithStats = (clients || []).map((client) => {
+      const multasCount = multasByClient.get(client.id) || 0
+      const recursosCount = recursosByClient.get(client.id) || 0
+
       return {
-        ...clientData,
-        vehicles: vehicles,
+        ...client,
+        vehicles: [],
         multas_count: multasCount,
         recursos_count: recursosCount,
-        valor_economizado: valorEconomizado
+        valor_economizado: 0
       }
     })
 
@@ -194,39 +192,43 @@ class ClientsService {
       throw new Error(`Erro ao buscar veículos: ${vehiclesError.message}`)
     }
 
-    // Buscar multas e recursos do cliente
+    // Buscar multas do cliente
     const { data: multas, error: multasError } = await supabase
       .from('multas')
-      .select(`
-        id,
-        recursos!left(
-          id
-        )
-      `)
+      .select('id')
       .eq('client_id', id)
 
     if (multasError) {
       throw new Error(`Erro ao buscar multas: ${multasError.message}`)
     }
 
-    // Contar multas e recursos
-    const multasCount = Array.isArray(multas) ? multas.length : 0
+    // Buscar recursos das multas do cliente (filtrando por multa_id)
+    const multaIds = (multas || []).map(m => m.id)
     let recursosCount = 0
-    
-    if (Array.isArray(multas)) {
-      multas.forEach((multa: any) => {
-        if (Array.isArray(multa.recursos)) {
-          recursosCount += multa.recursos.length
-        }
-      })
+
+    if (multaIds.length > 0) {
+      const { data: recursosData, error: recursosError } = await supabase
+        .from('recursos')
+        .select('id, multa_id')
+
+      if (recursosError) {
+        throw new Error(`Erro ao buscar recursos: ${recursosError.message}`)
+      }
+
+      type RecursoRow = Database['public']['Tables']['recursos']['Row']
+      const recursos = (recursosData as RecursoRow[] | null) || []
+      const multaIdSet = new Set<string>(multaIds as string[])
+      recursosCount = recursos.reduce((acc, r) => acc + (multaIdSet.has(r.multa_id as string) ? 1 : 0), 0)
     }
+
+    const multasCount = Array.isArray(multas) ? multas.length : 0
 
     return {
       ...client,
       vehicles: vehicles || [],
       multas_count: multasCount,
       recursos_count: recursosCount,
-      valor_economizado: 0 // Como não temos essa coluna na tabela recursos
+      valor_economizado: 0
     }
   }
 

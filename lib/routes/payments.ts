@@ -13,7 +13,7 @@ async function getAsaasPayments(companyId: string): Promise<any[]> {
     // Buscar configuração da empresa
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('asaas_api_key, asaas_wallet_id, nome')
+      .select('asaas_api_key, manual_wallet_id, nome')
       .eq('id', companyId)
       .single();
     
@@ -1421,11 +1421,11 @@ router.post('/create-service-order', authenticateToken, async (req: Request, res
     // 2. Buscar wallet da empresa (despachante)
     const { data: company, error: companyError } = await supabase
       .from('companies')
-      .select('asaas_wallet_id, nome')
+      .select('manual_wallet_id, nome')
       .eq('id', company_id)
       .single();
     
-    if (companyError || !company?.asaas_wallet_id) {
+    if (companyError || !company?.manual_wallet_id) {
       console.error('Wallet da empresa não configurado:', companyError);
       return res.status(400).json({ 
         error: 'Wallet da empresa não configurado. Configure o wallet no painel administrativo.',
@@ -1433,7 +1433,7 @@ router.post('/create-service-order', authenticateToken, async (req: Request, res
       });
     }
     
-    console.log('Empresa encontrada:', company.nome, 'Wallet:', company.asaas_wallet_id);
+    console.log('Empresa encontrada:', company.nome, 'Wallet:', company.manual_wallet_id);
     
     // 3. Calcular splits dinamicamente
     const custoMinimo = (service.acsm_value || 0) + (service.icetran_value || 0) + (service.taxa_cobranca || 3.50);
@@ -1476,32 +1476,81 @@ router.post('/create-service-order', authenticateToken, async (req: Request, res
     }
     
     // 5. Criar JSON de splits para o Asaas
+    // Resolver wallet do ICETRAN dinamicamente ANTES de montar os splits
+    let icetranWalletId: string | null = null;
+    try {
+      // 1) Buscar via empresa pai do despachante, usando somente manual_wallet_id
+      const { data: companyRow } = await supabase
+        .from('companies')
+        .select('parent_company_id')
+        .eq('id', company_id)
+        .single();
+
+      if (companyRow?.parent_company_id) {
+        const { data: parent } = await supabase
+          .from('companies')
+          .select('id, nome, manual_wallet_id')
+          .eq('id', companyRow.parent_company_id)
+          .single();
+        
+        if (parent?.manual_wallet_id) {
+          icetranWalletId = parent.manual_wallet_id;
+        }
+      }
+
+      // 2) Fallback: buscar empresa ICETRAN ativa (por tipo ou nome), usando somente manual_wallet_id
+      if (!icetranWalletId) {
+        const { data: icetranCompanies } = await supabase
+          .from('companies')
+          .select('id, nome, manual_wallet_id, company_type, status')
+          .or('company_type.eq.icetran,nome.ilike.%ICETRAN%')
+          .eq('status', 'ativo')
+          .limit(1);
+        const icetran = Array.isArray(icetranCompanies) ? icetranCompanies[0] : null;
+        if (icetran?.manual_wallet_id) {
+          icetranWalletId = icetran.manual_wallet_id;
+        }
+      }
+    } catch (resolveErr) {
+      console.warn('⚠️  Falha ao resolver wallet do ICETRAN dinamicamente:', resolveErr);
+    }
+
+    // Não usar defaults ou subcontas; exigir manual_wallet_id
+    if (!icetranWalletId && service.icetran_value && service.icetran_value > 0) {
+      return res.status(400).json({ 
+        error: 'Wallet da ICETRAN não configurada. Cadastre manual_wallet_id na empresa ICETRAN.',
+        code: 'ICETRAN_WALLET_MISSING'
+      });
+    }
+    console.log('🏦 Wallet ICETRAN usada:', icetranWalletId);
+
+    // Montar splits já com wallet correta
     const splits = [];
-    
+
     // Split ICETRAN (sempre presente se valor > 0)
     if (service.icetran_value && service.icetran_value > 0) {
       splits.push({
-        walletId: process.env.ICETRAN_WALLET_ID,
+        walletId: icetranWalletId,
         fixedValue: service.icetran_value
       });
     }
-    
+
     // Split Despachante (valor restante após descontar ACSM, ICETRAN e taxa)
     if (margemDespachante > 0) {
       splits.push({
-        walletId: company.asaas_wallet_id,
+        walletId: company.manual_wallet_id,
         fixedValue: margemDespachante
       });
     }
-    
+
     console.log('Splits calculados:', splits);
-    
+
     // 6. Enviar para webhook externo
     console.log('🌐 Enviando para webhook externo...');
     
     const webhookData = {
-      wallet_icetran: 'eb35cde4-d0f2-44d1-83c0-aaa3496f7ed0',
-      wallet_despachante: company.asaas_wallet_id,
+      wallet_icetran: icetranWalletId,
+      wallet_despachante: company.manual_wallet_id,
       Customer_cliente: {
         id: customer_id,
         nome: client.nome,
@@ -1518,7 +1567,7 @@ router.post('/create-service-order', authenticateToken, async (req: Request, res
       despachante: {
         company_id: company_id,
         nome: company.nome,
-        wallet_id: company.asaas_wallet_id,
+        wallet_id: company.manual_wallet_id,
         margem: margemDespachante
       }
     };

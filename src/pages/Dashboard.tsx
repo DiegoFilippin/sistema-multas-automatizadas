@@ -8,7 +8,7 @@ import DashboardCliente from '@/components/Dashboard/DashboardCliente';
 
 export default function Dashboard() {
   const { user } = useAuthStore();
-  const { fetchMultas } = useMultasStore();
+  const { fetchMultas, fetchRecursos } = useMultasStore();
   const { fetchEmpresas, fetchPlanos } = useEmpresasStore();
 
   useEffect(() => {
@@ -17,22 +17,29 @@ export default function Dashboard() {
       if (user.role === 'Superadmin' || user.role === 'ICETRAN') {
         fetchEmpresas();
         fetchPlanos();
+        // Opcional: carregar recursos para visão master se necessário
+        // fetchRecursos();
       } else if (user.role === 'Despachante') {
         fetchMultas();
+        fetchRecursos({ companyId: user.company_id });
       } else if (user.role === 'Usuario/Cliente') {
         fetchMultas({ clientId: user.id });
+        fetchRecursos({ clientId: user.id });
       }
       // Manter compatibilidade com roles antigos durante transição
       else if (user.role === 'admin') {
         fetchEmpresas();
         fetchPlanos();
+        // fetchRecursos(); // se necessário na visão admin
       } else if (user.role === 'user') {
         fetchMultas();
+        fetchRecursos({ companyId: user.company_id });
       } else if (user.role === 'viewer') {
         fetchMultas({ clientId: user.id });
+        fetchRecursos({ clientId: user.id });
       }
     }
-  }, [user, fetchMultas, fetchEmpresas, fetchPlanos]);
+  }, [user, fetchMultas, fetchEmpresas, fetchPlanos, fetchRecursos]);
 
   if (!user) {
     return (

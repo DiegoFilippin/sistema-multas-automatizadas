@@ -5,7 +5,7 @@ export interface AuthUser {
   id: string
   email: string
   nome: string
-  role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente'
+  role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | 'admin' | 'user' | 'viewer' | 'admin_master'
   company_id?: string
   ativo: boolean
   ultimo_login?: string
@@ -22,7 +22,7 @@ export interface RegisterData {
   password: string
   nome: string
   company_id?: string
-  role?: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente'
+  role?: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | 'admin' | 'user'
 }
 
 class AuthService {
@@ -59,11 +59,50 @@ class AuthService {
         .update({ ultimo_login: new Date().toISOString() })
         .eq('id', userProfile.id)
 
+      // Normalizar role para os 4 perfis da UI, com compatibilidade
+      const mapDbRoleToUi = (r?: string): AuthUser['role'] => {
+        switch (r) {
+          case 'admin_master': return 'Superadmin'
+          case 'admin': return 'ICETRAN'
+          case 'user': return 'Despachante'
+          case 'viewer': return 'Usuario/Cliente'
+          case 'Superadmin':
+          case 'ICETRAN':
+          case 'Despachante':
+          case 'Usuario/Cliente':
+            return r as AuthUser['role']
+          default:
+            return 'Usuario/Cliente'
+        }
+      }
+
+      // Preferir role do user_profiles se existir (admin_master, etc.)
+      let rawRole = userProfile.role as string | undefined
+      try {
+        const { data: profileByEmail, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('email', userProfile.email)
+          .maybeSingle()
+        if (!profileError && profileByEmail?.role) {
+          rawRole = profileByEmail.role
+        }
+      } catch {
+        // Ignorar erros de leitura de user_profiles e seguir com role do users
+      }
+      // Override por e-mail para garantir que contas conhecidas sejam Superadmin
+      const superadminEmails = ['superadmin@sistema.com', 'master@sistema.com']
+      if (superadminEmails.includes(userProfile.email)) {
+        rawRole = 'admin_master'
+      }
+
+      const uiRole = mapDbRoleToUi(rawRole)
+
       const user: AuthUser = {
         id: userProfile.id,
         email: userProfile.email,
         nome: userProfile.nome,
-        role: userProfile.role,
+        role: uiRole,
         company_id: userProfile.company_id,
         ativo: userProfile.ativo,
         ultimo_login: userProfile.ultimo_login,
@@ -78,6 +117,21 @@ class AuthService {
 
   async register(data: RegisterData): Promise<{ user: AuthUser; session: any }> {
     try {
+      // Map UI role to DB role ('admin' | 'user')
+      const mapRoleToDb = (r?: RegisterData['role']): 'admin' | 'user' => {
+        switch (r) {
+          case 'Superadmin':
+          case 'ICETRAN':
+          case 'admin':
+            return 'admin'
+          case 'Despachante':
+          case 'Usuario/Cliente':
+          case 'user':
+          default:
+            return 'user'
+        }
+      }
+
       // Sign up with Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
@@ -92,6 +146,8 @@ class AuthService {
         throw new Error('Registration failed')
       }
 
+      const dbRole = mapRoleToDb(data.role)
+
       // Create user profile in users table
       const { data: userProfile, error: profileError } = await supabase
         .from('users')
@@ -99,7 +155,7 @@ class AuthService {
           id: authData.user.id,
           email: data.email,
           nome: data.nome,
-          role: data.role || 'Usuario/Cliente',
+          role: dbRole,
           company_id: data.company_id,
           ativo: true,
         })
@@ -151,17 +207,56 @@ class AuthService {
         return null
       }
 
+      // Normalizar role para os 4 perfis da UI, com compatibilidade
+      const mapDbRoleToUi = (r?: string): AuthUser['role'] => {
+        switch (r) {
+          case 'admin_master': return 'Superadmin'
+          case 'admin': return 'ICETRAN'
+          case 'user': return 'Despachante'
+          case 'viewer': return 'Usuario/Cliente'
+          case 'Superadmin':
+          case 'ICETRAN':
+          case 'Despachante':
+          case 'Usuario/Cliente':
+            return r as AuthUser['role']
+          default:
+            return 'Usuario/Cliente'
+        }
+      }
+
+      // Preferir role do user_profiles se existir (admin_master, etc.)
+      let rawRole = userProfile.role as string | undefined
+      try {
+        const { data: profileByEmail, error: profileError2 } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('email', userProfile.email)
+          .maybeSingle()
+        if (!profileError2 && profileByEmail?.role) {
+          rawRole = profileByEmail.role
+        }
+      } catch {
+        // Ignorar erros de leitura de user_profiles e seguir com role do users
+      }
+      // Override por e-mail para garantir que contas conhecidas sejam Superadmin
+      const superadminEmails = ['superadmin@sistema.com', 'master@sistema.com']
+      if (superadminEmails.includes(userProfile.email)) {
+        rawRole = 'admin_master'
+      }
+
+      const uiRole = mapDbRoleToUi(rawRole)
+
       return {
         id: userProfile.id,
         email: userProfile.email,
         nome: userProfile.nome,
-        role: userProfile.role,
+        role: uiRole,
         company_id: userProfile.company_id,
         ativo: userProfile.ativo,
         ultimo_login: userProfile.ultimo_login,
         asaas_customer_id: userProfile.asaas_customer_id,
       }
-    } catch (error) {
+    } catch {
       return null
     }
   }

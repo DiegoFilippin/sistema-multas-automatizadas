@@ -176,15 +176,26 @@ export default function NovoRecursoSimples() {
             postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
           };
 
-          const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+          const asaasCustomer = await (async () => {
+            await asaasService.reloadConfig();
+            if (!asaasService.isConfigured()) {
+              throw new Error('Integração Asaas não configurada');
+            }
+            return asaasService.createCustomer(asaasCustomerData);
+          })();
           
-          // Atualizar cliente com asaas_customer_id através do clientsService
-          await clientsService.updateClient(clienteCriado.id, {
-            asaas_customer_id: asaasCustomer.id
-          });
+          if (asaasCustomer?.id) {
+            // Atualizar cliente com asaas_customer_id através do clientsService somente se houver ID
+            await clientsService.updateClient(clienteCriado.id, {
+              asaas_customer_id: asaasCustomer.id
+            });
 
-          console.log('Customer criado no Asaas:', asaasCustomer.id);
-          toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+            console.log('Customer criado no Asaas:', asaasCustomer.id);
+            toast.success('Cliente cadastrado com sucesso! Customer Asaas: ' + asaasCustomer.id);
+          } else {
+            console.warn('Customer Asaas criado sem ID válido:', asaasCustomer);
+            toast.warning('Cliente criado, mas não foi possível confirmar o Customer Asaas.');
+          }
         } catch (asaasError) {
           console.error('Erro ao criar customer no Asaas:', asaasError);
           toast.warning('Cliente criado, mas houve erro na integração com Asaas.');

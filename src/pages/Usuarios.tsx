@@ -1,24 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
   Search, 
-  Filter, 
   Edit,
   Trash2,
   CheckCircle2,
-  AlertCircle,
-  X,
-  MoreVertical,
   User,
-  Mail,
-  Phone,
-  Shield,
   RotateCw,
   Users,
   RefreshCw
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'sonner';
+import { useEmpresasStore } from '../stores/empresasStore';
+import type { Empresa } from '../stores/empresasStore';
+import { supabase } from '../lib/supabase';
+import type { Database } from '../lib/supabase';
 
 interface Usuario {
   id: string;
@@ -27,11 +24,22 @@ interface Usuario {
   telefone?: string;
   role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' | 'admin' | 'user' | 'viewer'; // Incluir roles antigos para compatibilidade
   company_id: string;
+  empresa_nome?: string;
   ativo: boolean;
   ultimo_login?: string;
   created_at: string;
   asaas_customer_id?: string;
 }
+
+type UsuarioFormData = {
+  nome: string;
+  email: string;
+  telefone: string;
+  role: 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente';
+  password?: string;
+  confirmPassword?: string;
+  company_id?: string;
+};
 
 interface DespachanteWithoutCustomer {
   id: string;
@@ -49,17 +57,20 @@ interface UsuarioModalProps {
   isOpen: boolean;
   onClose: () => void;
   usuario?: Usuario | null;
-  onSave: (usuario: any) => void;
+  onSave: (usuario: UsuarioFormData) => void;
+  isSuperadmin?: boolean;
+  empresas?: Empresa[];
 }
 
-function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
+function UsuarioModal({ isOpen, onClose, usuario, onSave, isSuperadmin = false, empresas = [] }: UsuarioModalProps) {
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
     telefone: '',
     role: 'Usuario/Cliente' as 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    company_id: ''
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -75,7 +86,8 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
                usuario.role === 'viewer' ? 'Usuario/Cliente' : 
                usuario.role) as 'Superadmin' | 'ICETRAN' | 'Despachante' | 'Usuario/Cliente' || 'Usuario/Cliente',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        company_id: usuario.company_id || ''
       });
     } else {
       setFormData({
@@ -84,7 +96,8 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
         telefone: '',
         role: 'Usuario/Cliente',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        company_id: ''
       });
     }
   }, [usuario, isOpen]);
@@ -102,9 +115,20 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
       return;
     }
 
+    if (isSuperadmin && !usuario && !formData.company_id) {
+      toast.error('Selecione a empresa do usuário a ser criado');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      await onSave(formData);
+      const sanitizedData = {
+        ...formData,
+        nome: formData.nome.trim(),
+        email: formData.email.trim().toLowerCase(),
+        telefone: formData.telefone?.trim() || '',
+      };
+      await onSave(sanitizedData);
       onClose();
     } catch (error) {
       console.error('Erro ao salvar usuário:', error);
@@ -181,6 +205,25 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
               </select>
             </div>
 
+            {isSuperadmin && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Empresa {usuario ? '' : '*'}
+                </label>
+                <select
+                  required={!usuario}
+                  value={formData.company_id}
+                  onChange={(e) => setFormData({ ...formData, company_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Selecione a empresa</option>
+                  {empresas?.map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.nome}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {!usuario && (
               <>
                 <div>
@@ -237,134 +280,11 @@ function UsuarioModal({ isOpen, onClose, usuario, onSave }: UsuarioModalProps) {
   );
 }
 
-interface UsuarioCardProps {
-  usuario: Usuario;
-  onEdit: (usuario: Usuario) => void;
-  onToggleStatus: (id: string) => void;
-  onDelete: (id: string) => void;
-}
-
-function UsuarioCard({ usuario, onEdit, onToggleStatus, onDelete }: UsuarioCardProps) {
-  const getRoleColor = (role: string) => {
-    switch (role) {
-      case 'admin': return 'bg-red-100 text-red-800';
-
-      case 'user': return 'bg-blue-100 text-blue-800';
-      
-      case 'viewer': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getRoleLabel = (role: string) => {
-    switch (role) {
-      case 'Superadmin': return 'Superadministrador';
-      case 'ICETRAN': return 'ICETRAN';
-      case 'Despachante': return 'Despachante';
-      case 'Usuario/Cliente': return 'Usuário/Cliente';
-      // Manter compatibilidade com roles antigos durante transição
-      case 'admin': return 'ICETRAN';
-      case 'user': return 'Despachante';
-      case 'viewer': return 'Usuário/Cliente';
-      default: return role;
-    }
-  };
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-            <User className="w-6 h-6 text-blue-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">{usuario.nome}</h3>
-            <div className="flex items-center space-x-4 mt-1">
-              <div className="flex items-center text-gray-600">
-                <Mail className="w-4 h-4 mr-1" />
-                <span className="text-sm">{usuario.email}</span>
-              </div>
-              {usuario.telefone && (
-                <div className="flex items-center text-gray-600">
-                  <Phone className="w-4 h-4 mr-1" />
-                  <span className="text-sm">{usuario.telefone}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        
-        <div className="flex items-center space-x-2">
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(usuario.role)}`}>
-            <Shield className="w-3 h-3 inline mr-1" />
-            {getRoleLabel(usuario.role)}
-          </span>
-          
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-            usuario.ativo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-          }`}>
-            {usuario.ativo ? (
-              <>
-                <CheckCircle2 className="w-3 h-3 inline mr-1" />
-                Ativo
-              </>
-            ) : (
-              <>
-                <AlertCircle className="w-3 h-3 inline mr-1" />
-                Inativo
-              </>
-            )}
-          </span>
-        </div>
-      </div>
-      
-      <div className="mt-4 pt-4 border-t border-gray-200">
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            {usuario.ultimo_login ? (
-              <span>Último acesso: {new Date(usuario.ultimo_login).toLocaleDateString('pt-BR')}</span>
-            ) : (
-              <span>Nunca acessou</span>
-            )}
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => onEdit(usuario)}
-              className="p-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-              title="Editar usuário"
-            >
-              <Edit className="w-4 h-4" />
-            </button>
-            
-            <button
-              onClick={() => onToggleStatus(usuario.id)}
-              className={`p-2 rounded-lg transition-colors ${
-                usuario.ativo 
-                  ? 'text-gray-600 hover:text-red-600 hover:bg-red-50' 
-                  : 'text-gray-600 hover:text-green-600 hover:bg-green-50'
-              }`}
-              title={usuario.ativo ? 'Desativar usuário' : 'Ativar usuário'}
-            >
-              {usuario.ativo ? <X className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4" />}
-            </button>
-            
-            <button
-              onClick={() => onDelete(usuario.id)}
-              className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-              title="Excluir usuário"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Layout de cards removido após migração para lista/tabela de usuários.
 
 export default function Usuarios() {
   const { user } = useAuthStore();
+  const { empresas, fetchEmpresas } = useEmpresasStore();
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -384,38 +304,70 @@ export default function Usuarios() {
     fetchUsuarios();
   }, []);
 
+  useEffect(() => {
+    if (empresas.length === 0) {
+      fetchEmpresas().catch(err => console.error('Erro ao carregar empresas:', err));
+    }
+  }, [empresas.length, fetchEmpresas]);
+
+  useEffect(() => {
+    if (showModal && user?.role === 'Superadmin' && empresas.length === 0) {
+      fetchEmpresas().catch(err => console.error('Erro ao carregar empresas:', err));
+    }
+  }, [showModal, user?.role, empresas.length, fetchEmpresas]);
+
+  useEffect(() => {
+    if (empresas.length > 0 && usuarios.length > 0) {
+      setUsuarios(prev => prev.map(u => {
+        const emp = empresas.find(e => e.id === u.company_id);
+        return { ...u, empresa_nome: emp?.nome };
+      }));
+    }
+  }, [empresas, usuarios.length]);
+
+  const isCreatingRef = useRef(false);
+
   const fetchUsuarios = async () => {
     setIsLoading(true);
     try {
-      // Simular busca de usuários da empresa
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock data - em produção, buscar do banco de dados filtrado por company_id
-      const mockUsuarios: Usuario[] = [
-        {
-          id: '1',
-          nome: 'João Silva',
-          email: 'joao@empresa.com',
-          telefone: '(11) 99999-9999',
-          role: 'ICETRAN',
-          company_id: user?.company_id || '',
-          ativo: true,
-          ultimo_login: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        },
-        {
-          id: '2',
-          nome: 'Maria Santos',
-          email: 'maria@empresa.com',
-          telefone: '(11) 88888-8888',
-          role: 'Despachante',
-          company_id: user?.company_id || '',
-          ativo: true,
-          created_at: new Date().toISOString()
-        }
-      ];
-      
-      setUsuarios(mockUsuarios);
+      let query = supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      // Superadmin e ICETRAN veem todos os usuários
+      if (user?.role === 'Superadmin' || user?.role === 'ICETRAN') {
+        // sem filtro de company_id
+      } else if (user?.company_id) {
+        // Outros papéis: restringir à empresa do usuário
+        query = query.eq('company_id', user.company_id);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        throw error;
+      }
+
+      type DbUser = Database['public']['Tables']['users']['Row'] & {
+        telefone?: string;
+        asaas_customer_id?: string;
+      };
+
+      const lista = ((data || []) as DbUser[]).map((u) => ({
+        id: u.id,
+        nome: u.nome,
+        email: u.email,
+        telefone: u.telefone,
+        role: u.role as Usuario['role'],
+        company_id: u.company_id || '',
+        ativo: u.ativo,
+        ultimo_login: u.ultimo_login || undefined,
+        created_at: u.created_at,
+        asaas_customer_id: u.asaas_customer_id,
+        empresa_nome: empresas.find(e => e.id === (u.company_id || ''))?.nome
+      }));
+
+      setUsuarios(lista);
     } catch (error) {
       console.error('Erro ao buscar usuários:', error);
       toast.error('Erro ao carregar usuários');
@@ -436,30 +388,153 @@ export default function Usuarios() {
     return matchesSearch && matchesRole && matchesStatus;
   });
 
-  const handleCreateUsuario = async (dados: any) => {
+  const handleCreateUsuario = async (dados: UsuarioFormData) => {
+    if (isCreatingRef.current) {
+      toast.info('Processando criação de usuário...');
+      return;
+    }
+    isCreatingRef.current = true;
     try {
-      // Aqui você implementaria a criação do usuário usando authService.register
-      const novoUsuario: Usuario = {
-        id: `user_${Date.now()}`,
-        nome: dados.nome,
-        email: dados.email,
-        telefone: dados.telefone,
-        role: dados.role,
-        company_id: user?.company_id || '',
-        ativo: true,
-        created_at: new Date().toISOString()
+      if (user?.role === 'Superadmin' && !dados.company_id) {
+        toast.error('Selecione a empresa do usuário.');
+        isCreatingRef.current = false;
+        return;
+      }
+
+      if (!dados.password) {
+        toast.error('Informe a senha do novo usuário.');
+        isCreatingRef.current = false;
+        return;
+      }
+
+      // Mapear papel do formulário para papel do banco (admin/user/viewer)
+      const mapRoleToDb = (r: UsuarioFormData['role']): 'admin' | 'user' => {
+        switch (r) {
+          case 'ICETRAN':
+            return 'admin';
+          case 'Despachante':
+            return 'user';
+          case 'Usuario/Cliente':
+            return 'user';
+          case 'Superadmin':
+            // Não criar Superadmin via UI de usuários; tratar como admin
+            return 'admin';
+          default:
+            return 'user';
+        }
       };
-      
-      setUsuarios(prev => [...prev, novoUsuario]);
-      toast.success('Usuário criado com sucesso!');
+
+      const dbRole = mapRoleToDb(dados.role);
+      const companyId = user?.role === 'Superadmin' ? (dados.company_id || '') : (user?.company_id || '');
+
+      if (!companyId) {
+        toast.error('Empresa do usuário não definida.');
+        isCreatingRef.current = false;
+        return;
+      }
+
+      // 1) Criar usuário na autenticação
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: dados.email,
+        password: dados.password,
+        options: {
+          data: {
+            nome: dados.nome,
+            role: dbRole,
+            company_id: companyId,
+          },
+        },
+      });
+
+      if (authError) {
+        const msg = typeof authError.message === 'string' && authError.message.includes('registered')
+          ? 'Email já registrado. Use outro email.'
+          : `Erro na autenticação: ${authError.message}`;
+        toast.error(msg);
+        isCreatingRef.current = false;
+        return;
+      }
+
+      const newUserId = authData.user?.id;
+      if (!newUserId) {
+        toast.error('Falha ao criar usuário de autenticação');
+        isCreatingRef.current = false;
+        return;
+      }
+
+      // 2) Criar perfil na tabela users; se duplicado, buscar perfil existente (evita RLS em update)
+      let perfilData: Database['public']['Tables']['users']['Row'] | null = null;
+      const insertRes = await supabase
+        .from('users')
+        .insert({
+          id: newUserId,
+          email: dados.email,
+          nome: dados.nome,
+          role: dbRole,
+          company_id: companyId,
+          ativo: true,
+        })
+        .select()
+        .single();
+
+      if (insertRes.error) {
+        const err = insertRes.error as { code?: string; message?: string };
+        if (err.code === '23505' || (typeof err.message === 'string' && err.message.includes('duplicate key'))) {
+          // Já existe: buscar representação
+          const { data: existing, error: getErr } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', newUserId)
+            .single();
+          if (getErr) {
+            throw new Error(getErr.message || 'Erro ao obter perfil existente');
+          }
+          perfilData = existing as Database['public']['Tables']['users']['Row'];
+        } else {
+          // Outro erro
+          throw new Error(err.message || 'Erro ao criar perfil do usuário');
+        }
+      } else {
+        perfilData = insertRes.data as Database['public']['Tables']['users']['Row'];
+      }
+
+      // 3) Atualizar estado local com o novo usuário persistido
+      const empresaNome = empresas.find(e => e.id === companyId)?.nome;
+      // Tipar perfilData com possível campo extra opcional
+      type PerfilRow = Database['public']['Tables']['users']['Row'] & { asaas_customer_id?: string; telefone?: string };
+      const p = perfilData as PerfilRow;
+      const novoUsuario: Usuario = {
+        id: p.id,
+        nome: p.nome,
+        email: p.email,
+        telefone: p.telefone,
+        role: p.role as Usuario['role'],
+        company_id: p.company_id,
+        empresa_nome: empresaNome,
+        ativo: p.ativo,
+        ultimo_login: p.ultimo_login || undefined,
+        created_at: p.created_at,
+        asaas_customer_id: p.asaas_customer_id,
+      };
+
+      setUsuarios(prev => [novoUsuario, ...prev]);
+      isCreatingRef.current = false;
+      toast.success('Usuário criado com sucesso! Um email de confirmação foi enviado.');
     } catch (error) {
       console.error('Erro ao criar usuário:', error);
-      toast.error('Erro ao criar usuário');
-      throw error;
+      const message = error instanceof Error ? error.message : 'Erro ao criar usuário';
+      if (typeof message === 'string' && /duplicate/i.test(message)) {
+        toast.error('Email já registrado. Use outro email.');
+      } else {
+        toast.error(`Erro ao criar usuário: ${message}`);
+      }
+      // Não relançar o erro para evitar múltiplos toasts/logs
+      isCreatingRef.current = false;
+      return;
     }
   };
 
-  const handleUpdateUsuario = async (dados: any) => {
+  const handleUpdateUsuario = async (dados: UsuarioFormData) => {
     if (!editingUsuario) return;
     
     try {
@@ -781,16 +856,78 @@ export default function Usuarios() {
       
       {/* Users Grid */}
       {filteredUsuarios.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredUsuarios.map((usuario) => (
-            <UsuarioCard
-              key={usuario.id}
-              usuario={usuario}
-              onEdit={handleEditUsuario}
-              onToggleStatus={handleToggleStatus}
-              onDelete={handleDeleteUsuario}
-            />
-          ))}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Usuário</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Perfil</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Último Login</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {filteredUsuarios.map((usuario) => (
+                  <tr key={usuario.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-gray-900">{usuario.nome}</div>
+                      <div className="text-sm text-gray-600">{usuario.email}</div>
+                      {usuario.telefone && <div className="text-xs text-gray-500">{usuario.telefone}</div>}
+                    </td>
+                    <td className="px-4 py-3">{usuario.empresa_nome || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 text-xs rounded ${
+                        usuario.role === 'Superadmin' ? 'bg-purple-100 text-purple-800' :
+                        usuario.role === 'ICETRAN' ? 'bg-blue-100 text-blue-800' :
+                        usuario.role === 'Despachante' ? 'bg-orange-100 text-orange-800' :
+                        usuario.role === 'Usuario/Cliente' ? 'bg-gray-100 text-gray-800' :
+                        usuario.role === 'admin' ? 'bg-blue-100 text-blue-800' :
+                        usuario.role === 'user' ? 'bg-orange-100 text-orange-800' :
+                        usuario.role === 'viewer' ? 'bg-gray-100 text-gray-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>{usuario.role}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 text-xs rounded ${usuario.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {usuario.ativo ? 'Ativo' : 'Inativo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {usuario.ultimo_login ? new Date(usuario.ultimo_login).toLocaleString('pt-BR') : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          onClick={() => handleEditUsuario(usuario)}
+                          className="inline-flex items-center px-2 py-1 text-sm text-blue-700 hover:text-blue-900"
+                          title="Editar"
+                        >
+                          <Edit className="w-4 h-4 mr-1" /> Editar
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(usuario.id)}
+                          className="inline-flex items-center px-2 py-1 text-sm text-gray-700 hover:text-gray-900"
+                          title={usuario.ativo ? 'Desativar' : 'Ativar'}
+                        >
+                          {usuario.ativo ? 'Desativar' : 'Ativar'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteUsuario(usuario.id)}
+                          className="inline-flex items-center px-2 py-1 text-sm text-red-700 hover:text-red-900"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-4 h-4 mr-1" /> Excluir
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
@@ -816,6 +953,8 @@ export default function Usuarios() {
         }}
         usuario={editingUsuario}
         onSave={editingUsuario ? handleUpdateUsuario : handleCreateUsuario}
+        isSuperadmin={user?.role === 'Superadmin'}
+        empresas={empresas}
       />
     </div>
   );
