@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/precadastros",
+      "destination": "/api/precadastros"
+    },
+    {
+      "source": "/api/precadastros/:id/status",
+      "destination": "/api/precadastros?id=$1&action=status"
+    },
+    {
       "source": "/api/payments/save-service-order",
       "destination": "/api/payments/save-service-order"
     },
