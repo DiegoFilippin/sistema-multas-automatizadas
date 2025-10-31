@@ -12,7 +12,7 @@ import {
   BarChart3,
   Shield,
   Zap,
-
+  FileText,
   Receipt,
   Building,
   PieChart,
@@ -68,6 +68,13 @@ const menuItems: MenuItem[] = [
     label: 'Usuários',
     icon: Users,
     href: '/usuarios',
+    roles: ['Superadmin']
+  },
+  {
+    id: 'precadastros',
+    label: 'Pré-cadastros',
+    icon: FileText,
+    href: '/precadastros',
     roles: ['Superadmin']
   },
   {

@@ -42,6 +42,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: true,
         isLoading: false,
       })
+      // Persistir token de acesso do Supabase para requisições ao backend
+      if (response.session?.access_token) {
+        localStorage.setItem('token', response.session.access_token)
+      }
       console.log('authStore - login - estado atualizado, isAuthenticated:', true);
     } catch (error) {
       console.error('authStore - login - erro:', error);
@@ -68,6 +72,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         isAuthenticated: true,
         isLoading: false,
       })
+      // Persistir token após registro
+      if (response.session?.access_token) {
+        localStorage.setItem('token', response.session.access_token)
+      }
       console.log('authStore - register - estado atualizado, isAuthenticated:', true);
     } catch (error) {
       console.error('authStore - register - erro:', error);
@@ -85,6 +93,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         session: null,
         isAuthenticated: false,
       })
+      // Remover token persistido no logout
+      localStorage.removeItem('token')
       console.log('authStore - logout - concluído');
     } catch (error) {
       console.error('authStore - logout - erro:', error);
@@ -174,6 +184,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           isAuthenticated: false,
           isLoading: false,
         })
+        localStorage.removeItem('token')
       }
     } catch (error) {
       console.error('authStore - checkAuth - erro:', error);

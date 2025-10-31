@@ -144,6 +144,18 @@ export interface Database {
           email: string
           telefone: string | null
           endereco: string | null
+          // Campos adicionais usados no código
+          numero: string | null
+          complemento: string | null
+          bairro: string | null
+          cidade: string | null
+          estado: string | null
+          cep: string | null
+          asaas_customer_id: string | null
+          company_type: 'icetran' | 'despachante' | 'subadquirente' | null
+          company_level: 'subadquirente' | 'despachante' | null
+          parent_company_id: string | null
+          manual_wallet_id: string | null
           status: 'ativo' | 'inativo' | 'suspenso'
           data_inicio_assinatura: string
           data_fim_assinatura: string | null
@@ -159,6 +171,18 @@ export interface Database {
           email: string
           telefone?: string | null
           endereco?: string | null
+          // Campos adicionais usados no código
+          numero?: string | null
+          complemento?: string | null
+          bairro?: string | null
+          cidade?: string | null
+          estado?: string | null
+          cep?: string | null
+          asaas_customer_id?: string | null
+          company_type?: 'icetran' | 'despachante' | 'subadquirente' | null
+          company_level?: 'subadquirente' | 'despachante' | null
+          parent_company_id?: string | null
+          manual_wallet_id?: string | null
           status?: 'ativo' | 'inativo' | 'suspenso'
           data_inicio_assinatura: string
           data_fim_assinatura?: string | null
@@ -174,6 +198,18 @@ export interface Database {
           email?: string
           telefone?: string | null
           endereco?: string | null
+          // Campos adicionais usados no código
+          numero?: string | null
+          complemento?: string | null
+          bairro?: string | null
+          cidade?: string | null
+          estado?: string | null
+          cep?: string | null
+          asaas_customer_id?: string | null
+          company_type?: 'icetran' | 'despachante' | 'subadquirente' | null
+          company_level?: 'subadquirente' | 'despachante' | null
+          parent_company_id?: string | null
+          manual_wallet_id?: string | null
           status?: 'ativo' | 'inativo' | 'suspenso'
           data_inicio_assinatura?: string
           data_fim_assinatura?: string | null
@@ -220,6 +256,8 @@ export interface Database {
           company_id: string
           nome: string
           cpf_cnpj: string
+          cnh: string | null
+          data_nascimento: string | null
           email: string | null
           telefone: string | null
           endereco: string | null
@@ -236,6 +274,8 @@ export interface Database {
           company_id: string
           nome: string
           cpf_cnpj: string
+          cnh?: string | null
+          data_nascimento?: string | null
           email?: string | null
           telefone?: string | null
           endereco?: string | null
@@ -252,6 +292,8 @@ export interface Database {
           company_id?: string
           nome?: string
           cpf_cnpj?: string
+          cnh?: string | null
+          data_nascimento?: string | null
           email?: string | null
           telefone?: string | null
           endereco?: string | null

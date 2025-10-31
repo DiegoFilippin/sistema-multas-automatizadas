@@ -6,6 +6,8 @@ import { useAuthStore } from './stores/authStore';
 import ErrorBoundary from './components/ErrorBoundary';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
+import Cadastro from './pages/Cadastro';
+import Precadastros from './pages/Precadastros';
 
 import Dashboard from './pages/Dashboard';
 import Empresas from './pages/Empresas';
@@ -101,6 +103,15 @@ function AppContent() {
             } 
           />
           
+          <Route 
+            path="/cadastro" 
+            element={
+              <PublicRoute>
+                <Cadastro />
+              </PublicRoute>
+            } 
+          />
+          
 
           {/* Rotas protegidas */}
           <Route 
@@ -135,6 +146,15 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <Usuarios />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/precadastros" 
+            element={
+              <ProtectedRoute>
+                <Precadastros />
               </ProtectedRoute>
             } 
           />

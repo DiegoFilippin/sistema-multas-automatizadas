@@ -629,8 +629,11 @@ router.post('/webhook/n8n/create-customer', authenticateToken, async (req, res) 
 router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (req, res) => {
   try {
     const payload = req.body;
+    // Endpoint atualizado para o novo servidor n8n
     const endpoint = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
 
+    console.log('🔄 Enviando requisição para o webhook n8n:', endpoint);
+    
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -924,17 +927,17 @@ router.post('/companies/create-asaas-customer', authenticateToken, authorizeRole
 
     // Montar payload mínimo do cliente Asaas
     const asaasPayload = {
-      name: company.name || company.fantasyName || 'Empresa',
+      name: company.nome || 'Empresa',
       email: company.email || undefined,
       cpfCnpj: company.cnpj?.replace(/\D/g, '') || '',
-      phone: company.phone || undefined,
+      phone: company.telefone || undefined,
       postalCode: company.cep?.replace(/\D/g, '') || undefined,
-      address: company.address || undefined,
-      addressNumber: company.addressNumber || undefined,
-      complement: company.addressComplement || undefined,
-      province: company.neighborhood || undefined,
-      city: company.city || undefined,
-      state: company.state || undefined,
+      address: company.endereco || undefined,
+      addressNumber: company.numero || undefined,
+      complement: company.complemento || undefined,
+      province: company.bairro || undefined,
+      city: company.cidade || undefined,
+      state: company.estado || undefined,
       externalReference: `company-${company.id}`
     };
 
@@ -953,6 +956,201 @@ router.post('/companies/create-asaas-customer', authenticateToken, authorizeRole
   } catch (error) {
     console.error('Erro ao criar customer Asaas para empresa:', error);
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro interno' });
+  }
+});
+
+// Rotas de Pré-cadastros
+router.post('/precadastros', async (req, res) => {
+  try {
+    const {
+      nome,
+      email,
+      telefone,
+      data_nascimento,
+      cnpj,
+      razao_social,
+      nome_fantasia,
+      endereco,
+      numero,
+      complemento,
+      bairro,
+      cidade,
+      estado,
+      cep
+    } = req.body;
+
+    // Validações básicas
+    if (!nome || !email || !telefone || !cnpj || !razao_social) {
+      return res.status(400).json({ 
+        error: 'Campos obrigatórios: nome, email, telefone, cnpj, razao_social' 
+      });
+    }
+
+    // Salvar no banco de dados
+    const { data: precadastro, error: dbError } = await supabase
+      .from('precadastros')
+      .insert({
+        nome,
+        email,
+        telefone,
+        data_nascimento,
+        cnpj,
+        razao_social,
+        nome_fantasia,
+        endereco,
+        numero,
+        complemento,
+        bairro,
+        cidade,
+        estado,
+        cep,
+        status: 'pendente',
+        webhook_enviado: false
+      })
+      .select()
+      .single();
+
+    if (dbError) {
+      console.error('Erro ao salvar pré-cadastro:', dbError);
+      return res.status(500).json({ error: 'Erro ao salvar pré-cadastro no banco de dados' });
+    }
+
+    // Enviar para webhook n8n
+    let webhookSuccess = false;
+    let webhookResponse = null;
+
+    try {
+      const webhookUrl = 'https://webhookn8n.synsoft.com.br/webhook/59cb6ccc-1a19-4867-9f40-958e737133dc';
+      
+      const webhookPayload = {
+        id: precadastro.id,
+        nome,
+        email,
+        telefone,
+        data_nascimento,
+        cnpj,
+        razao_social,
+        nome_fantasia,
+        endereco: {
+          logradouro: endereco,
+          numero,
+          complemento,
+          bairro,
+          cidade,
+          estado,
+          cep
+        },
+        created_at: precadastro.created_at
+      };
+
+      console.log('🔄 Enviando pré-cadastro para webhook n8n:', webhookUrl);
+      
+      const webhookResp = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(webhookPayload),
+        signal: AbortSignal.timeout(30000)
+      });
+
+      const webhookText = await webhookResp.text();
+      webhookSuccess = webhookResp.ok;
+      webhookResponse = webhookText || '{}';
+
+      console.log(`✅ Webhook n8n respondeu: ${webhookResp.status} - ${webhookText}`);
+
+      // Atualizar status do webhook no banco
+      await supabase
+        .from('precadastros')
+        .update({
+          webhook_enviado: webhookSuccess,
+          webhook_response: webhookResponse,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', precadastro.id);
+
+    } catch (webhookError) {
+      console.error('Erro ao enviar para webhook n8n:', webhookError);
+      webhookResponse = JSON.stringify({ error: webhookError.message });
+      
+      // Atualizar com erro
+      await supabase
+        .from('precadastros')
+        .update({
+          webhook_enviado: false,
+          webhook_response: webhookResponse,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', precadastro.id);
+    }
+
+    res.json({
+      success: true,
+      precadastro: {
+        id: precadastro.id,
+        status: precadastro.status
+      },
+      webhook: {
+        enviado: webhookSuccess,
+        response: webhookResponse
+      }
+    });
+
+  } catch (error) {
+    console.error('Erro no endpoint de pré-cadastros:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+// Listar pré-cadastros (apenas para Superadmin)
+router.get('/precadastros', authenticateToken, authorizeRoles(['Superadmin', 'ICETRAN']), async (req, res) => {
+  try {
+    const { data: precadastros, error } = await supabase
+      .from('precadastros')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Erro ao buscar pré-cadastros:', error);
+      return res.status(500).json({ error: 'Erro ao buscar pré-cadastros' });
+    }
+
+    res.json({ precadastros });
+  } catch (error) {
+    console.error('Erro no endpoint de listagem de pré-cadastros:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+// Aprovar/Rejeitar pré-cadastro (apenas para superadmin)
+router.patch('/precadastros/:id/status', authenticateToken, authorizeRoles(['Superadmin']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, observacoes } = req.body;
+
+    if (!['aprovado', 'rejeitado'].includes(status)) {
+      return res.status(400).json({ error: 'Status deve ser "aprovado" ou "rejeitado"' });
+    }
+
+    const { data: precadastro, error } = await supabase
+      .from('precadastros')
+      .update({
+        status,
+        observacoes,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Erro ao atualizar status do pré-cadastro:', error);
+      return res.status(500).json({ error: 'Erro ao atualizar status do pré-cadastro' });
+    }
+
+    res.json({ success: true, precadastro });
+  } catch (error) {
+    console.error('Erro no endpoint de atualização de status:', error);
+    res.status(500).json({ error: 'Erro interno do servidor' });
   }
 });
 

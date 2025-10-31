@@ -85,17 +85,60 @@ export const authenticateToken = async (
       // Importar supabase aqui para evitar dependência circular
       const { supabase } = await import('../lib/supabase');
       
-      const { data: supabaseUser, error } = await supabase
+      // Tentar buscar usuário por ID (sub)
+      const { data: supabaseUserById, error: byIdError } = await supabase
         .from('users')
         .select('*')
         .eq('id', decoded.sub)
-        .eq('ativo', true)
-        .single();
+        .maybeSingle();
       
-      if (error || !supabaseUser) {
+      let supabaseUser: any = supabaseUserById;
+      let lookupError: any = byIdError;
+      
+      // Se não encontrou por ID, tentar por email (quando disponível)
+      if (!supabaseUser) {
+        const email = decoded.email || decoded?.user_metadata?.email;
+        if (email) {
+          const { data: supabaseUsersByEmail, error: byEmailError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email)
+            .limit(1);
+          supabaseUser = Array.isArray(supabaseUsersByEmail) ? supabaseUsersByEmail[0] : supabaseUsersByEmail;
+          lookupError = byEmailError;
+        }
+      }
+      
+      // Se ainda não encontrou, tentar em user_profiles por email
+      if (!supabaseUser) {
+        const email = decoded.email || decoded?.user_metadata?.email;
+        if (email) {
+          const { data: profilesByEmail, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('email', email)
+            .limit(1);
+          const profileByEmail = Array.isArray(profilesByEmail) ? profilesByEmail[0] : profilesByEmail;
+          if (profileByEmail) {
+            supabaseUser = {
+              id: profileByEmail.id,
+              email: profileByEmail.email,
+              role: profileByEmail.role,
+              company_id: profileByEmail.company_id,
+              ativo: true,
+            };
+            lookupError = null;
+          } else {
+            lookupError = profileError;
+          }
+        }
+      }
+      
+      if (!supabaseUser) {
         logger.warn('Usuário do Supabase não encontrado ou inativo', { 
           userId: decoded.sub,
-          error: error?.message,
+          email: decoded.email || decoded?.user_metadata?.email,
+          error: lookupError?.message,
           ip: req.ip 
         });
         return res.status(401).json({ error: 'Usuário não encontrado ou inativo' });
@@ -114,7 +157,7 @@ export const authenticateToken = async (
         email: supabaseUser.email,
         role: supabaseUser.role,
         companyId: supabaseUser.company_id,
-        status: supabaseUser.ativo ? 'active' : 'inactive'
+        status: supabaseUser.ativo !== false ? 'active' : 'inactive'
       };
     } else {
       // Para tokens JWT personalizados, usar Prisma
@@ -178,17 +221,47 @@ export const authenticateToken = async (
       }
     }
 
+    // Normalizar roles do banco (admin/user/viewer/admin_master) para os 4 perfis da UI
+    const mapDbRoleToUi = (r?: string): string => {
+    switch (r) {
+    case 'admin_master': return 'Superadmin';
+    case 'admin': return 'ICETRAN';
+    case 'user': return 'Despachante';
+    case 'viewer': return 'Usuario/Cliente';
+    case 'Superadmin':
+    case 'ICETRAN':
+    case 'Despachante':
+    case 'Usuario/Cliente':
+    return r as string;
+    default:
+    return 'Usuario/Cliente';
+    }
+    };
+
+    // Override por e-mail para garantir que contas conhecidas sejam Superadmin
+    const superadminEmails = ['superadmin@sistema.com', 'master@sistema.com'];
+    let finalRole = mapDbRoleToUi(user.role);
+    if (superadminEmails.includes(user.email)) {
+      finalRole = 'Superadmin';
+      logger.info('Override de role aplicado para superadmin', { 
+        email: user.email,
+        originalRole: user.role,
+        newRole: finalRole,
+        ip: req.ip 
+      });
+    }
+
     req.user = {
       id: user.id,
       email: user.email,
-      role: user.role,
+      role: finalRole,
       companyId: user.companyId || undefined,
       clientId: user.clientId || undefined,
     };
 
     logger.info('Autenticação bem-sucedida', { 
       userId: user.id,
-      role: user.role,
+      role: finalRole,
       companyId: user.companyId,
       ip: req.ip 
     });
@@ -209,7 +282,10 @@ export const authorizeRoles = (allowedRoles: string[]) => {
       return res.status(401).json({ error: 'Usuário não autenticado' });
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const normalizedAllowed = allowedRoles.map(r => r.toLowerCase());
+    const userRoleNormalized = (req.user.role || '').toLowerCase();
+
+    if (!normalizedAllowed.includes(userRoleNormalized)) {
       return res.status(403).json({ 
         error: 'Acesso negado. Permissões insuficientes.',
         requiredRoles: allowedRoles,
