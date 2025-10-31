@@ -38,8 +38,9 @@ import GeminiOcrService from '@/services/geminiOcrService';
 import { datawashService } from '@/services/datawashService';
 import DataWashService from '@/services/datawashService';
 import { asaasService } from '@/services/asaasService';
+import { enderecoDetalhadoParaString, parseEnderecoDetalhado } from '@/lib/enderecoDetalhado';
 
-interface Endereco {
+export interface Endereco {
   id: string;
   tipo: 'residencial' | 'comercial' | 'correspondencia';
   logradouro: string;
@@ -52,21 +53,21 @@ interface Endereco {
   principal: boolean;
 }
 
-interface Contato {
+export interface Contato {
   id: string;
   tipo: 'celular' | 'residencial' | 'comercial' | 'whatsapp';
   numero: string;
   principal: boolean;
 }
 
-interface Email {
+export interface Email {
   id: string;
   tipo: 'pessoal' | 'comercial' | 'alternativo';
   endereco: string;
   principal: boolean;
 }
 
-interface Cliente {
+export interface Cliente {
   id: string;
   nome: string;
   cpf: string;
@@ -83,7 +84,7 @@ interface Cliente {
   status: 'ativo' | 'inativo';
 }
 
-interface Veiculo {
+export interface Veiculo {
   id: string;
   placa: string;
   modelo: string;
@@ -226,7 +227,7 @@ interface ClienteModalProps {
   onSave: (cliente: Partial<Cliente>) => void;
 }
 
-function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
+export function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
   const [formData, setFormData] = useState({
     nome: '',
     cpf: '',
@@ -600,14 +601,17 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
 
       const dados = await response.json();
       
-      // Atualizar campos do endereço
+      // Atualizar campos do endereço, preservando número e complemento existentes
       setEnderecos(enderecos.map(endereco => 
         endereco.id === enderecoId ? {
           ...endereco,
-          logradouro: dados.logradouro || '',
-          bairro: dados.bairro || '',
-          cidade: dados.cidade || '',
-          estado: dados.estado || ''
+          logradouro: dados.logradouro || endereco.logradouro || '',
+          bairro: dados.bairro || endereco.bairro || '',
+          cidade: dados.cidade || endereco.cidade || '',
+          estado: dados.estado || endereco.estado || '',
+          // Preservar número e complemento existentes
+          numero: endereco.numero || '',
+          complemento: endereco.complemento || ''
         } : endereco
       ));
       
@@ -633,10 +637,13 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
             setEnderecos(enderecos.map(endereco => 
               endereco.id === enderecoId ? {
                 ...endereco,
-                logradouro: dadosFormatados.logradouro,
-                bairro: dadosFormatados.bairro,
-                cidade: dadosFormatados.cidade,
-                estado: dadosFormatados.estado
+                logradouro: dadosFormatados.logradouro || endereco.logradouro || '',
+                bairro: dadosFormatados.bairro || endereco.bairro || '',
+                cidade: dadosFormatados.cidade || endereco.cidade || '',
+                estado: dadosFormatados.estado || endereco.estado || '',
+                // Preservar número e complemento existentes
+                numero: endereco.numero || '',
+                complemento: endereco.complemento || ''
               } : endereco
             ));
 
@@ -1301,10 +1308,14 @@ function ClienteModal({ isOpen, onClose, cliente, onSave }: ClienteModalProps) {
                           const cepFormatado = formatarCEP(e.target.value);
                           atualizarEndereco(endereco.id, 'cep', cepFormatado);
                           
-                          // Consultar CEP quando tiver 8 dígitos
+                          // Consultar CEP quando tiver 8 dígitos e não for um endereço já preenchido
                           const cepLimpo = e.target.value.replace(/\D/g, '');
-                          if (cepLimpo.length === 8) {
-                            consultarCEP(cepLimpo, endereco.id);
+                          if (cepLimpo.length === 8 && !cepConsultado[endereco.id]) {
+                            // Verificar se o endereço já tem dados completos (evitar sobrescrever dados existentes)
+                            const enderecoCompleto = endereco.logradouro && endereco.bairro && endereco.cidade && endereco.estado;
+                            if (!enderecoCompleto) {
+                              consultarCEP(cepLimpo, endereco.id);
+                            }
                           }
                         }}
                         className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
@@ -1539,7 +1550,7 @@ export default function Clientes() {
         id: cliente.id,
         nome: cliente.nome,
         cpf: cliente.cpf_cnpj,
-        dataNascimento: '',
+        dataNascimento: cliente.data_nascimento || '',
         cnh: '',
         status: cliente.status,
         emails: [{
@@ -1557,10 +1568,16 @@ export default function Clientes() {
         enderecos: [{
           id: '1',
           tipo: 'residencial',
-          logradouro: cliente.endereco || '',
-          numero: '',
-          complemento: '',
-          bairro: '',
+          ...(() => {
+            const enderecoCompleto = cliente.endereco || '';
+            const enderecoParsed = parseEnderecoDetalhado(enderecoCompleto);
+            return {
+              logradouro: enderecoParsed.logradouro,
+              numero: enderecoParsed.numero,
+              complemento: enderecoParsed.complemento,
+              bairro: enderecoParsed.bairro,
+            };
+          })(),
           cidade: cliente.cidade || '',
           estado: cliente.estado || '',
           cep: cliente.cep || '',
@@ -1839,32 +1856,87 @@ export default function Clientes() {
     try {
       if (selectedCliente) {
         // Editar cliente existente
-        const { error } = await supabase
-          .from('clients')
-          .update({
-            nome: clienteData.nome,
-            cpf_cnpj: clienteData.cpf,
-            email: clienteData.emails?.[0]?.endereco || '',
-            telefone: clienteData.telefones?.[0]?.numero || '',
-            endereco: clienteData.enderecos?.[0]?.logradouro || '',
-            cidade: clienteData.enderecos?.[0]?.cidade || '',
-            estado: clienteData.enderecos?.[0]?.estado || '',
-            cep: clienteData.enderecos?.[0]?.cep || '',
-            status: clienteData.status,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', selectedCliente.id);
+        const primeiroEndereco = clienteData.enderecos?.[0];
+        const enderecoCompleto = primeiroEndereco ? 
+          enderecoDetalhadoParaString({
+            logradouro: primeiroEndereco.logradouro,
+            numero: primeiroEndereco.numero,
+            complemento: primeiroEndereco.complemento || '',
+            bairro: primeiroEndereco.bairro,
+            cidade: primeiroEndereco.cidade,
+            estado: primeiroEndereco.estado,
+            cep: primeiroEndereco.cep
+          }) : '';
 
-        if (error) {
-          console.error('Erro ao atualizar cliente:', error);
-          toast.error('Erro ao atualizar cliente: ' + error.message);
-          return;
+        // Preparar dados para atualização, sem incluir data_nascimento inicialmente
+        const updateData = {
+          nome: clienteData.nome,
+          cpf_cnpj: clienteData.cpf,
+          email: clienteData.emails?.[0]?.endereco || '',
+          telefone: clienteData.telefones?.[0]?.numero || '',
+          endereco: enderecoCompleto,
+          cidade: primeiroEndereco?.cidade || '',
+          estado: primeiroEndereco?.estado || '',
+          cep: primeiroEndereco?.cep || '',
+          status: clienteData.status,
+          updated_at: new Date().toISOString()
+        };
+
+        // Tentar atualizar com data_nascimento
+        if (clienteData.dataNascimento) {
+          try {
+            const { error } = await supabase
+              .from('clients')
+              .update({
+                ...updateData,
+                data_nascimento: clienteData.dataNascimento
+              })
+              .eq('id', selectedCliente.id);
+
+            if (error) {
+              console.log('Erro ao salvar com data_nascimento, tentando sem este campo:', error.message);
+              
+              // Se falhar, tentar sem o campo data_nascimento
+              const { error: fallbackError } = await supabase
+                .from('clients')
+                .update(updateData)
+                .eq('id', selectedCliente.id);
+                
+              if (fallbackError) {
+                console.error('Erro ao atualizar cliente:', fallbackError);
+                toast.error('Erro ao atualizar cliente: ' + fallbackError.message);
+                return;
+              } else {
+                toast.warning('Cliente salvo, mas data de nascimento não foi salva (coluna não existe no banco)');
+              }
+            }
+          } catch (error) {
+            console.error('Erro ao atualizar cliente:', error);
+            toast.error('Erro ao atualizar cliente: ' + (error instanceof Error ? error.message : 'Erro desconhecido'));
+            return;
+          }
+        } else {
+          // Se não tiver data de nascimento, atualizar normalmente
+          const { error } = await supabase
+            .from('clients')
+            .update(updateData)
+            .eq('id', selectedCliente.id);
+
+          if (error) {
+            console.error('Erro ao atualizar cliente:', error);
+            toast.error('Erro ao atualizar cliente: ' + error.message);
+            return;
+          }
         }
 
-        // Atualizar estado local
+        // Atualizar estado local com os dados corretos, incluindo a data de nascimento
         setClientes(clientes.map(c => 
           c.id === selectedCliente.id 
-            ? { ...c, ...clienteData }
+            ? { 
+                ...c, 
+                ...clienteData,
+                dataNascimento: clienteData.dataNascimento || c.dataNascimento
+              }
             : c
         ));
         toast.success('Cliente atualizado com sucesso!');
@@ -1874,6 +1946,7 @@ export default function Clientes() {
         const novoClienteData = {
           nome: clienteData.nome,
           cpf_cnpj: clienteData.cpf,
+          cnh: clienteData.cnh || null,
           email: clienteData.emails?.[0]?.endereco || '',
           telefone: clienteData.telefones?.[0]?.numero || '',
           endereco: primeiroEndereco?.logradouro || '',
@@ -1881,6 +1954,7 @@ export default function Clientes() {
           estado: primeiroEndereco?.estado || '',
           cep: primeiroEndereco?.cep || '',
           status: clienteData.status || 'ativo',
+          data_nascimento: clienteData.dataNascimento || null,
           company_id: user?.company_id,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
