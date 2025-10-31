@@ -1,23 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, Phone, MapPin, Car, Edit, Trash2, Plus, MoreVertical, DollarSign, FileText, AlertTriangle, CreditCard, Coins, UserPlus } from 'lucide-react';
+import { ArrowLeft, User, Phone, MapPin, Car, Edit, Trash2, Plus, MoreVertical, DollarSign, FileText, AlertTriangle, UserPlus } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { multasService } from '@/services/multasService';
 import { clientsService } from '@/services/clientsService';
-import { CreditPurchaseModal } from '@/components/CreditPurchaseModal';
 import { CobrancasCliente } from '@/components/CobrancasCliente';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
-import { useAuthStore } from '@/stores/authStore';
 import type { Database } from '@/lib/supabase';
 import { n8nWebhookService } from '@/services/n8nWebhookService';
+import { ClienteModal } from '@/pages/Clientes';
+import { enderecoDetalhadoParaString, parseEnderecoDetalhado } from '@/lib/enderecoDetalhado';
 
 type Multa = Database['public']['Tables']['multas']['Row'] & {
   // Campos adicionais para service_orders
   is_service_order?: boolean;
   service_order_id?: string;
+  service_order_value?: number;
   process_status?: 'pending_payment' | 'paid' | 'processing' | 'completed' | 'cancelled' | 'expired';
   multa_type?: string;
   // Campos PIX para compatibilidade
@@ -65,6 +66,7 @@ interface Veiculo {
   ano: number;
   cor: string;
   renavam: string;
+  dataCadastro: string;
 }
 
 interface Cliente {
@@ -85,6 +87,31 @@ interface Cliente {
   asaas_customer_id?: string;
 }
 
+// Tipos auxiliares para integração com ClienteModal (que usa 'endereco' em Email)
+interface ModalEmail {
+  id: string;
+  tipo: 'pessoal' | 'comercial' | 'alternativo';
+  endereco: string;
+  principal: boolean;
+}
+
+interface ModalCliente {
+  id: string;
+  nome: string;
+  cpf: string;
+  emails: ModalEmail[];
+  telefones: Contato[];
+  enderecos: Endereco[];
+  dataNascimento: string;
+  cnh: string;
+  veiculos: Veiculo[];
+  multas: number;
+  recursosAtivos: number;
+  valorEconomizado: number;
+  dataCadastro: string;
+  status: 'ativo' | 'inativo';
+}
+
 
 
 export default function ClienteDetalhes() {
@@ -94,13 +121,10 @@ export default function ClienteDetalhes() {
   const [multas, setMultas] = useState<Multa[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMultas, setLoadingMultas] = useState(false);
-  const [creditBalance, setCreditBalance] = useState<number>(0);
-  const [loadingCredits, setLoadingCredits] = useState(false);
-  const [showCreditModal, setShowCreditModal] = useState(false);
   const [creatingCustomer, setCreatingCustomer] = useState(false);
   const [showCobrancaModal, setShowCobrancaModal] = useState(false);
   const [selectedCobranca, setSelectedCobranca] = useState<CobrancaData | null>(null);
-  const { user } = useAuthStore();
+  const [showEditModal, setShowEditModal] = useState(false);
 
   // Função para carregar multas do cliente (incluindo service_orders com processos iniciados)
   const fetchMultasCliente = async (clienteId: string) => {
@@ -159,6 +183,7 @@ export default function ClienteDetalhes() {
           invoice_url: order.invoice_url,
           bank_slip_url: order.bank_slip_url,
           amount: order.amount,
+          service_order_value: order.amount, // Adicionando o valor do service_order para exibição na grid
           created_at: order.created_at,
           updated_at: order.updated_at
         };
@@ -173,27 +198,6 @@ export default function ClienteDetalhes() {
       toast.error('Erro ao carregar multas do cliente');
     } finally {
       setLoadingMultas(false);
-    }
-  };
-
-  // Função para carregar saldo de créditos do cliente
-  const fetchCreditBalance = async (clienteId: string) => {
-    try {
-      setLoadingCredits(true);
-      const response = await fetch(`/api/credits/balance?ownerType=client&ownerId=${clienteId}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      const data = await response.json();
-      if (data.success) {
-        setCreditBalance(data.data.balance || 0);
-      }
-    } catch (error) {
-      console.error('Erro ao carregar saldo de créditos:', error);
-    } finally {
-      setLoadingCredits(false);
     }
   };
 
@@ -388,8 +392,8 @@ export default function ClienteDetalhes() {
           id: clienteCompleto.id,
           nome: clienteCompleto.nome,
           cpf: clienteCompleto.cpf_cnpj,
-          dataNascimento: '',
-          cnh: '',
+          dataNascimento: clienteCompleto.data_nascimento || '',
+          cnh: clienteCompleto.cnh || '',
           status: clienteCompleto.status,
           emails: [{
             id: '1',
@@ -403,18 +407,21 @@ export default function ClienteDetalhes() {
             numero: clienteCompleto.telefone || '',
             principal: true
           }],
-          enderecos: [{
-            id: '1',
-            tipo: 'residencial',
-            logradouro: clienteCompleto.endereco || '',
-            numero: '',
-            complemento: '',
-            bairro: '',
-            cidade: clienteCompleto.cidade || '',
-            estado: clienteCompleto.estado || '',
-            cep: clienteCompleto.cep || '',
-            principal: true
-          }],
+          enderecos: (() => {
+            const enderecoDetalhado = parseEnderecoDetalhado(clienteCompleto.endereco || '');
+            return [{
+              id: '1',
+              tipo: 'residencial',
+              logradouro: enderecoDetalhado.logradouro || clienteCompleto.endereco || '',
+              numero: enderecoDetalhado.numero || '',
+              complemento: enderecoDetalhado.complemento || '',
+              bairro: enderecoDetalhado.bairro || '',
+              cidade: enderecoDetalhado.cidade || clienteCompleto.cidade || '',
+              estado: enderecoDetalhado.estado || clienteCompleto.estado || '',
+              cep: enderecoDetalhado.cep || clienteCompleto.cep || '',
+              principal: true
+            }];
+          })(),
           veiculos: clienteCompleto.vehicles.map(vehicle => ({
             id: vehicle.id,
             placa: vehicle.placa,
@@ -422,8 +429,9 @@ export default function ClienteDetalhes() {
             marca: vehicle.marca,
             ano: vehicle.ano,
             cor: vehicle.cor,
-            renavam: vehicle.renavam
-          })),
+            renavam: vehicle.renavam,
+            dataCadastro: vehicle.created_at
+          })), 
           multas: clienteCompleto.multas_count,
           recursosAtivos: clienteCompleto.recursos_count,
           valorEconomizado: clienteCompleto.valor_economizado,
@@ -433,8 +441,6 @@ export default function ClienteDetalhes() {
         setCliente(clienteConvertido);
         // Carregar multas do cliente
         fetchMultasCliente(clienteCompleto.id);
-        // Carregar saldo de créditos do cliente
-        fetchCreditBalance(clienteCompleto.id);
       } catch (error) {
         console.error('Erro ao carregar cliente:', error);
         toast.error('Erro ao carregar dados do cliente');
@@ -450,14 +456,185 @@ export default function ClienteDetalhes() {
   }, [id]);
 
   const handleEdit = () => {
-    // Navegar para página de edição ou abrir modal
-    toast.info('Funcionalidade de edição em desenvolvimento');
+    setShowEditModal(true);
   };
 
   const handleDelete = () => {
     if (confirm('Tem certeza que deseja excluir este cliente?')) {
       toast.success('Cliente excluído com sucesso');
       navigate('/clientes');
+    }
+  };
+
+  const handleSaveEdit = async (clienteData: Partial<ModalCliente>) => {
+    try {
+      if (!cliente?.id) {
+        toast.error('Cliente não encontrado');
+        return;
+      }
+
+      // Primeiro, tentar atualizar normalmente
+      const { error } = await supabase
+        .from('clients')
+        .update({
+          nome: clienteData.nome,
+          cpf_cnpj: clienteData.cpf,
+          cnh: clienteData.cnh || null,
+          data_nascimento: clienteData.dataNascimento || null,
+          email: clienteData.emails?.[0]?.endereco || '',
+          telefone: clienteData.telefones?.[0]?.numero || '',
+          endereco: clienteData.enderecos?.[0] ? enderecoDetalhadoParaString({
+            logradouro: clienteData.enderecos[0].logradouro,
+            numero: clienteData.enderecos[0].numero,
+            complemento: clienteData.enderecos[0].complemento,
+            bairro: clienteData.enderecos[0].bairro,
+            cidade: clienteData.enderecos[0].cidade,
+            estado: clienteData.enderecos[0].estado,
+            cep: clienteData.enderecos[0].cep
+          }) : '',
+          cidade: clienteData.enderecos?.[0]?.cidade || '',
+          estado: clienteData.enderecos?.[0]?.estado || '',
+          cep: clienteData.enderecos?.[0]?.cep || '',
+          status: clienteData.status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', cliente.id);
+
+      // Se erro relacionado à coluna data_nascimento, tentar criar a coluna
+      if (error && error.message.includes('data_nascimento')) {
+        console.log('🔧 Coluna data_nascimento não existe, tentando criar...');
+        
+        try {
+          // Tentar criar a coluna via RPC
+          await supabase.rpc('exec_sql', { 
+            sql: 'ALTER TABLE clients ADD COLUMN IF NOT EXISTS data_nascimento DATE;' 
+          });
+          
+          // Tentar novamente o update
+          const { error: retryError } = await supabase
+            .from('clients')
+            .update({
+              nome: clienteData.nome,
+              cpf_cnpj: clienteData.cpf,
+              cnh: clienteData.cnh || null,
+              data_nascimento: clienteData.dataNascimento || null,
+              email: clienteData.emails?.[0]?.endereco || '',
+              telefone: clienteData.telefones?.[0]?.numero || '',
+              endereco: clienteData.enderecos?.[0] ? enderecoDetalhadoParaString({
+                logradouro: clienteData.enderecos[0].logradouro,
+                numero: clienteData.enderecos[0].numero,
+                complemento: clienteData.enderecos[0].complemento,
+                bairro: clienteData.enderecos[0].bairro,
+                cidade: clienteData.enderecos[0].cidade,
+                estado: clienteData.enderecos[0].estado,
+                cep: clienteData.enderecos[0].cep
+              }) : '',
+              cidade: clienteData.enderecos?.[0]?.cidade || '',
+              estado: clienteData.enderecos?.[0]?.estado || '',
+              cep: clienteData.enderecos?.[0]?.cep || '',
+              status: clienteData.status,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', cliente.id);
+            
+          if (retryError) {
+            // Se ainda falhar, salvar sem data_nascimento
+            console.log('⚠️ Salvando sem data_nascimento...');
+            const { error: fallbackError } = await supabase
+              .from('clients')
+              .update({
+                nome: clienteData.nome,
+                cpf_cnpj: clienteData.cpf,
+                cnh: clienteData.cnh || null,
+                email: clienteData.emails?.[0]?.endereco || '',
+                telefone: clienteData.telefones?.[0]?.numero || '',
+                endereco: clienteData.enderecos?.[0] ? enderecoDetalhadoParaString({
+                  logradouro: clienteData.enderecos[0].logradouro,
+                  numero: clienteData.enderecos[0].numero,
+                  complemento: clienteData.enderecos[0].complemento,
+                  bairro: clienteData.enderecos[0].bairro,
+                  cidade: clienteData.enderecos[0].cidade,
+                  estado: clienteData.enderecos[0].estado,
+                  cep: clienteData.enderecos[0].cep
+                }) : '',
+                cidade: clienteData.enderecos?.[0]?.cidade || '',
+                estado: clienteData.enderecos?.[0]?.estado || '',
+                cep: clienteData.enderecos?.[0]?.cep || '',
+                status: clienteData.status,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', cliente.id);
+              
+            if (fallbackError) {
+              throw fallbackError;
+            } else {
+              toast.warning('Cliente salvo, mas data de nascimento não foi salva (coluna não existe no banco)');
+            }
+          } else {
+            toast.success('Cliente atualizado com sucesso (coluna criada automaticamente)');
+          }
+        } catch (createError) {
+          console.error('Erro ao criar coluna:', createError);
+          // Salvar sem data_nascimento como fallback
+          const { error: fallbackError } = await supabase
+            .from('clients')
+            .update({
+              nome: clienteData.nome,
+              cpf_cnpj: clienteData.cpf,
+              cnh: clienteData.cnh || null,
+              email: clienteData.emails?.[0]?.endereco || '',
+              telefone: clienteData.telefones?.[0]?.numero || '',
+              endereco: clienteData.enderecos?.[0] ? enderecoDetalhadoParaString({
+                logradouro: clienteData.enderecos[0].logradouro,
+                numero: clienteData.enderecos[0].numero,
+                complemento: clienteData.enderecos[0].complemento,
+                bairro: clienteData.enderecos[0].bairro,
+                cidade: clienteData.enderecos[0].cidade,
+                estado: clienteData.enderecos[0].estado,
+                cep: clienteData.enderecos[0].cep
+              }) : '',
+              cidade: clienteData.enderecos?.[0]?.cidade || '',
+              estado: clienteData.enderecos?.[0]?.estado || '',
+              cep: clienteData.enderecos?.[0]?.cep || '',
+              status: clienteData.status,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', cliente.id);
+            
+          if (fallbackError) {
+            throw fallbackError;
+          } else {
+            toast.warning('Cliente salvo, mas data de nascimento não foi salva. Execute no Supabase: ALTER TABLE clients ADD COLUMN data_nascimento DATE;');
+          }
+        }
+      } else if (error) {
+        throw error;
+      } else {
+        toast.success('Cliente atualizado com sucesso');
+      }
+
+      setCliente(prev => prev ? {
+        ...prev,
+        nome: clienteData.nome ?? prev.nome,
+        cpf: clienteData.cpf ?? prev.cpf,
+        dataNascimento: clienteData.dataNascimento ?? prev.dataNascimento,
+        cnh: clienteData.cnh ?? prev.cnh,
+        status: clienteData.status ?? prev.status,
+        emails: clienteData.emails ? clienteData.emails.map((e: ModalEmail) => ({
+          id: e.id,
+          tipo: e.tipo,
+          email: e.endereco,
+          principal: e.principal
+        })) : prev.emails,
+        telefones: clienteData.telefones ?? prev.telefones,
+        enderecos: clienteData.enderecos ?? prev.enderecos
+      } : prev);
+
+      toast.success('Cliente atualizado com sucesso!');
+      setShowEditModal(false);
+    } catch (e: unknown) {
+      console.error(e);
+      toast.error('Erro inesperado ao salvar alterações.');
     }
   };
 
@@ -609,7 +786,7 @@ export default function ClienteDetalhes() {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700">CNH</label>
-              <p className="text-gray-900">{cliente.cnh}</p>
+              <p className="text-gray-900">{cliente.cnh && cliente.cnh !== '' ? cliente.cnh : 'Não informado'}</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700">Data de Cadastro</label>
@@ -679,69 +856,6 @@ export default function ClienteDetalhes() {
           </div>
         </div>
 
-        {/* Créditos do Cliente */}
-        <div className="bg-white rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-                <Coins className="h-5 w-5" />
-                Créditos
-              </h2>
-              {user?.role === 'Despachante' && cliente.asaas_customer_id && (
-                <button 
-                  onClick={() => setShowCreditModal(true)}
-                  className="flex items-center gap-2 px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
-                >
-                  <CreditCard className="h-4 w-4" />
-                  Comprar Créditos
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <label className="text-sm font-medium text-gray-700">Saldo Atual</label>
-                <div className="flex items-center gap-2 mt-1">
-                  {loadingCredits ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-green-600"></div>
-                  ) : (
-                    <>
-                      <Coins className="h-4 w-4 text-green-600" />
-                      <p className="text-lg font-semibold text-green-700">
-                        {creditBalance.toFixed(2)} créditos
-                      </p>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-600">Status</p>
-                <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                  creditBalance > 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
-                  {creditBalance > 0 ? 'Com saldo' : 'Sem saldo'}
-                </span>
-              </div>
-            </div>
-            
-            {creditBalance <= 0 && user?.role === 'Despachante' && (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                  <p className="text-sm text-yellow-800">
-                    Cliente sem créditos. Compre créditos para que ele possa utilizar os serviços.
-                  </p>
-                </div>
-              </div>
-            )}
-            
-            <div className="text-xs text-gray-500">
-              <p>• Créditos são necessários para utilizar os serviços</p>
-              <p>• Apenas despachantes podem comprar créditos para clientes</p>
-            </div>
-          </div>
-        </div>
 
         {/* Contatos */}
         <div className="bg-white rounded-lg shadow">
@@ -896,7 +1010,7 @@ export default function ClienteDetalhes() {
                           <h3 className="font-medium text-gray-900">{multa.numero_auto}</h3>
                           <p className="text-sm text-gray-600">
                             {multa.descricao_infracao}
-                            {multa.is_service_order && (
+                            {multa.is_service_order && multa.process_status !== 'pending_payment' && (
                               <span className="ml-2 inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
                                 Processo Iniciado
                               </span>
@@ -934,6 +1048,9 @@ export default function ClienteDetalhes() {
                       </div>
                       <div>
                         <p><span className="font-medium">Local:</span> {multa.local_infracao || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <p><span className="font-medium">Valor Cobrança:</span> {multa.is_service_order && multa.service_order_value ? `R$ ${Number(multa.service_order_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : 'N/A'}</p>
                       </div>
                       <div>
                         <button 
@@ -982,6 +1099,40 @@ export default function ClienteDetalhes() {
         />
       </div>
 
+      {/* Modal de Edição de Cliente */}
+      {showEditModal && cliente && (
+        <ClienteModal
+          isOpen={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          cliente={{
+            id: cliente.id,
+            nome: cliente.nome,
+            cpf: cliente.cpf,
+            emails: (cliente.emails || []).map((e): ModalEmail => ({ id: e.id, tipo: e.tipo, endereco: e.email, principal: e.principal })),
+            telefones: cliente.telefones,
+            enderecos: cliente.enderecos,
+            dataNascimento: cliente.dataNascimento,
+            cnh: cliente.cnh,
+            veiculos: (cliente.veiculos || []).map((v) => ({
+              id: v.id,
+              placa: v.placa,
+              modelo: v.modelo,
+              marca: v.marca,
+              ano: v.ano,
+              cor: v.cor,
+              renavam: v.renavam,
+              dataCadastro: v.dataCadastro || new Date().toISOString().split('T')[0]
+            })),
+            multas: cliente.multas,
+            recursosAtivos: cliente.recursosAtivos,
+            valorEconomizado: cliente.valorEconomizado,
+            dataCadastro: cliente.dataCadastro,
+            status: cliente.status
+          }}
+          onSave={handleSaveEdit}
+        />
+      )}
+
       {/* Modal de Detalhes da Cobrança */}
       {showCobrancaModal && selectedCobranca && (
         <CobrancaDetalhes
@@ -1010,20 +1161,6 @@ export default function ClienteDetalhes() {
         />
       )}
 
-      {/* Modal de Compra de Créditos */}
-      <CreditPurchaseModal
-        isOpen={showCreditModal}
-        onClose={() => setShowCreditModal(false)}
-        clientId={cliente?.id}
-        targetType="client"
-        onPurchaseComplete={() => {
-          // Recarregar saldo após compra
-          if (cliente?.id) {
-            fetchCreditBalance(cliente.id);
-          }
-          toast.success('Créditos adicionados com sucesso!');
-        }}
-      />
     </div>
   );
 }
