@@ -1,5 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { supabase } from '../src/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+
+// Criar cliente Supabase diretamente aqui
+const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ Variáveis de ambiente do Supabase não configuradas');
+}
+
+const supabase = createClient(supabaseUrl || '', supabaseKey || '');
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
@@ -7,13 +17,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, access_token, x-asaas-env');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Content-Type', 'application/json');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  console.log('📥 Requisição recebida:', req.method, req.url);
+
   try {
+    // Verificar se Supabase está configurado
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('❌ Supabase não configurado');
+      return res.status(500).json({ 
+        error: 'Configuração do servidor incompleta',
+        details: 'Supabase não configurado'
+      });
+    }
     if (req.method === 'POST') {
+      console.log('📝 Processando criação de pré-cadastro');
+      
       // Criar pré-cadastro
       const {
         nome,
@@ -33,13 +56,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         observacoes
       } = req.body;
 
+      console.log('📋 Dados recebidos:', { nome, email, telefone, cnpj, razao_social });
+
       // Validações básicas
       if (!nome || !email || !telefone || !cnpj || !razao_social) {
+        console.log('❌ Validação falhou - campos obrigatórios faltando');
         return res.status(400).json({ 
           error: 'Campos obrigatórios: nome, email, telefone, cnpj, razao_social' 
         });
       }
 
+      console.log('💾 Salvando no banco de dados...');
+      
       // Salvar no banco de dados
       const { data: precadastro, error: dbError } = await supabase
         .from('precadastros')
@@ -66,9 +94,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .single();
 
       if (dbError) {
-        console.error('Erro ao salvar pré-cadastro:', dbError);
-        return res.status(500).json({ error: 'Erro ao salvar pré-cadastro no banco de dados' });
+        console.error('❌ Erro ao salvar pré-cadastro:', dbError);
+        return res.status(500).json({ 
+          error: 'Erro ao salvar pré-cadastro no banco de dados',
+          message: dbError.message,
+          details: dbError.details || dbError.hint
+        });
       }
+
+      console.log('✅ Pré-cadastro salvo com sucesso:', precadastro?.id);
 
       // Tentar enviar webhook (não bloquear se falhar)
       try {
@@ -127,8 +161,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(405).json({ error: 'Método não permitido' });
     }
 
-  } catch (error) {
-    console.error('Erro no endpoint de pré-cadastros:', error);
-    return res.status(500).json({ error: 'Erro interno do servidor' });
+  } catch (error: any) {
+    console.error('❌ Erro no endpoint de pré-cadastros:', error);
+    return res.status(500).json({ 
+      error: 'Erro interno do servidor',
+      message: error?.message || 'Erro desconhecido',
+      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+    });
   }
 }
