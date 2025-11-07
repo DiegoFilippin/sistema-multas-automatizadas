@@ -273,6 +273,20 @@ IMPORTANTE:
       } catch (error: any) {
         console.error(`Erro na tentativa ${attempt}/${maxRetries}:`, error);
         
+        // Verificar se é erro de API key inválida
+        const isApiKeyError = 
+          error?.message?.includes('API key not valid') ||
+          error?.message?.includes('API_KEY_INVALID') ||
+          error?.message?.includes('400');
+        
+        // Se for erro de API key, não tentar novamente
+        if (isApiKeyError) {
+          console.error('❌ API key do Gemini inválida ou não configurada');
+          throw new Error(
+            'API key not valid. Please pass a valid API key.'
+          );
+        }
+        
         // Verificar se é erro 503 (modelo sobrecarregado) ou similar
         const isRetryableError = 
           error?.message?.includes('503') ||

@@ -1250,20 +1250,42 @@ const TesteRecursoIA: React.FC = () => {
     } catch (error: any) {
       console.error('❌ Erro na extração OCR:', error);
       
-      let errorMessage = 'Erro ao processar documento. ';
+      let errorMessage = 'Erro ao processar documento automaticamente. ';
       
-      if (error.message?.includes('sobrecarregado')) {
-        errorMessage += 'Serviço temporariamente indisponível. Tente novamente em alguns minutos.';
+      if (error.message?.includes('API key not valid') || error.message?.includes('API_KEY_INVALID')) {
+        errorMessage = '⚠️ OCR não configurado. Preencha os dados manualmente.';
+        toast.warning(errorMessage);
+      } else if (error.message?.includes('sobrecarregado')) {
+        errorMessage += 'Serviço temporariamente indisponível.';
+        toast.error(errorMessage + ' Preencha os dados manualmente.');
       } else if (error.message?.includes('não contém os dados esperados')) {
-        errorMessage += 'Documento pode estar ilegível ou não ser um auto de infração válido.';
+        errorMessage += 'Documento pode estar ilegível.';
+        toast.error(errorMessage + ' Preencha os dados manualmente.');
       } else {
-        errorMessage += 'Verifique se o arquivo é um auto de infração válido e tente novamente.';
+        errorMessage += 'Erro inesperado.';
+        toast.error(errorMessage + ' Preencha os dados manualmente.');
       }
       
-      toast.error(errorMessage);
+      // Em caso de erro, permitir preenchimento manual
+      // Inicializar com dados vazios para permitir edição
+      setMultaData({
+        numero: '',
+        infracao: '',
+        codigoInfracao: '',
+        local: '',
+        data: '',
+        valor: '',
+        veiculo: '',
+        condutor: '',
+        orgaoAutuador: '',
+        pontos: '',
+        observacoes: ''
+      });
       
-      // Em caso de erro, manter dados vazios
-      setMultaData({});
+      // Avançar para a etapa de extração para permitir edição manual
+      setCurrentStep('extraction');
+      
+      toast.info('💡 Preencha os dados do auto de infração manualmente nos campos abaixo.');
     } finally {
       setIsProcessing(false);
     }
