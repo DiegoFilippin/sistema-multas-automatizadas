@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, FileText, MessageCircle, Eye, User, MapPin, Hash } from 'lucide-react';
+import { Upload, FileText, MessageCircle, Eye, User, MapPin, Hash, ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import FileUpload from '../components/FileUpload';
@@ -356,6 +356,8 @@ const TesteRecursoIA: React.FC = () => {
   const [isN8nLoading, setIsN8nLoading] = useState(false);
   const [isProcessLocked, setIsProcessLocked] = useState(false);
   const [processId, setProcessId] = useState<string | null>(null);
+  const [isDadosExtraidosOpen, setIsDadosExtraidosOpen] = useState(false); // Por padrão minimizado
+  const [isUploadOpen, setIsUploadOpen] = useState(false); // Por padrão minimizado
   const [clienteData, setClienteData] = useState<{
     nome: string;
     cpf_cnpj: string;
@@ -2838,7 +2840,7 @@ const TesteRecursoIA: React.FC = () => {
             </div>
             <div className="w-8 h-0.5 bg-gray-300"></div>
             <div className={`flex items-center space-x-2 ${
-              'text-gray-400'
+              n8nChatActive ? 'text-green-600' : 'text-gray-400'
             }`}>
               <MessageCircle className="w-5 h-5" />
               <span className="font-medium">Chat IA</span>
@@ -2857,56 +2859,82 @@ const TesteRecursoIA: React.FC = () => {
         <div className="grid grid-cols-1 gap-6">
           {/* Seção 1: Upload de Documento */}
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => setIsUploadOpen(!isUploadOpen)}
+              className="w-full flex items-center justify-between text-left hover:bg-gray-50 -m-6 p-6 rounded-lg transition-colors"
+            >
               <h2 className="text-xl font-semibold text-gray-900 flex items-center">
                 <Upload className="w-5 h-5 mr-2" />
                 Upload de Documento
               </h2>
-            </div>
+              {isUploadOpen ? (
+                <ChevronUp className="w-5 h-5 text-gray-500" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-500" />
+              )}
+            </button>
             
-            {isProcessLocked ? (
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50">
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-                    <FileText className="w-8 h-8 text-green-600" />
+            {isUploadOpen && (
+              <div className="mt-4">
+                {isProcessLocked ? (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center bg-gray-50">
+                    <div className="flex flex-col items-center space-y-4">
+                      <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
+                        <FileText className="w-8 h-8 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">Processo Protegido</h3>
+                        <p className="text-gray-600 mb-2">
+                          Os dados foram extraídos com sucesso e o processo está salvo.
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          ID do Processo: <span className="font-mono bg-gray-200 px-2 py-1 rounded">{processId}</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2 text-sm text-green-700">
+                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                        <span>Documento processado e protegido contra alterações</span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">Processo Protegido</h3>
-                    <p className="text-gray-600 mb-2">
-                      Os dados foram extraídos com sucesso e o processo está salvo.
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      ID do Processo: <span className="font-mono bg-gray-200 px-2 py-1 rounded">{processId}</span>
-                    </p>
-                  </div>
-                  <div className="flex items-center space-x-2 text-sm text-green-700">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>Documento processado e protegido contra alterações</span>
-                  </div>
-                </div>
+                ) : (
+                  <FileUpload
+                    onFileSelect={handleFileUpload}
+                    acceptedTypes={['.pdf', '.jpg', '.jpeg', '.png']}
+                    maxSize={10}
+                  />
+                )}
               </div>
-            ) : (
-              <FileUpload
-                onFileSelect={handleFileUpload}
-                acceptedTypes={['.pdf', '.jpg', '.jpeg', '.png']}
-                maxSize={10}
-              />
             )}
           </div>
 
           {/* Seção 2: Dados Extraídos */}
           <div className="bg-white rounded-lg shadow-sm p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-              <FileText className="w-5 h-5 mr-2" />
-              Dados Extraídos
-            </h2>
+            <button
+              onClick={() => setIsDadosExtraidosOpen(!isDadosExtraidosOpen)}
+              className="w-full flex items-center justify-between text-left hover:bg-gray-50 -m-6 p-6 rounded-lg transition-colors"
+            >
+              <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+                <FileText className="w-5 h-5 mr-2" />
+                Dados Extraídos
+              </h2>
+              {isDadosExtraidosOpen ? (
+                <ChevronUp className="w-5 h-5 text-gray-500" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-gray-500" />
+              )}
+            </button>
             
-            <DataExtraction
-              data={multaData}
-              onDataChange={setMultaData}
-              onStartChat={() => {}} // Função vazia já que o chat inicia automaticamente
-              isLoading={isProcessing}
-            />
+            {isDadosExtraidosOpen && (
+              <div className="mt-4">
+                <DataExtraction
+                  data={multaData}
+                  onDataChange={setMultaData}
+                  onStartChat={() => {}} // Função vazia já que o chat inicia automaticamente
+                  isLoading={isProcessing}
+                />
+              </div>
+            )}
             
             {/* Botão para exibir advertência se disponível */}
             {analiseMultaLeve?.advertencia.sugerirAdvertencia && !showAdvertencia && (
