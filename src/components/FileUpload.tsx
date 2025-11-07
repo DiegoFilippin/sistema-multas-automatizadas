@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Upload, FileText, X, AlertCircle } from 'lucide-react';
+import { Upload, FileText, X, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface FileUploadProps {
@@ -18,6 +18,8 @@ const FileUpload: React.FC<FileUploadProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const validateFile = (file: File): boolean => {
     // Verificar tamanho
@@ -40,16 +42,32 @@ const FileUpload: React.FC<FileUploadProps> = ({
   const handleFileSelect = useCallback((file: File) => {
     if (!validateFile(file)) return;
 
-    setUploadedFile(file);
+    // Armazenar arquivo pendente e mostrar modal de confirmação
+    setPendingFile(file);
+    setShowConfirmModal(true);
+  }, [maxSize, acceptedTypes]);
+
+  const handleConfirmUpload = () => {
+    if (!pendingFile) return;
+
+    setShowConfirmModal(false);
+    setUploadedFile(pendingFile);
     setIsProcessing(true);
     
     // Simular processamento
     setTimeout(() => {
       setIsProcessing(false);
-      onFileSelect(file);
+      onFileSelect(pendingFile);
       toast.success('Arquivo carregado com sucesso!');
+      setPendingFile(null);
     }, 1500);
-  }, [onFileSelect, maxSize, acceptedTypes]);
+  };
+
+  const handleCancelUpload = () => {
+    setShowConfirmModal(false);
+    setPendingFile(null);
+    toast.info('Upload cancelado. Envie o documento correto.');
+  };
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -134,59 +152,113 @@ const FileUpload: React.FC<FileUploadProps> = ({
   }
 
   return (
-    <div className={className}>
-      <div
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        className={`
-          border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer
-          ${isDragOver 
-            ? 'border-blue-400 bg-blue-50' 
-            : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-          }
-        `}
-      >
-        <Upload className={`w-12 h-12 mx-auto mb-4 ${
-          isDragOver ? 'text-blue-600' : 'text-gray-400'
-        }`} />
-        
-        <div className="space-y-2">
-          <p className="text-gray-600 font-medium">
-            {isDragOver 
-              ? 'Solte o arquivo aqui' 
-              : 'Arraste e solte o documento da multa aqui'
+    <>
+      <div className={className}>
+        <div
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          className={`
+            border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer
+            ${isDragOver 
+              ? 'border-blue-400 bg-blue-50' 
+              : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
             }
-          </p>
+          `}
+        >
+          <Upload className={`w-12 h-12 mx-auto mb-4 ${
+            isDragOver ? 'text-blue-600' : 'text-gray-400'
+          }`} />
           
-          <p className="text-sm text-gray-500">
-            ou clique para selecionar
-          </p>
+          <div className="space-y-2">
+            <p className="text-gray-600 font-medium">
+              {isDragOver 
+                ? 'Solte o arquivo aqui' 
+                : 'Arraste e solte o documento da multa aqui'
+              }
+            </p>
+            
+            <p className="text-sm text-gray-500">
+              ou clique para selecionar
+            </p>
+            
+            <div className="flex items-center justify-center space-x-2 text-xs text-gray-400">
+              <AlertCircle className="w-3 h-3" />
+              <span>
+                Tipos aceitos: {acceptedTypes.join(', ')} | Tamanho máximo: {maxSize}MB
+              </span>
+            </div>
+          </div>
           
-          <div className="flex items-center justify-center space-x-2 text-xs text-gray-400">
-            <AlertCircle className="w-3 h-3" />
-            <span>
-              Tipos aceitos: {acceptedTypes.join(', ')} | Tamanho máximo: {maxSize}MB
-            </span>
+          <input
+            type="file"
+            accept={acceptedTypes.join(',')}
+            onChange={handleInputChange}
+            className="hidden"
+            id="file-upload-input"
+          />
+          
+          <label
+            htmlFor="file-upload-input"
+            className="inline-block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors font-medium"
+          >
+            Selecionar Arquivo
+          </label>
+        </div>
+      </div>
+
+      {/* Modal de Confirmação */}
+      {showConfirmModal && pendingFile && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-start space-x-4 mb-6">
+              <div className="flex-shrink-0">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-blue-600" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                  Confirmar envio de documento
+                </h3>
+                <p className="text-gray-600 mb-4">
+                  Você confirma que o documento enviado é o documento correto para recurso?
+                </p>
+                <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                  <div className="flex items-center space-x-2">
+                    <FileText className="w-4 h-4 text-gray-500" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {pendingFile.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {formatFileSize(pendingFile.size)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex space-x-3">
+              <button
+                onClick={handleCancelUpload}
+                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmUpload}
+                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center space-x-2"
+              >
+                <CheckCircle className="w-4 h-4" />
+                <span>Confirmar</span>
+              </button>
+            </div>
           </div>
         </div>
-        
-        <input
-          type="file"
-          accept={acceptedTypes.join(',')}
-          onChange={handleInputChange}
-          className="hidden"
-          id="file-upload-input"
-        />
-        
-        <label
-          htmlFor="file-upload-input"
-          className="inline-block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors font-medium"
-        >
-          Selecionar Arquivo
-        </label>
-      </div>
-    </div>
+      )}
+    </>
   );
 };
 
