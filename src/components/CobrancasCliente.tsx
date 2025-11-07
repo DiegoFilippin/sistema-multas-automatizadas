@@ -66,8 +66,10 @@ export function CobrancasCliente({ clientId, onViewDetails }: CobrancasClientePr
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         }
       });
-
-      const data = await response.json();
+      
+      // Verificar se a resposta tem conteúdo antes de tentar fazer o parse
+      const text = await response.text();
+      const data = text ? JSON.parse(text) : {};
       
       if (response.ok) {
         setCobrancas(data.payments || []);

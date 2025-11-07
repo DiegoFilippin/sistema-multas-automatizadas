@@ -1985,4 +1985,150 @@ router.get('/:paymentId/recurso', authenticateToken, async (req: Request, res: R
   }
 });
 
+// POST /api/payments/:paymentId/manual-payment - Baixa manual (superadmin)
+router.post('/:paymentId/manual-payment', authenticateToken, authorizeRoles(['Superadmin']), async (req: Request, res: Response) => {
+  const { paymentId } = req.params;
+  
+  console.log(`💰 Iniciando baixa manual para pagamento: ${paymentId}`);
+  
+  try {
+    // 1. Buscar dados do pagamento no Supabase (service_orders)
+    console.log(`🔍 Buscando pagamento com ID: ${paymentId}`);
+    
+    // Tentar buscar por asaas_payment_id primeiro
+    let payment = null;
+    
+    const { data: paymentByAsaasId, error: errorByAsaasId } = await supabase
+      .from('service_orders')
+      .select('id, asaas_payment_id, status, value, payment_method')
+      .eq('asaas_payment_id', paymentId)
+      .single();
+    
+    if (paymentByAsaasId) {
+      payment = paymentByAsaasId;
+      console.log('✅ Pagamento encontrado por asaas_payment_id');
+    } else {
+      // Se não encontrou por asaas_payment_id, tentar por ID
+      const { data: paymentById, error: errorById } = await supabase
+        .from('service_orders')
+        .select('id, asaas_payment_id, status, value, payment_method')
+        .eq('id', paymentId)
+        .single();
+      
+      if (paymentById) {
+        payment = paymentById;
+        console.log('✅ Pagamento encontrado por ID');
+      } else {
+        console.error('❌ Pagamento não encontrado:', errorById || errorByAsaasId);
+        return res.status(404).json({
+          success: false,
+          error: 'Pagamento não encontrado'
+        });
+      }
+    }
+    
+    if (payment.status === 'paid' || payment.status === 'confirmed') {
+      console.log('⚠️ Pagamento já foi confirmado');
+      return res.status(400).json({
+        success: false,
+        error: 'Pagamento já foi confirmado'
+      });
+    }
+    
+    // 2. Dar baixa no Asaas se houver asaas_payment_id
+    let asaasResult = null;
+    if (payment.asaas_payment_id) {
+      try {
+        console.log(`🔗 Dando baixa no Asaas: ${payment.asaas_payment_id}`);
+        
+        // Buscar configuração do Asaas
+        const { data: asaasConfig } = await supabase
+          .from('asaas_config')
+          .select('*')
+          .single();
+        
+        if (!asaasConfig) {
+          throw new Error('Configuração do Asaas não encontrada');
+        }
+        
+        const apiKey = asaasConfig.environment === 'production' 
+          ? asaasConfig.api_key_production 
+          : asaasConfig.api_key_sandbox;
+        
+        const baseUrl = asaasConfig.environment === 'production' 
+          ? 'https://api.asaas.com/v3' 
+          : 'https://api-sandbox.asaas.com/v3';
+        
+        const asaasResponse = await fetch(
+          `${baseUrl}/payments/${payment.asaas_payment_id}/receiveInCash`,
+          {
+            method: 'POST',
+            headers: {
+              'access_token': apiKey,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              paymentDate: new Date().toISOString().split('T')[0],
+              value: Math.max(payment.value || 1.00, 1.00)
+            })
+          }
+        );
+        
+        if (!asaasResponse.ok) {
+          const errorText = await asaasResponse.text();
+          console.error('❌ Erro no Asaas:', asaasResponse.status, errorText);
+          throw new Error(`Erro no Asaas: ${asaasResponse.status}`);
+        }
+        
+        asaasResult = await asaasResponse.json();
+        console.log('✅ Baixa realizada no Asaas com sucesso');
+        
+      } catch (asaasError) {
+        console.error('⚠️ Erro ao dar baixa no Asaas (continuando com baixa manual):', asaasError);
+        // Para baixa manual, continuamos mesmo se houver erro no Asaas
+        // pois é uma ação administrativa que não depende da confirmação do gateway
+      }
+    }
+    
+    // 3. Atualizar status no Supabase (service_orders)
+    const { error: updateError } = await supabase
+      .from('service_orders')
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        payment_method: 'CASH',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', payment.id);
+    
+    if (updateError) {
+      console.error('❌ Erro ao atualizar status no banco:', updateError);
+      return res.status(500).json({
+        success: false,
+        error: 'Erro ao atualizar status no banco',
+        message: updateError.message
+      });
+    }
+    
+    console.log('✅ Baixa manual realizada com sucesso');
+    
+    return res.json({
+      success: true,
+      message: 'Baixa manual realizada com sucesso',
+      payment_id: paymentId,
+      asaas_data: asaasResult
+    });
+    
+  } catch (error) {
+    console.error('❌ Erro ao processar baixa manual:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : '');
+    return res.status(500).json({
+      success: false,
+      error: 'Erro interno do servidor',
+      message: error instanceof Error ? error.message : 'Erro desconhecido',
+      details: error instanceof Error ? error.stack : String(error)
+    });
+  }
+});
+
 export default router;

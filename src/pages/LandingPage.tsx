@@ -19,6 +19,10 @@ export default function LandingPage() {
     navigate('/login');
   };
 
+  const handleCadastro = () => {
+    navigate('/cadastro');
+  };
+
   const benefits = [
     {
       icon: Shield,
@@ -77,12 +81,20 @@ export default function LandingPage() {
                 Contato
               </a>
             </nav>
-            <button
-              onClick={handleLogin}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-            >
-              Entrar
-            </button>
+            <div className="flex space-x-4">
+              <button
+                onClick={handleCadastro}
+                className="bg-white text-blue-600 border border-blue-600 px-6 py-2 rounded-lg hover:bg-blue-50 transition-colors font-medium"
+              >
+                Cadastro
+              </button>
+              <button
+                onClick={handleLogin}
+                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Entrar
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -110,9 +122,7 @@ export default function LandingPage() {
               <a
                 href="#contato"
                 className="border-2 border-blue-600 text-blue-600 px-8 py-4 rounded-lg hover:bg-blue-50 transition-colors font-medium text-lg"
-              >
-                Falar com Especialista
-              </a>
+              >Falar com Especialista</a>
             </div>
           </div>
         </div>

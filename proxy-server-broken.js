@@ -2756,12 +2756,37 @@ const server = http.createServer(async (req, res) => {
           //   return res.status(403).json({ error: 'Acesso negado. Apenas superadmin pode dar baixa manual.' });
           // }
           
-          // 1. Buscar dados do pagamento no Supabase
-          const { data: payment, error: paymentError } = await supabase
-            .from('payments')
-            .select('id, asaas_payment_id, status, amount, credit_amount')
-            .eq('id', paymentId)
+          // 1. Buscar dados do pagamento no Supabase (service_orders)
+          console.log(`🔍 Buscando pagamento com ID: ${paymentId}`);
+          
+          // Tentar buscar por asaas_payment_id primeiro
+          let payment = null;
+          let paymentError = null;
+          
+          const { data: paymentByAsaasId, error: errorByAsaasId } = await supabase
+            .from('service_orders')
+            .select('id, asaas_payment_id, status, value, payment_method')
+            .eq('asaas_payment_id', paymentId)
             .single();
+          
+          if (paymentByAsaasId) {
+            payment = paymentByAsaasId;
+            console.log('✅ Pagamento encontrado por asaas_payment_id');
+          } else {
+            // Se não encontrou por asaas_payment_id, tentar por ID
+            const { data: paymentById, error: errorById } = await supabase
+              .from('service_orders')
+              .select('id, asaas_payment_id, status, value, payment_method')
+              .eq('id', paymentId)
+              .single();
+            
+            if (paymentById) {
+              payment = paymentById;
+              console.log('✅ Pagamento encontrado por ID');
+            } else {
+              paymentError = errorById || errorByAsaasId;
+            }
+          }
           
           if (paymentError || !payment) {
             console.error('❌ Pagamento não encontrado:', paymentError);
@@ -2773,7 +2798,7 @@ const server = http.createServer(async (req, res) => {
             return;
           }
           
-          if (payment.status === 'confirmed') {
+          if (payment.status === 'paid' || payment.status === 'confirmed') {
             console.log('⚠️ Pagamento já foi confirmado');
             res.writeHead(400, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
@@ -2806,7 +2831,7 @@ const server = http.createServer(async (req, res) => {
                   },
                   body: JSON.stringify({
                     paymentDate: new Date().toISOString().split('T')[0], // Data atual no formato YYYY-MM-DD
-                    value: Math.max(payment.amount || payment.credit_amount || 1.00, 1.00) // Garantir valor mínimo de R$ 1,00
+                    value: Math.max(payment.value || 1.00, 1.00) // Garantir valor mínimo de R$ 1,00
                   })
                 }
               );
@@ -2833,16 +2858,16 @@ const server = http.createServer(async (req, res) => {
             }
           }
           
-          // 3. Atualizar status no Supabase
+          // 3. Atualizar status no Supabase (service_orders)
           const { error: updateError } = await supabase
-            .from('payments')
+            .from('service_orders')
             .update({
-              status: 'confirmed',
-              confirmed_at: new Date().toISOString(),
-              payment_method: 'cash',
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              payment_method: 'CASH',
               updated_at: new Date().toISOString()
             })
-            .eq('id', paymentId);
+            .eq('id', payment.id);
           
           if (updateError) {
             console.error('❌ Erro ao atualizar status no banco:', updateError);
@@ -2868,11 +2893,13 @@ const server = http.createServer(async (req, res) => {
           
         } catch (error) {
           console.error('❌ Erro ao processar baixa manual:', error);
+          console.error('Stack trace:', error.stack);
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({
             success: false,
             error: 'Erro interno do servidor',
-            message: error instanceof Error ? error.message : 'Erro desconhecido'
+            message: error instanceof Error ? error.message : 'Erro desconhecido',
+            details: error instanceof Error ? error.stack : String(error)
           }));
           return;
         }

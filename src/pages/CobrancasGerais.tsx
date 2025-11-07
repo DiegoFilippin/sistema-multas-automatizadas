@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   Calendar,
   User,
-  FileText
+  FileText,
+  Banknote
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -25,6 +26,8 @@ import { toast } from 'sonner';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { serviceOrdersService } from '@/services/serviceOrdersService';
 import { logger } from '@/utils/logger';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 
 const log = logger.scope('cobrancas-gerais');
 
@@ -52,10 +55,12 @@ interface CobrancaCardProps {
   onViewDetails: (cobranca: Cobranca) => void;
   onResend: (cobranca: Cobranca) => void;
   onCancel: (cobranca: Cobranca) => void;
+  onBaixaManual?: (cobranca: Cobranca) => void;
   showCompany?: boolean;
+  isSuperadmin?: boolean;
 }
 
-function CobrancaCard({ cobranca, onViewDetails, onResend, onCancel, showCompany = false }: CobrancaCardProps) {
+function CobrancaCard({ cobranca, onViewDetails, onResend, onCancel, onBaixaManual, showCompany = false, isSuperadmin = false }: CobrancaCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   
   const getStatusColor = (status: string) => {
@@ -163,6 +168,19 @@ function CobrancaCard({ cobranca, onViewDetails, onResend, onCancel, showCompany
                 </button>
               )}
               
+              {isSuperadmin && (actualStatus === 'pending' || actualStatus === 'overdue') && onBaixaManual && (
+                <button
+                  onClick={() => {
+                    onBaixaManual(cobranca);
+                    setShowMenu(false);
+                  }}
+                  className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-orange-700 hover:bg-orange-50"
+                >
+                  <Banknote className="w-4 h-4" />
+                  <span>Baixa Manual</span>
+                </button>
+              )}
+              
               {actualStatus !== 'paid' && actualStatus !== 'cancelled' && (
                 <button
                   onClick={() => {
@@ -248,6 +266,9 @@ export default function CobrancasGerais() {
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedCobranca, setSelectedCobranca] = useState<Cobranca | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showBaixaManualModal, setShowBaixaManualModal] = useState(false);
+  const [cobrancaParaBaixa, setCobrancaParaBaixa] = useState<Cobranca | null>(null);
+  const [processandoBaixa, setProcessandoBaixa] = useState(false);
   
   // Função para converter Cobranca para formato compatível (igual ao MeusServicos)
   const convertToCobrancaFormat = (cobranca: Cobranca): any => {
@@ -389,6 +410,103 @@ export default function CobrancasGerais() {
       }
     } catch (error) {
       toast.error('Erro ao cancelar cobrança');
+    }
+  };
+
+  const handleBaixaManual = (cobranca: Cobranca) => {
+    setCobrancaParaBaixa(cobranca);
+    setShowBaixaManualModal(true);
+  };
+
+  const confirmarBaixaManual = async () => {
+    if (!cobrancaParaBaixa) return;
+
+    setProcessandoBaixa(true);
+    try {
+      log.debug('Iniciando baixa manual para cobrança:', {
+        id: cobrancaParaBaixa.id,
+        asaas_payment_id: cobrancaParaBaixa.asaas_payment_id,
+        client_id: cobrancaParaBaixa.client_id,
+        client_name: cobrancaParaBaixa.client_name
+      });
+
+      // Enviar POST para webhook N8N
+      const webhookUrl = 'https://webhookn8n.synsoft.com.br/webhook/c211b1e9-effc-4b6c-8e8b-6fefdbf0bb71';
+      
+      const webhookData = {
+        asaas_payment_id: cobrancaParaBaixa.asaas_payment_id || cobrancaParaBaixa.id,
+        customer_id: cobrancaParaBaixa.client_id,
+        // Informações adicionais para debug/contexto
+        client_name: cobrancaParaBaixa.client_name,
+        amount: cobrancaParaBaixa.amount,
+        due_date: cobrancaParaBaixa.due_date,
+        status: cobrancaParaBaixa.status,
+        action: 'manual_payment',
+        timestamp: new Date().toISOString()
+      };
+
+      log.debug('Enviando dados para webhook N8N:', webhookData);
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(webhookData)
+      });
+
+      log.debug('Resposta do webhook:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+
+      // Tentar ler a resposta como texto primeiro
+      const responseText = await response.text();
+      log.debug('Resposta (texto):', responseText);
+
+      if (!response.ok) {
+        // Tentar parsear como JSON se houver conteúdo
+        let errorMessage = 'Erro ao processar baixa manual';
+        if (responseText) {
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMessage = errorData.error || errorData.message || errorMessage;
+            log.error('Erro do webhook:', errorData);
+          } catch (parseError) {
+            errorMessage = responseText || `Erro ${response.status}: ${response.statusText}`;
+            log.error('Resposta não-JSON do webhook:', responseText);
+          }
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      // Parsear resposta de sucesso
+      let result = null;
+      if (responseText) {
+        try {
+          result = JSON.parse(responseText);
+          log.debug('Resposta parseada:', result);
+        } catch (parseError) {
+          log.warn('Resposta não é JSON válido, mas status é OK');
+        }
+      }
+
+      toast.success('Baixa manual realizada com sucesso!');
+      setShowBaixaManualModal(false);
+      setCobrancaParaBaixa(null);
+      
+      // Aguardar um pouco antes de recarregar para dar tempo do webhook processar
+      setTimeout(() => {
+        carregarCobrancas();
+      }, 2000);
+      
+    } catch (error) {
+      log.error('Erro na baixa manual:', error);
+      toast.error(error instanceof Error ? error.message : 'Erro ao processar baixa manual');
+    } finally {
+      setProcessandoBaixa(false);
     }
   };
 
@@ -634,7 +752,9 @@ export default function CobrancasGerais() {
             onViewDetails={handleViewDetails}
             onResend={handleResend}
             onCancel={handleCancel}
+            onBaixaManual={handleBaixaManual}
             showCompany={isSuperadmin()}
+            isSuperadmin={isSuperadmin()}
           />
         ))}
       </div>
@@ -712,6 +832,78 @@ export default function CobrancasGerais() {
           }}
         />
       )}
+
+      {/* Modal de Confirmação de Baixa Manual */}
+      <Dialog open={showBaixaManualModal} onOpenChange={setShowBaixaManualModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Baixa Manual</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja dar baixa manual nesta cobrança?
+            </DialogDescription>
+          </DialogHeader>
+
+          {cobrancaParaBaixa && (
+            <div className="space-y-3 py-4">
+              <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Cliente:</span>
+                  <span className="text-sm font-medium">{cobrancaParaBaixa.client_name}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Valor:</span>
+                  <span className="text-sm font-medium">
+                    R$ {cobrancaParaBaixa.amount.toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Vencimento:</span>
+                  <span className="text-sm font-medium">
+                    {format(new Date(cobrancaParaBaixa.due_date), 'dd/MM/yyyy', { locale: ptBR })}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg">
+                <p className="text-sm text-orange-800">
+                  <strong>Atenção:</strong> Esta ação irá marcar o pagamento como recebido manualmente. 
+                  Esta operação não pode ser desfeita.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBaixaManualModal(false);
+                setCobrancaParaBaixa(null);
+              }}
+              disabled={processandoBaixa}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmarBaixaManual}
+              disabled={processandoBaixa}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {processandoBaixa ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                <>
+                  <Banknote className="h-4 w-4 mr-2" />
+                  Confirmar Baixa Manual
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

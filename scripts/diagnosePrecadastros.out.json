@@ -1,0 +1,50 @@
+{
+  "supabase_url": "https://ktgynzdzvfcpvbdbtplu.supabase.co",
+  "counts": {
+    "anon": 0,
+    "service": 5,
+    "anon_error": null,
+    "service_error": null
+  },
+  "sample": {
+    "anon": [],
+    "service": [
+      {
+        "id": "dcb762b9-706f-44cd-9e87-d73b262104a0",
+        "status": "pendente",
+        "email": "diegofilippin@hotmail.com",
+        "razao_social": "ACSM - ASSOCIACAO CATARINENSE DE SOCORRO MUTUO",
+        "created_at": "2025-10-31T12:18:15.682049+00:00"
+      },
+      {
+        "id": "66de53b6-0e9d-4d72-928b-f7f9c08626f8",
+        "status": "pendente",
+        "email": "origin5173@example.com",
+        "razao_social": "Empresa Origin",
+        "created_at": "2025-10-31T12:12:45.123438+00:00"
+      },
+      {
+        "id": "55b1f1cb-7c9d-4375-bf16-5bc940847487",
+        "status": "pendente",
+        "email": "testecors@example.com",
+        "razao_social": "Empresa Teste CORS LTDA",
+        "created_at": "2025-10-31T12:12:06.877951+00:00"
+      },
+      {
+        "id": "1c1fdefb-43ef-4199-a48a-4a3b9475fccc",
+        "status": "pendente",
+        "email": "teste@debug.com",
+        "razao_social": "Teste Debug Ltda",
+        "created_at": "2025-10-31T10:33:01.660161+00:00"
+      },
+      {
+        "id": "f0519a95-081d-430a-8ce6-624a57517f45",
+        "status": "pendente",
+        "email": "teste@example.com",
+        "razao_social": "Empresa Teste Ltda",
+        "created_at": "2025-10-31T10:30:01.741296+00:00"
+      }
+    ]
+  },
+  "rls_blocked_for_anon": true
+}

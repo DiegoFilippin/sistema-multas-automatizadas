@@ -142,6 +142,7 @@ class SubaccountService {
       const { data, error } = await supabase
         .from('asaas_config')
         .select('*')
+        .eq('is_active', true)
         .single();
 
       if (error) {

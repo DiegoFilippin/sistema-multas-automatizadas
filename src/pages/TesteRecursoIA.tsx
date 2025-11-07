@@ -944,6 +944,26 @@ const TesteRecursoIA: React.FC = () => {
         }
       }
       
+      // 2.5. Buscar recurso associado na tabela recursos
+      let recursoAssociado = null;
+      if (multaAssociada) {
+        const { data: recurso, error: recursoError } = await supabase
+          .from('recursos')
+          .select('*')
+          .eq('multa_id', multaAssociada.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+        
+        if (!recursoError && recurso) {
+          recursoAssociado = recurso;
+          console.log('✅ Recurso associado encontrado:', recurso);
+          toast.success(`📄 Recurso existente encontrado: ${recurso.titulo}`);
+        } else {
+          console.log('ℹ️ Nenhum recurso encontrado para esta multa');
+        }
+      }
+      
       // 3. Buscar sessão de chat ativa
        let chatSession = null;
        if (multaAssociada && serviceOrder.company_id) {
@@ -965,9 +985,11 @@ const TesteRecursoIA: React.FC = () => {
        }
       
       // 4. Restaurar estados dos componentes
+      let multaDataRestaurada: MultaData | null = null;
+      
       if (multaAssociada) {
         // Mapear dados da multa para o formato MultaData
-        const multaDataRestaurada: MultaData = {
+        multaDataRestaurada = {
           numero: multaAssociada.numero_auto || '',
           infracao: multaAssociada.descricao_infracao || '',
           codigoInfracao: multaAssociada.codigo_infracao || '',
@@ -1027,9 +1049,28 @@ const TesteRecursoIA: React.FC = () => {
         toast.success('💬 Sessão de chat restaurada!');
       }
       
+      // 6. Atualizar localStorage com o recurso encontrado
+      if (recursoAssociado && multaAssociada) {
+        const processData = {
+          id: recursoAssociado.id,
+          multaData: multaDataRestaurada,
+          multaId: multaAssociada.id,
+          recursoId: recursoAssociado.id,
+          clienteData,
+          timestamp: recursoAssociado.created_at,
+          locked: true,
+          status: recursoAssociado.status
+        };
+        
+        setProcessId(recursoAssociado.id);
+        localStorage.setItem('recurso_process', JSON.stringify(processData));
+        console.log('💾 Processo restaurado no localStorage:', processData);
+      }
+      
       return {
         serviceOrder,
         multa: multaAssociada,
+        recurso: recursoAssociado,
         chatSession
       };
       
@@ -1215,7 +1256,29 @@ const TesteRecursoIA: React.FC = () => {
         // Criar registro do recurso na tabela recursos
         try {
           console.log('📝 Criando registro de recurso na tabela recursos...');
-          await createRecursoRecord(multaSalva, multaDataMapeada);
+          const recursoSalvo = await createRecursoRecord(multaSalva, multaDataMapeada);
+          
+          // Atualizar localStorage com recurso_id
+          if (recursoSalvo) {
+            const savedProcess = localStorage.getItem('recurso_process');
+            if (savedProcess) {
+              const processData = JSON.parse(savedProcess);
+              processData.recursoId = recursoSalvo.id;
+              localStorage.setItem('recurso_process', JSON.stringify(processData));
+            }
+            
+            // Vincular recurso_id ao service_order
+            console.log('🔗 Tentando vincular recurso_id à service_order...');
+            console.log('📋 clienteData:', clienteData);
+            console.log('📋 service_order_id:', clienteData?.service_order_id);
+            console.log('📋 recurso_id:', recursoSalvo.id);
+            
+            if (clienteData?.service_order_id) {
+              await updateServiceOrderWithRecursoId(clienteData.service_order_id, recursoSalvo.id);
+            } else {
+              console.warn('⚠️ service_order_id não disponível em clienteData');
+            }
+          }
         } catch (recursoError) {
           console.error('⚠️ Erro ao criar registro de recurso:', recursoError);
           // Não bloquear o fluxo se falhar
@@ -2321,6 +2384,14 @@ const TesteRecursoIA: React.FC = () => {
       const companyId = user?.company_id || multaSalva.company_id;
       const clientId = multaSalva.client_id;
       
+      console.log('🔍 [createRecursoRecord] Debug company_id:', {
+        user_company_id: user?.company_id,
+        multa_company_id: multaSalva.company_id,
+        final_company_id: companyId,
+        user_role: user?.role,
+        multa_id: multaSalva.id
+      });
+      
       if (!companyId) {
         console.error('❌ Company ID não disponível para criar recurso');
         return;
@@ -2367,6 +2438,7 @@ const TesteRecursoIA: React.FC = () => {
       }
       
       console.log('✅ Recurso salvo com sucesso:', recursoSalvo);
+      console.log('🔍 [createRecursoRecord] Recurso salvo com company_id:', recursoSalvo.company_id);
       toast.success('Recurso registrado e visível na aba Recursos!');
       
       return recursoSalvo;
@@ -2628,6 +2700,48 @@ const TesteRecursoIA: React.FC = () => {
       
     } catch (error: any) {
       console.error('❌ Erro ao relacionar service_orders com multa:', error);
+      return null;
+    }
+  };
+  
+  const updateServiceOrderWithRecursoId = async (serviceOrderId: string, recursoId: string) => {
+    try {
+      console.log('🔗 Atualizando service_orders com recurso_id...');
+      console.log('📋 Service Order ID:', serviceOrderId);
+      console.log('🆔 Recurso ID:', recursoId);
+      
+      // Importar supabase client
+      const { supabase } = await import('../lib/supabase');
+      
+      // Verificar se é UUID ou asaas_payment_id
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(serviceOrderId);
+      
+      let query = supabase
+        .from('service_orders')
+        .update({ 
+          recurso_id: recursoId,
+          recurso_status: 'iniciado',
+          recurso_initiated_at: new Date().toISOString()
+        });
+      
+      if (isUUID) {
+        query = query.eq('id', serviceOrderId);
+      } else {
+        query = query.eq('asaas_payment_id', serviceOrderId);
+      }
+      
+      const { data, error } = await query.select();
+      
+      if (error) {
+        console.error('❌ Erro ao atualizar service_orders com recurso_id:', error);
+        throw error;
+      }
+      
+      console.log('✅ Service_orders atualizado com recurso_id:', data);
+      return data;
+      
+    } catch (error: any) {
+      console.error('❌ Erro ao vincular service_orders com recurso:', error);
       return null;
     }
   };

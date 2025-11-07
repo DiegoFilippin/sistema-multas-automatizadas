@@ -57,6 +57,8 @@ export default function EmpresaDetalhes() {
     multasProcessadas: 0,
     receitaMensal: 0
   });
+  const [showSuspendModal, setShowSuspendModal] = useState(false);
+  const [isConfirmingSuspension, setIsConfirmingSuspension] = useState(false);
   const [formData, setFormData] = useState({
     nome: '',
     cnpj: '',
@@ -198,17 +200,36 @@ export default function EmpresaDetalhes() {
 
   const handleStatusToggle = async () => {
     if (!empresa) return;
-    
+
+    if (empresa.status === 'ativa') {
+      setShowSuspendModal(true);
+      return;
+    }
+
     try {
-      if (empresa.status === 'ativa') {
-        await suspenderEmpresa(empresa.id);
-        toast.success('Empresa suspensa com sucesso!');
-      } else {
-        await reativarEmpresa(empresa.id);
-        toast.success('Empresa reativada com sucesso!');
-      }
+      await reativarEmpresa(empresa.id);
+      toast.success('Empresa reativada com sucesso!');
+      await fetchEmpresas();
     } catch (error) {
-      toast.error('Erro ao alterar status da empresa');
+      console.error('Erro ao reativar empresa:', error);
+      toast.error('Erro ao reativar empresa');
+    }
+  };
+
+  const confirmSuspension = async () => {
+    if (!empresa) return;
+
+    setIsConfirmingSuspension(true);
+    try {
+      await suspenderEmpresa(empresa.id);
+      toast.success('Empresa suspensa com sucesso!');
+      await fetchEmpresas();
+      setShowSuspendModal(false);
+    } catch (error) {
+      console.error('Erro ao suspender empresa:', error);
+      toast.error('Erro ao suspender empresa');
+    } finally {
+      setIsConfirmingSuspension(false);
     }
   };
 
@@ -896,6 +917,35 @@ export default function EmpresaDetalhes() {
         )}
       </div>
       
+      {/* Modal de confirmação de suspensão */}
+      {showSuspendModal && empresa && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Suspender empresa</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Tem certeza de que deseja suspender a empresa <strong>{empresa.nome}</strong>?<br />
+              Os usuários associados ficarão sem acesso até que a empresa seja reativada.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowSuspendModal(false)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                disabled={isConfirmingSuspension}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmSuspension}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 disabled:opacity-60"
+                disabled={isConfirmingSuspension}
+              >
+                {isConfirmingSuspension ? 'Suspendendo...' : 'Confirmar suspensão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Usuário */}
       <UserModal 
         isOpen={showUserModal}

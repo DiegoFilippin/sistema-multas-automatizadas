@@ -63,6 +63,18 @@ class MockSupabaseClient {
       }
     ],
     // Adicionar tabela mock para asaas_subaccounts
+    asaas_config: [
+      {
+        id: '1',
+        environment: 'sandbox',
+        api_key_sandbox: 'mock_sandbox_key_123',
+        api_key_production: 'mock_production_key_456',
+        webhook_url: 'https://webhook.demo.com/asaas',
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ],
     asaas_subaccounts: [
       {
         id: 'sub_demo_1',
@@ -196,6 +208,31 @@ class MockSupabaseClient {
       }
     ],
     recursos: [],
+    precadastros: [
+      {
+        id: '1',
+        nome: 'João Silva',
+        email: 'joao@exemplo.com',
+        telefone: '(11) 99999-9999',
+        data_nascimento: '1985-05-15',
+        cnpj: '12.345.678/0001-90',
+        razao_social: 'Empresa Exemplo LTDA',
+        nome_fantasia: 'Exemplo',
+        endereco: 'Rua das Flores, 123',
+        numero: '123',
+        complemento: 'Sala 1',
+        bairro: 'Centro',
+        cidade: 'São Paulo',
+        estado: 'SP',
+        cep: '01234-567',
+        status: 'pendente',
+        webhook_enviado: true,
+        webhook_response: '{"success": true}',
+        observacoes: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+    ],
     clients: [
       {
         id: '7ae2ec03-956b-44cc-b57e-eaebab801790',
@@ -376,13 +413,18 @@ class MockSupabaseClient {
         return createQueryBuilder()
       },
       insert: (data: any) => ({
-        select: () => ({
+        select: (columns?: string) => ({
           single: async (): Promise<MockResponse> => {
             console.log(`🔄 Mock insert: ${table}`, data)
             const newItem = { ...data, id: Date.now().toString(), created_at: new Date().toISOString() }
             return { data: newItem, error: null }
           }
-        })
+        }),
+        single: async (): Promise<MockResponse> => {
+          console.log(`🔄 Mock insert: ${table}`, data)
+          const newItem = { ...data, id: Date.now().toString(), created_at: new Date().toISOString() }
+          return { data: newItem, error: null }
+        }
       }),
       update: (data: any) => ({
         eq: (column: string, value: any) => ({

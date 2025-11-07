@@ -546,6 +546,44 @@ export default function Recursos() {
     const fetchServiceOrdersIniciados = async () => {
       if (!user) return;
       try {
+        console.log('🔍 [Recursos] Buscando recursos da tabela recursos...');
+        console.log('👤 [Recursos] Usuário:', { role: user.role, company_id: user.company_id, email: user.email });
+        
+        // 1. Buscar recursos da tabela recursos
+        let recursosQuery = supabase
+          .from('recursos')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        // Filtro por papel do usuário
+        if (user.role === 'Despachante' || user.role === 'user') {
+          console.log(`🔍 [Recursos] Filtrando por company_id: ${user.company_id}`);
+          recursosQuery = recursosQuery.eq('company_id', user.company_id);
+        } else if (user.role === 'Usuario/Cliente' || user.role === 'viewer') {
+          const { data: clientData } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('email', user.email)
+            .single();
+          if (clientData?.id) {
+            console.log(`🔍 [Recursos] Filtrando por client_id: ${clientData.id}`);
+            recursosQuery = recursosQuery.eq('client_id', clientData.id);
+          }
+        } else {
+          console.log('🔍 [Recursos] Sem filtro (admin/superadmin)');
+        }
+
+        let { data: recursosData, error: recursosError } = await recursosQuery;
+        if (recursosError) {
+          console.error('❌ Erro ao buscar recursos:', recursosError);
+        }
+
+        console.log(`✅ [Recursos] Encontrados ${recursosData?.length || 0} recursos na tabela recursos`);
+        if (recursosData && recursosData.length > 0) {
+          console.log('📋 [Recursos] Primeiros recursos encontrados:', recursosData.slice(0, 3));
+        }
+
+        // 2. Buscar service_orders com processos iniciados
         console.log('🔍 [Recursos] Buscando service_orders com recursos iniciados...');
         
         let query = supabase
@@ -566,7 +604,8 @@ export default function Recursos() {
           if (clientData?.id) {
             query = query.eq('client_id', clientData.id);
           } else {
-            setSoRecursos([]);
+            // Se não encontrou cliente, usar apenas recursos da tabela
+            setSoRecursos(recursosData || []);
             return;
           }
         }
@@ -576,24 +615,50 @@ export default function Recursos() {
 
         console.log(`🔍 [Recursos] Encontradas ${data?.length || 0} service_orders pagas`);
 
-        // Filtrar apenas as que têm recurso iniciado
+        // IMPORTANTE: Incluir service_orders que têm recurso_id para buscar o recurso associado
+        const serviceOrdersComRecurso = (data || []).filter((order: any) => order.recurso_id);
+        console.log(`🔍 [Recursos] ${serviceOrdersComRecurso.length} service_orders com recurso_id`);
+        
+        // Buscar recursos vinculados a essas service_orders
+        if (serviceOrdersComRecurso.length > 0) {
+          const recursoIds = serviceOrdersComRecurso.map((o: any) => o.recurso_id);
+          const { data: recursosVinculados, error: recursoError } = await supabase
+            .from('recursos')
+            .select('*')
+            .in('id', recursoIds);
+          
+          if (!recursoError && recursosVinculados) {
+            console.log(`✅ [Recursos] Encontrados ${recursosVinculados.length} recursos vinculados a service_orders`);
+            // Adicionar aos recursos já encontrados
+            recursosData = [...(recursosData || []), ...recursosVinculados];
+          }
+        }
+
+        // Filtrar apenas as que têm recurso iniciado (mas não têm recurso_id, para evitar duplicação)
         const initiated = (data || []).filter((order: any) => {
+          // Se já tem recurso_id, não incluir aqui (já foi buscado acima)
+          if (order.recurso_id) {
+            return false;
+          }
+          
           const hasRecursoGenerated = Boolean(order.recurso_generated_url);
           const hasAiAnalysis = Boolean(order.ai_analysis);
           const hasRecursoIniciado = hasRecursoGenerated || hasAiAnalysis;
           
-          if (hasRecursoIniciado) {
-            console.log(`✅ [Recursos] Service Order ${order.id} tem recurso iniciado`);
-          }
-          
           return hasRecursoIniciado;
         });
 
-        console.log(`✅ [Recursos] ${initiated.length} service_orders com recurso iniciado`);
+        console.log(`✅ [Recursos] ${initiated.length} service_orders com recurso iniciado (sem recurso_id)`);
 
-        // Buscar informações adicionais de clientes e multas
-        const clientIds = [...new Set(initiated.map((o: any) => o.client_id).filter(Boolean))];
-        const multaIds = [...new Set(initiated.map((o: any) => o.multa_id).filter(Boolean))];
+        // Buscar informações adicionais de clientes e multas (incluindo da tabela recursos)
+        const clientIds = [...new Set([
+          ...initiated.map((o: any) => o.client_id).filter(Boolean),
+          ...(recursosData || []).map((r: any) => r.client_id).filter(Boolean)
+        ])];
+        const multaIds = [...new Set([
+          ...initiated.map((o: any) => o.multa_id).filter(Boolean),
+          ...(recursosData || []).map((r: any) => r.multa_id).filter(Boolean)
+        ])];
 
         let clientsMap: Record<string, any> = {};
         let multasMap: Record<string, any> = {};
@@ -620,7 +685,8 @@ export default function Recursos() {
           }
         }
 
-        const mapped = initiated.map((order: any) => {
+        // Mapear service_orders para formato de recurso
+        const mappedServiceOrders = initiated.map((order: any) => {
           const cliente = clientsMap[order.client_id];
           const multa = multasMap[order.multa_id];
           
@@ -628,7 +694,7 @@ export default function Recursos() {
             id: `so-${order.id}`,
             numero_processo: `SO-${String(order.id).slice(0, 8)}`,
             tipo_recurso: order.multa_type || 'geral',
-            status: order.recurso_status || 'em_analise', // Usar status do recurso se disponível
+            status: order.recurso_status || 'em_analise',
             fundamentacao: order.ai_analysis || '',
             observacoes: order.description || '',
             created_at: order.created_at,
@@ -638,7 +704,6 @@ export default function Recursos() {
             is_service_order: true,
             recurso_generated_url: order.recurso_generated_url,
             service_order_status: order.status,
-            // Informações adicionais
             client_name: cliente?.nome || 'Cliente não encontrado',
             multa_numero: multa?.numero_auto || 'N/A',
             multa_placa: multa?.placa_veiculo || 'N/A',
@@ -647,8 +712,39 @@ export default function Recursos() {
           };
         });
 
-        console.log(`📋 [Recursos] Recursos mapeados:`, mapped);
-        setSoRecursos(mapped);
+        // Mapear recursos da tabela recursos
+        const mappedRecursos = (recursosData || []).map((recurso: any) => {
+          const cliente = clientsMap[recurso.client_id];
+          const multa = multasMap[recurso.multa_id];
+          
+          return {
+            id: recurso.id,
+            numero_processo: recurso.titulo || `Recurso ${String(recurso.id).slice(0, 8)}`,
+            tipo_recurso: recurso.tipo_recurso || 'defesa_previa',
+            status: recurso.status || 'iniciado',
+            fundamentacao: recurso.observacoes || '',
+            observacoes: recurso.observacoes || '',
+            created_at: recurso.created_at,
+            multa_id: recurso.multa_id || null,
+            client_id: recurso.client_id,
+            geradoPorIA: Boolean(recurso.metadata?.ocr_processed),
+            is_service_order: false,
+            recurso_generated_url: null,
+            service_order_status: null,
+            client_name: recurso.nome_requerente || cliente?.nome || 'Cliente não encontrado',
+            multa_numero: recurso.numero_auto || multa?.numero_auto || 'N/A',
+            multa_placa: recurso.placa_veiculo || multa?.placa_veiculo || 'N/A',
+            multa_descricao: multa?.descricao_infracao || 'N/A',
+            valor_original: recurso.valor_multa || multa?.valor_original || 0,
+            data_prazo: recurso.data_prazo
+          };
+        });
+
+        // Combinar ambos os arrays
+        const allRecursos = [...mappedRecursos, ...mappedServiceOrders];
+
+        console.log(`📋 [Recursos] Total de recursos: ${allRecursos.length} (${mappedRecursos.length} da tabela recursos + ${mappedServiceOrders.length} service_orders)`);
+        setSoRecursos(allRecursos);
       } catch (e) {
         console.error('Erro ao carregar service_orders iniciados:', e);
         setSoRecursos([]);

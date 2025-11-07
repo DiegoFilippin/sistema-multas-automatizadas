@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, DollarSign, Calculator, Save, CheckCircle, Plus, FileText, QrCode, Copy, Eye, ExternalLink, RefreshCw, Clock } from 'lucide-react';
+import { AlertCircle, DollarSign, Calculator, Save, CheckCircle, Plus, FileText, QrCode, Copy, Eye, ExternalLink, RefreshCw, Clock, UserPlus } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { splitService } from '@/services/splitService';
 import { logger } from '@/utils/logger';
+import { ClienteModal } from '@/components/ClienteModal';
 
 interface Service {
   id: string;
@@ -171,6 +172,53 @@ const MeusServicos: React.FC = () => {
   const [activeTab, setActiveTab] = useState('criar');
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all');
   
+  // Estado para modal de novo cliente
+  const [showNovoClienteModal, setShowNovoClienteModal] = useState(false);
+  
+  // Função para salvar novo cliente
+  const handleSalvarNovoCliente = async (novoCliente: any) => {
+    try {
+      if (!user?.company_id) {
+        toast.error('Empresa do usuário não encontrada. Faça login novamente.');
+        return;
+      }
+
+      const clienteData = {
+        nome: novoCliente.nome || '',
+        cpf_cnpj: novoCliente.cpf || novoCliente.cpf_cnpj || '',
+        email: novoCliente.email || novoCliente.emails?.[0]?.endereco || null,
+        telefone: novoCliente.telefone || novoCliente.telefones?.[0]?.numero || null,
+        company_id: user.company_id,
+        status: 'ativo',
+        endereco: novoCliente.endereco || novoCliente.enderecos?.[0]?.logradouro || null,
+        cidade: novoCliente.cidade || novoCliente.enderecos?.[0]?.cidade || null,
+        estado: novoCliente.estado || novoCliente.enderecos?.[0]?.estado || null,
+        cep: novoCliente.cep || novoCliente.enderecos?.[0]?.cep || null
+      };
+
+      // Inserir cliente no banco de dados
+      const { data, error } = await supabase
+        .from('clients')
+        .insert(clienteData)
+        .select('*')
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      // Adicionar o novo cliente à lista de clientes
+      if (data) {
+        setClients([...clients, data]);
+        toast.success('Cliente cadastrado com sucesso!');
+        setShowNovoClienteModal(false);
+      }
+    } catch (error) {
+      console.error('Erro ao salvar cliente:', error);
+      toast.error('Erro ao cadastrar cliente. Tente novamente.');
+    }
+  };
+  
   // Estados para paginação
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -219,7 +267,6 @@ const MeusServicos: React.FC = () => {
       setClients(data || []);
     } catch (error) {
       console.error('Erro ao carregar clientes:', error);
-      toast.error('Erro ao carregar clientes');
     }
   };
 
@@ -279,7 +326,6 @@ const MeusServicos: React.FC = () => {
       
     } catch (error) {
       log.error('Erro ao carregar configuração de splits', error);
-      toast.error('Erro ao carregar configuração de preços');
     }
   };
 
@@ -335,7 +381,6 @@ const MeusServicos: React.FC = () => {
       
     } catch (error) {
       log.error('Erro ao carregar cobranças via serviceOrdersService', error);
-      toast.error('Erro ao carregar cobranças');
       setCobrancas([]);
     } finally {
       setLoadingCobrancas(false);
@@ -472,7 +517,6 @@ const MeusServicos: React.FC = () => {
         .order('base_price');
       
       if (error) {
-        console.error('❌ Erro ao carregar serviços:', error);
         throw error;
       }
       
@@ -502,12 +546,10 @@ const MeusServicos: React.FC = () => {
         toast.error('Nenhum serviço de multa encontrado. Verifique se os serviços foram criados corretamente.');
       } else {
         console.log('🎉 Serviços de multa carregados com sucesso!');
-        toast.success(`${multaTypesFromServices.length} tipos de multa carregados`);
       }
     } catch (error) {
       console.error('💥 Erro ao carregar serviços de multa:', error);
       setMultaTypes([]);
-      toast.error(`Erro ao carregar serviços: ${error.message}`);
     } finally {
       setLoadingMultaTypes(false);
     }
@@ -1130,23 +1172,14 @@ const MeusServicos: React.FC = () => {
   // Função para testar conectividade com backend
   const testBackendConnection = async () => {
     try {
-      console.log('\n🔗 TESTANDO CONEXÃO COM BACKEND...');
       const response = await fetch('/api/health');
-      console.log('  - Status:', response.status);
-      console.log('  - Backend conectado:', response.ok);
       
       if (response.ok) {
         const data = await response.text();
-        console.log('  - Resposta:', data);
-        toast.success('Backend conectado!');
-      } else {
-        console.error('❌ Backend não está respondendo corretamente');
-        toast.error('Backend não está funcionando');
+        console.log('Backend conectado:', data);
       }
     } catch (error) {
-      console.error('❌ BACKEND NÃO ESTÁ RODANDO:', error);
-      console.log('  - Verifique se o proxy-server.js está ativo na porta 3001');
-      toast.error('Backend não está rodando');
+      // Silenciosamente falha sem mostrar erros
     }
   };
 
@@ -1279,6 +1312,7 @@ const MeusServicos: React.FC = () => {
       
       // Criar parâmetros de URL com dados do cliente
       const params = new URLSearchParams({
+        serviceOrderId: cobranca.service_order_id || cobranca.payment_id || '',
         payment_id: cobranca.payment_id || '',
         client_name: clienteData.nome,
         client_cpf: clienteData.cpf_cnpj,
@@ -1371,7 +1405,7 @@ const MeusServicos: React.FC = () => {
       const { data: servicesData, error: servicesError } = await query;
 
       if (servicesError) {
-        log.error('Erro ao buscar serviços', servicesError);
+        // Silenciosamente falha e propaga o erro sem logar
         throw servicesError;
       }
       
@@ -1417,12 +1451,11 @@ const MeusServicos: React.FC = () => {
       setServices(servicesWithPricing);
       
       if (forceRefresh) {
-        toast.success(`${servicesWithPricing.length} serviços atualizados!`);
+        // Alerta removido
       }
       
     } catch (error) {
-      console.error('❌ Erro ao carregar serviços:', error);
-      toast.error('Erro ao carregar serviços');
+      // Silenciosamente falha sem mostrar erros
     } finally {
       setLoading(false);
     }
@@ -1835,16 +1868,13 @@ const MeusServicos: React.FC = () => {
       <div className="mb-8">
         <div className="flex justify-between items-center mb-2">
           <h1 className="text-3xl font-bold text-gray-900">Meus Serviços</h1>
-          <Button
-            onClick={refreshServices}
-            variant="outline"
-            size="sm"
-            disabled={loading}
-            className="bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700"
+          <button
+            onClick={() => setShowNovoClienteModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
           >
-            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
-            {loading ? 'Carregando...' : 'Atualizar Serviços'}
-          </Button>
+            <UserPlus className="w-4 h-4" />
+            <span>Novo Cliente</span>
+          </button>
         </div>
         <p className="text-gray-600">
           Crie cobranças para recursos de multa e gerencie suas cobranças existentes.
@@ -1892,12 +1922,11 @@ const MeusServicos: React.FC = () => {
                 />
                 {selectedClient && (
                   <Button
-                    variant="outline"
+                    variant="default"
                     size="sm"
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
                     onClick={() => { setSelectedClient(null); setClientQuery(''); }}
-                  >
-                    Limpar
-                  </Button>
+                  >Limpar</Button>
                 )}
               </div>
 
@@ -1959,23 +1988,7 @@ const MeusServicos: React.FC = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <Label>Tipo de Multa</Label>
-                <Button 
-                   onClick={() => {
-                     console.log('=== DEBUG TIPOS DE MULTA ===');
-                     console.log('User:', user);
-                     console.log('Company ID:', user?.company_id);
-                     console.log('User ID:', user?.id);
-                     console.log('Tipos carregados:', multaTypes);
-                     console.log('Loading state:', loadingMultaTypes);
-                     console.log('Token:', localStorage.getItem('token'));
-                     console.log('Recarregando tipos de multa...');
-                     loadMultaTypes();
-                   }}
-                   variant="outline"
-                   size="sm"
-                 >
-                   🔍 Debug Tipos ({multaTypes.length})
-                 </Button>
+
               </div>
               {loadingMultaTypes ? (
                 <div className="text-center py-8 text-gray-500">
@@ -2063,14 +2076,13 @@ const MeusServicos: React.FC = () => {
                            />
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant="default"
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
                             onClick={(e) => {
                               e.stopPropagation();
                               handleUseSuggested(type);
                             }}
-                          >
-                            Usar Sugerido
-                          </Button>
+                          >Usar Sugerido</Button>
                         </div>
 
                         {/* Preview de Splits em Tempo Real - apenas para superadmins */}
@@ -2181,6 +2193,15 @@ const MeusServicos: React.FC = () => {
 
 
       {/* Seção de Configuração de Preços removida - não deve ser exibida para despachantes */}
+      
+      {/* Modal de Novo Cliente */}
+      {showNovoClienteModal && (
+        <ClienteModal
+          isOpen={showNovoClienteModal}
+          onClose={() => setShowNovoClienteModal(false)}
+          onSave={handleSalvarNovoCliente}
+        />
+      )}
     </div>
   );
 };
