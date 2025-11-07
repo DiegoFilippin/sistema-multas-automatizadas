@@ -1212,6 +1212,15 @@ const TesteRecursoIA: React.FC = () => {
           locked: true
         }));
         
+        // Criar registro do recurso na tabela recursos
+        try {
+          console.log('📝 Criando registro de recurso na tabela recursos...');
+          await createRecursoRecord(multaSalva, multaDataMapeada);
+        } catch (recursoError) {
+          console.error('⚠️ Erro ao criar registro de recurso:', recursoError);
+          // Não bloquear o fluxo se falhar
+        }
+        
         toast.success(`Dados extraídos e salvos com sucesso! Multa ID: ${multaSalva.id}`);
         
         // 🚀 INICIAR CHAT N8N AUTOMATICAMENTE APÓS SALVAMENTO
@@ -1323,6 +1332,24 @@ const TesteRecursoIA: React.FC = () => {
           validMultaId = multaSalva.id;
           setMultaId(validMultaId);
           console.log('✅ Multa salva com UUID:', validMultaId);
+          
+          // Bloquear processo após salvamento manual bem-sucedido
+          setIsProcessLocked(true);
+          
+          // Salvar processo no localStorage
+          const newProcessId = `processo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          setProcessId(newProcessId);
+          
+          localStorage.setItem('recurso_process', JSON.stringify({
+            id: newProcessId,
+            multaData: multaData,
+            multaId: multaSalva.id,
+            clienteData,
+            timestamp: new Date().toISOString(),
+            locked: true
+          }));
+          
+          toast.success('Dados salvos com sucesso! Documento bloqueado para edição.');
         }
       } catch (error) {
         console.error('❌ Erro ao salvar multa:', error);
@@ -2282,6 +2309,72 @@ const TesteRecursoIA: React.FC = () => {
      console.log('✅ Data válida:', isoDateString);
      return true;
    };
+  
+  const createRecursoRecord = async (multaSalva: any, multaDataMapeada: MultaData) => {
+    try {
+      console.log('📝 Criando registro de recurso...');
+      
+      // Importar supabase client
+      const { supabase } = await import('../lib/supabase');
+      
+      // Obter company_id e client_id
+      const companyId = user?.company_id || multaSalva.company_id;
+      const clientId = multaSalva.client_id;
+      
+      if (!companyId) {
+        console.error('❌ Company ID não disponível para criar recurso');
+        return;
+      }
+      
+      // Preparar dados do recurso
+      const recursoData = {
+        company_id: companyId,
+        client_id: clientId,
+        multa_id: multaSalva.id,
+        titulo: `Recurso - Auto ${multaDataMapeada.numero || 'S/N'}`,
+        tipo_recurso: 'defesa_previa',
+        status: 'iniciado',
+        numero_auto: multaDataMapeada.numero || null,
+        placa_veiculo: multaDataMapeada.veiculo || null,
+        codigo_infracao: multaDataMapeada.codigoInfracao || null,
+        valor_multa: parseFloat(multaDataMapeada.valor?.replace(/[^\d,]/g, '').replace(',', '.') || '0'),
+        nome_requerente: multaDataMapeada.nomeProprietario || clienteData?.nome || null,
+        cpf_cnpj_requerente: multaDataMapeada.cpfCnpjProprietario || clienteData?.cpf_cnpj || null,
+        endereco_requerente: multaDataMapeada.enderecoProprietario || null,
+        data_prazo: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 15 dias
+        observacoes: 'Recurso iniciado via processamento de documento',
+        metadata: {
+          source: 'teste_recurso_ia',
+          uploaded_file: uploadedFile?.name,
+          process_id: processId,
+          ocr_processed: true,
+          created_via: 'document_upload'
+        }
+      };
+      
+      console.log('📋 Dados do recurso a serem salvos:', recursoData);
+      
+      // Inserir na tabela recursos
+      const { data: recursoSalvo, error } = await supabase
+        .from('recursos')
+        .insert(recursoData)
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('❌ Erro ao salvar recurso:', error);
+        throw error;
+      }
+      
+      console.log('✅ Recurso salvo com sucesso:', recursoSalvo);
+      toast.success('Recurso registrado e visível na aba Recursos!');
+      
+      return recursoSalvo;
+    } catch (error: any) {
+      console.error('❌ Erro ao criar registro de recurso:', error);
+      throw error;
+    }
+  };
   
   const handleSaveMultaAutomatically = async (multaDataMapeada: MultaData) => {
     try {
