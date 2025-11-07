@@ -2404,7 +2404,9 @@ const TesteRecursoIA: React.FC = () => {
         multa_id: multaSalva.id,
         titulo: `Recurso - Auto ${multaDataMapeada.numero || 'S/N'}`,
         tipo_recurso: 'defesa_previa',
-        status: 'iniciado',
+        status: 'em_analise',
+        data_protocolo: new Date().toISOString().split('T')[0],
+        fundamentacao: 'Fundamentação em elaboração via IA',
         numero_auto: multaDataMapeada.numero || null,
         placa_veiculo: multaDataMapeada.veiculo || null,
         codigo_infracao: multaDataMapeada.codigoInfracao || null,
@@ -2720,7 +2722,7 @@ const TesteRecursoIA: React.FC = () => {
         .from('service_orders')
         .update({ 
           recurso_id: recursoId,
-          recurso_status: 'iniciado',
+          recurso_status: 'em_analise',
           recurso_initiated_at: new Date().toISOString()
         });
       

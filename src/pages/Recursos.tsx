@@ -826,12 +826,33 @@ export default function Recursos() {
     setEditingRecurso(null);
   };
   
-  const handleViewDetails = (recurso: any) => {
-    // Navegar para a página de detalhes da multa associada ao recurso
-    if (recurso.multa_id) {
-      navigate(`/multas/${recurso.multa_id}`);
-    } else {
-      toast.error('ID da multa não encontrado para este recurso');
+  const handleViewDetails = async (recurso: any) => {
+    // Navegar para a página do recurso em preenchimento
+    try {
+      console.log('🔍 Abrindo detalhes do recurso:', recurso);
+      
+      // Buscar service_order vinculada ao recurso
+      const { data: serviceOrder, error } = await supabase
+        .from('service_orders')
+        .select('id, asaas_payment_id')
+        .eq('recurso_id', recurso.id)
+        .single();
+      
+      if (error) {
+        console.error('Erro ao buscar service_order:', error);
+      }
+      
+      // Construir URL com parâmetros
+      const serviceOrderId = serviceOrder?.asaas_payment_id || serviceOrder?.id || recurso.id;
+      const params = new URLSearchParams({
+        serviceOrderId: serviceOrderId,
+        nome: recurso.nome_requerente || recurso.client_name || '',
+      });
+      
+      navigate(`/teste-recurso-ia?${params.toString()}`);
+    } catch (error) {
+      console.error('Erro ao abrir detalhes do recurso:', error);
+      toast.error('Erro ao abrir detalhes do recurso');
     }
   };
   
