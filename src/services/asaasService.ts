@@ -366,23 +366,37 @@ class AsaasService {
 
   // Métodos para Clientes
   async createCustomer(customer: AsaasCustomer): Promise<AsaasCustomer> {
+    console.log('🔧 [AsaasService] createCustomer chamado com:', customer)
+    
     const cpf = (customer.cpfCnpj || '').replace(/\D/g, '')
     const nome = (customer.name || '').trim()
     const email = (customer.email || '').trim()
 
+    console.log('🔧 [AsaasService] Dados processados:', { cpf, nome, email })
+
     const canUseWebhook = !!cpf && !!nome && !!email
+    console.log('🔧 [AsaasService] Pode usar webhook?', canUseWebhook)
 
     // 1) Tenta via webhook n8n para evitar CORS e mover lógica ao n8n
     if (canUseWebhook) {
       try {
+        console.log('🔧 [AsaasService] Tentando via webhook N8N...')
+        
         if (typeof window !== 'undefined') {
+          console.log('🔧 [AsaasService] Ambiente browser, chamando backend proxy...')
+          
           // Ambiente browser: chama backend para evitar CORS
           const resp = await fetch('/api/webhook/n8n/create-customer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cpf, nome, email })
           })
+          
+          console.log('🔧 [AsaasService] Resposta do webhook:', resp.status, resp.statusText)
+          
           const text = await resp.text()
+          console.log('🔧 [AsaasService] Corpo da resposta:', text)
+          
           if (!resp.ok) {
             let apiMsg = ''
             try { const json = JSON.parse(text) as Record<string, unknown>; apiMsg = typeof json.error === 'string' ? json.error : JSON.stringify(json) } catch { apiMsg = text.slice(0, 200) }
@@ -393,13 +407,24 @@ class AsaasService {
           const obj = parsed as Record<string, unknown>
           const cid = obj['customerId']
           const customerId = typeof cid === 'string' ? cid : undefined
+          
+          console.log('🔧 [AsaasService] Customer ID extraído:', customerId)
+          
           if (customerId) {
+            console.log('✅ [AsaasService] Customer criado via webhook com sucesso:', customerId)
             return { ...customer, id: customerId }
+          } else {
+            console.warn('⚠️ [AsaasService] Webhook retornou sucesso mas sem customerId')
           }
         } else {
+          console.log('🔧 [AsaasService] Ambiente servidor, chamando n8nWebhookService...')
+          
           // Ambiente servidor: chama serviço diretamente
           const result = await n8nWebhookService.createCustomer({ cpf, nome, email })
+          console.log('🔧 [AsaasService] Resultado do n8nWebhookService:', result)
+          
           if (result.success && result.customerId) {
+            console.log('✅ [AsaasService] Customer criado via n8nWebhookService:', result.customerId)
             return { ...customer, id: result.customerId }
           }
           if (!result.success) {
@@ -408,12 +433,18 @@ class AsaasService {
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
+        console.error('❌ [AsaasService] Erro no webhook n8n:', msg)
         log.warn(`Webhook n8n falhou, usando Asaas direto: ${msg}`)
       }
+    } else {
+      console.log('⚠️ [AsaasService] Não pode usar webhook (dados incompletos), indo direto para fallback')
     }
 
     // 2) Fallback: chama API Asaas via proxy/fallback já implementado
-    return this.makeRequest<AsaasCustomer>('/customers', 'POST', customer)
+    console.log('🔧 [AsaasService] Usando fallback: chamada direta à API Asaas via makeRequest')
+    const result = await this.makeRequest<AsaasCustomer>('/customers', 'POST', customer)
+    console.log('✅ [AsaasService] Customer criado via API direta:', result)
+    return result
   }
 
   async getCustomer(customerId: string): Promise<AsaasCustomer> {

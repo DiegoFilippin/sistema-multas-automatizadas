@@ -613,14 +613,25 @@ router.get('/health', (req, res) => {
 // Webhook n8n: criar customer
 router.post('/webhook/n8n/create-customer', authenticateToken, async (req, res) => {
   try {
+    console.log('🔧 [Backend] Recebida requisição para criar customer via N8N');
     const { cpf, nome, email } = req.body as { cpf?: string; nome?: string; email?: string };
+    console.log('🔧 [Backend] Dados recebidos:', { cpf, nome, email });
+    
+    console.log('🔧 [Backend] Chamando n8nWebhookService.createCustomer...');
     const result = await n8nWebhookService.createCustomer({ cpf: cpf || '', nome: nome || '', email: email || '' });
+    
+    console.log('🔧 [Backend] Resultado do n8nWebhookService:', result);
+    
     if (!result.success) {
+      console.error('❌ [Backend] Falha ao criar customer:', result.message);
       return res.status(502).json({ error: result.message || 'Falha ao criar customer no webhook n8n' });
     }
+    
+    console.log('✅ [Backend] Customer criado com sucesso:', result.customerId);
     return res.json({ customerId: result.customerId, message: result.message });
   } catch (error) {
-    console.error('Erro no webhook n8n (create-customer):', error);
+    console.error('❌ [Backend] Erro no webhook n8n (create-customer):', error);
+    console.error('❌ [Backend] Stack:', error instanceof Error ? error.stack : 'N/A');
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro interno' });
   }
 });
@@ -1147,7 +1158,83 @@ router.patch('/precadastros/:id/status', authenticateToken, authorizeRoles(['Sup
       return res.status(500).json({ error: 'Erro ao atualizar status do pré-cadastro' });
     }
 
-    res.json({ success: true, precadastro });
+    let createdCompany: any = null;
+
+    if (status === 'aprovado') {
+      try {
+        // Evitar duplicidades por CNPJ
+        const { data: existingCompany, error: existingError } = await supabase
+          .from('companies')
+          .select('id')
+          .eq('cnpj', precadastro.cnpj)
+          .maybeSingle();
+
+        if (existingError) {
+          console.error('Erro ao verificar empresa existente:', existingError);
+        }
+
+        if (!existingCompany) {
+          const MASTER_COMPANY_ID = process.env.DEFAULT_MASTER_COMPANY_ID || '550e8400-e29b-41d4-a716-446655440000';
+
+          // Validar se a master company existe
+          const { data: masterCompany, error: masterError } = await supabase
+            .from('companies_master')
+            .select('id')
+            .eq('id', MASTER_COMPANY_ID)
+            .maybeSingle();
+
+          if (masterError || !masterCompany) {
+            throw new Error(`Master company padrão (${MASTER_COMPANY_ID}) não encontrada. Configure DEFAULT_MASTER_COMPANY_ID ou ajuste os dados.`);
+          }
+
+          // Buscar plano padrão (primeiro disponível)
+          const { data: plan, error: planError } = await supabase
+            .from('plans')
+            .select('id')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+
+          if (planError || !plan) {
+            throw new Error('Nenhum plano disponível para vincular à empresa');
+          }
+
+          const { data: company, error: companyError } = await supabase
+            .from('companies')
+            .insert({
+              master_company_id: masterCompany.id,
+              plan_id: plan.id,
+              nome: precadastro.razao_social,
+              cnpj: precadastro.cnpj,
+              email: precadastro.email,
+              telefone: precadastro.telefone,
+              endereco: precadastro.endereco || null,
+              numero: precadastro.numero || null,
+              complemento: precadastro.complemento || null,
+              bairro: precadastro.bairro || null,
+              cidade: precadastro.cidade || null,
+              estado: precadastro.estado || null,
+              cep: precadastro.cep || null,
+              company_type: 'despachante',
+              company_level: 'despachante',
+              status: 'ativo',
+              data_inicio_assinatura: new Date().toISOString()
+            })
+            .select('*')
+            .single();
+
+          if (companyError) {
+            console.error('Erro ao criar empresa para o pré-cadastro aprovado:', companyError);
+          } else {
+            createdCompany = company;
+          }
+        }
+      } catch (companyCreationError) {
+        console.error('Erro na rotina de criação de empresa ao aprovar pré-cadastro:', companyCreationError);
+      }
+    }
+
+    res.json({ success: true, precadastro, company: createdCompany });
   } catch (error) {
     console.error('Erro no endpoint de atualização de status:', error);
     res.status(500).json({ error: 'Erro interno do servidor' });

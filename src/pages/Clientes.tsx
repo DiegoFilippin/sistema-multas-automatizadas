@@ -1872,6 +1872,7 @@ export default function Clientes() {
         const updateData = {
           nome: clienteData.nome,
           cpf_cnpj: clienteData.cpf,
+          cnh: clienteData.cnh || null,
           email: clienteData.emails?.[0]?.endereco || '',
           telefone: clienteData.telefones?.[0]?.numero || '',
           endereco: enderecoCompleto,
@@ -1975,61 +1976,91 @@ export default function Clientes() {
         // Criar customer no Asaas
         let asaasCustomerId = null;
         try {
+          console.log('🔄 [ASAAS] Iniciando criação de customer no Asaas...');
+          console.log('🔄 [ASAAS] Cliente criado no DB com ID:', data.id);
+          
           await asaasService.reloadConfig();
-          if (!asaasService.isConfigured()) {
-            throw new Error('Integração Asaas não configurada');
-          }
-          const cpfCnpjSanitized = (clienteData.cpf || '').replace(/\D/g, '');
-          const emailEndereco = clienteData.emails?.[0]?.endereco || '';
-          let asaasCustomer: any | null = null;
-
-          if (!cpfCnpjSanitized) {
-            console.warn('⚠️ CPF/CNPJ ausente ou inválido; não criando customer Asaas.');
-            toast.warning('Informe CPF/CNPJ válido para criar o customer no Asaas.');
+          console.log('🔄 [ASAAS] Config recarregada');
+          
+          const isConfigured = asaasService.isConfigured();
+          console.log('🔄 [ASAAS] Asaas configurado?', isConfigured);
+          
+          if (!isConfigured) {
+            console.warn('⚠️ [ASAAS] Asaas não configurado, pulando criação de customer');
+            toast.warning('Integração Asaas não configurada. Cliente criado sem customer Asaas.');
           } else {
-            const asaasCustomerData = {
-              name: clienteData.nome || '',
-              cpfCnpj: cpfCnpjSanitized,
-              email: emailEndereco || undefined,
-              phone: clienteData.telefones?.[0]?.numero,
-              address: primeiroEndereco?.logradouro,
-              addressNumber: primeiroEndereco?.numero,
-              complement: primeiroEndereco?.complemento,
-              province: primeiroEndereco?.bairro,
-              city: primeiroEndereco?.cidade,
-              state: primeiroEndereco?.estado,
-              postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
-            };
+            console.log('✅ [ASAAS] Asaas está configurado, prosseguindo...');
+            
+            const cpfCnpjSanitized = (clienteData.cpf || '').replace(/\D/g, '');
+            const emailEndereco = clienteData.emails?.[0]?.endereco || '';
+            
+            console.log('📋 [ASAAS] Dados para Asaas:', { 
+              nome: clienteData.nome, 
+              cpf: cpfCnpjSanitized, 
+              email: emailEndereco,
+              telefone: clienteData.telefones?.[0]?.numero
+            });
 
-            console.log('📨 Payload Asaas (customer):', asaasCustomerData);
-            asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
-          }
+            if (!cpfCnpjSanitized) {
+              console.warn('⚠️ [ASAAS] CPF/CNPJ ausente ou inválido; não criando customer Asaas.');
+              toast.warning('Informe CPF/CNPJ válido para criar o customer no Asaas.');
+            } else {
+              console.log('✅ [ASAAS] CPF válido, preparando payload...');
+              
+              const asaasCustomerData = {
+                name: clienteData.nome || '',
+                cpfCnpj: cpfCnpjSanitized,
+                email: emailEndereco || undefined,
+                phone: clienteData.telefones?.[0]?.numero,
+                address: primeiroEndereco?.logradouro,
+                addressNumber: primeiroEndereco?.numero,
+                complement: primeiroEndereco?.complemento,
+                province: primeiroEndereco?.bairro,
+                city: primeiroEndereco?.cidade,
+                state: primeiroEndereco?.estado,
+                postalCode: primeiroEndereco?.cep?.replace(/\D/g, '')
+              };
 
-          if (asaasCustomer?.id) {
-            asaasCustomerId = asaasCustomer.id;
+              console.log('📨 [ASAAS] Payload completo para Asaas:', JSON.stringify(asaasCustomerData, null, 2));
+              console.log('🚀 [ASAAS] Chamando asaasService.createCustomer...');
+              
+              const asaasCustomer = await asaasService.createCustomer(asaasCustomerData);
+              
+              console.log('✅ [ASAAS] Resposta recebida do Asaas:', asaasCustomer);
+              console.log('✅ [ASAAS] ID do customer:', asaasCustomer?.id);
 
-            // Atualizar cliente no banco com o asaas_customer_id
-            const { error: updateError } = await supabase
-              .from('clients')
-              .update({ asaas_customer_id: asaasCustomerId })
-              .eq('id', data.id);
+              if (asaasCustomer?.id) {
+                asaasCustomerId = asaasCustomer.id;
+                console.log('✅ [ASAAS] Customer ID capturado:', asaasCustomerId);
 
-            if (updateError) {
-              console.error('Erro ao atualizar asaas_customer_id:', updateError);
-              // Não falha a criação do cliente, apenas loga o erro
+                // Atualizar cliente no banco com o asaas_customer_id
+                console.log('💾 [ASAAS] Atualizando cliente no DB com asaas_customer_id...');
+                const { error: updateError } = await supabase
+                  .from('clients')
+                  .update({ asaas_customer_id: asaasCustomerId })
+                  .eq('id', data.id);
+
+                if (updateError) {
+                  console.error('❌ [ASAAS] Erro ao atualizar asaas_customer_id no DB:', updateError);
+                  toast.error('Customer criado no Asaas, mas erro ao salvar ID no banco');
+                } else {
+                  console.log('✅ [ASAAS] Customer ID salvo no DB com sucesso!');
+                  toast.success(`Customer Asaas criado: ${asaasCustomerId}`);
+                }
+              } else {
+                console.warn('⚠️ [ASAAS] Customer Asaas criado sem ID válido:', asaasCustomer);
+                toast.warning('Customer criado no Asaas, mas sem ID válido na resposta');
+              }
             }
-
-            console.log('Customer criado no Asaas:', asaasCustomerId);
-          } else {
-            console.warn('Customer Asaas criado sem ID válido:', asaasCustomer);
           }
         } catch (asaasError) {
           const cfg = asaasService.getCurrentConfig();
           const emailDbg = clienteData.emails?.[0]?.endereco || '';
           const cpfDbg = (clienteData.cpf || '').replace(/\D/g, '');
-          console.error('Erro ao criar customer no Asaas:', asaasError);
-          console.log('🔧 Asaas config atual:', cfg);
-          console.log('📧 Email usado:', emailDbg, ' | CPF/CNPJ:', cpfDbg);
+          console.error('❌ [ASAAS] ERRO ao criar customer no Asaas:', asaasError);
+          console.error('❌ [ASAAS] Stack trace:', asaasError instanceof Error ? asaasError.stack : 'N/A');
+          console.log('🔧 [ASAAS] Asaas config atual:', cfg);
+          console.log('📧 [ASAAS] Email usado:', emailDbg, ' | CPF/CNPJ:', cpfDbg);
           const msg = asaasError instanceof Error ? asaasError.message : String(asaasError);
           toast.error(`Erro na integração Asaas: ${msg}`);
         }
@@ -2054,6 +2085,9 @@ export default function Clientes() {
 
         setClientes([...clientes, novoCliente]);
         toast.success('Cliente criado com sucesso!' + (asaasCustomerId ? ' Customer Asaas: ' + asaasCustomerId : ''));
+        
+        // Redirecionar para a página de detalhes do cliente criado
+        navigate(`/clientes/${data.id}`);
       }
     } catch (error) {
       console.error('Erro inesperado:', error);

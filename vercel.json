@@ -42,6 +42,14 @@
       "destination": "/api/cep/$1"
     },
     {
+      "source": "/api/webhook/n8n/create-customer",
+      "destination": "/api/webhook/n8n/create-customer"
+    },
+    {
+      "source": "/api/webhook/n8n/process-payment",
+      "destination": "/api/webhook/n8n/process-payment"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/api/$1"
     },

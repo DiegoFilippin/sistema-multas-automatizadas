@@ -42,23 +42,35 @@ class N8nWebhookService {
   private readonly endpoint = 'https://webhookn8n.synsoft.com.br/webhook/9c04dc9c-ba5d-4a3f-a5f6-33fd667a9302'
 
   async createCustomer(payload: N8nCreateCustomerPayload): Promise<N8nCreateCustomerResult> {
+    console.log('🔧 [N8nWebhookService] createCustomer chamado com:', payload);
+    
     // Validação básica
     const cpf = (payload.cpf || '').replace(/\D/g, '')
     const nome = (payload.nome || '').trim()
     const email = (payload.email || '').trim()
 
+    console.log('🔧 [N8nWebhookService] Dados processados:', { cpf, nome, email });
+
     if (!cpf || cpf.length < 11) {
+      console.warn('⚠️ [N8nWebhookService] CPF inválido ou ausente');
       return { success: false, message: 'CPF inválido ou ausente' }
     }
     if (!nome) {
+      console.warn('⚠️ [N8nWebhookService] Nome ausente');
       return { success: false, message: 'Nome do cliente é obrigatório' }
     }
     if (!isEmail(email)) {
+      console.warn('⚠️ [N8nWebhookService] Email inválido:', email);
       return { success: false, message: 'Email inválido ou ausente' }
     }
 
+    console.log('✅ [N8nWebhookService] Validações OK, preparando requisição');
+
     const body = JSON.stringify({ cpf, nome, email })
     const headers = { 'Content-Type': 'application/json' }
+
+    console.log('🔧 [N8nWebhookService] Endpoint:', this.endpoint);
+    console.log('🔧 [N8nWebhookService] Body:', body);
 
     const maxAttempts = 3
     const baseDelay = 1000 // 1s
@@ -66,8 +78,14 @@ class N8nWebhookService {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
+        console.log(`🔧 [N8nWebhookService] Tentativa ${attempt}/${maxAttempts}...`);
+        
         const response = await fetchWithTimeout(this.endpoint, { method: 'POST', headers, body }, 30_000)
+        
+        console.log(`🔧 [N8nWebhookService] Resposta recebida: ${response.status} ${response.statusText}`);
+        
         const text = await response.text()
+        console.log(`🔧 [N8nWebhookService] Corpo da resposta:`, text)
 
         if (!response.ok) {
           let apiMsg = ''
