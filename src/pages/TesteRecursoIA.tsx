@@ -2773,9 +2773,9 @@ const TesteRecursoIA: React.FC = () => {
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Teste - Recurso com IA
+            Recurso Inteligente
           </h1>
-          <p className="text-gray-600">Sistema experimental para criação de recursos de multa com assistência de inteligência artificial</p>
+          <p className="text-gray-600">Sistema para criação de recursos de multa com assistência de inteligência artificial</p>
           
           {/* Cabeçalho compacto de informações do cliente */}
           {clienteData && (clienteData.nome || clienteData.service_order_id) ? (
@@ -2862,15 +2862,6 @@ const TesteRecursoIA: React.FC = () => {
                 <Upload className="w-5 h-5 mr-2" />
                 Upload de Documento
               </h2>
-              
-              {isProcessLocked && (
-                <button
-                  onClick={handleNewProcess}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
-                >
-                  Novo Recurso
-                </button>
-              )}
             </div>
             
             {isProcessLocked ? (
