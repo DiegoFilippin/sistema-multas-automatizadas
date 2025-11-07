@@ -700,8 +700,11 @@ const TesteRecursoIA: React.FC = () => {
         if (recursoSalvo) {
           console.log('✅ Recurso salvo com sucesso:', recursoSalvo.id);
           
-          // Recurso salvo com sucesso - lista será atualizada automaticamente pelo componente RecursosGerados
-          console.log('✅ Recurso salvo e será exibido na lista de recursos gerados');
+          // Atualizar estado para exibir imediatamente na UI
+          setRecursosGerados(prev => [...prev, recursoSalvo]);
+          setShowRecursosGerados(true);
+          
+          console.log('✅ Recurso salvo e adicionado à lista para exibição imediata');
           
           // Mostrar notificação de sucesso
           toast.success('🎉 Recurso detectado e salvo automaticamente!');
