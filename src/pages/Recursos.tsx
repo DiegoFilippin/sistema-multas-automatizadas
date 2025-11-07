@@ -112,16 +112,31 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
             <div className="flex items-center gap-2">
               <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
             </div>
-            {multa && (
+            
+            {/* Informações da multa - priorizar dados do service_order se disponível */}
+            {(recurso.is_service_order ? recurso.multa_placa : multa?.placa_veiculo) && (
               <p className="text-sm text-gray-600">
                 <Car className="w-4 h-4 inline mr-1" />
-                {multa.placa_veiculo} • {multa.descricao_infracao}
+                {recurso.is_service_order ? recurso.multa_placa : multa.placa_veiculo}
+                {(recurso.is_service_order ? recurso.multa_descricao : multa?.descricao_infracao) && 
+                  ` • ${recurso.is_service_order ? recurso.multa_descricao : multa.descricao_infracao}`
+                }
               </p>
             )}
-            {multa?.clients && (
+            
+            {/* Nome do cliente */}
+            {(recurso.is_service_order ? recurso.client_name : multa?.clients?.nome) && (
               <p className="text-xs text-blue-600 font-medium">
                 <User className="w-3 h-3 inline mr-1" />
-                {multa.clients.nome}
+                {recurso.is_service_order ? recurso.client_name : multa.clients.nome}
+              </p>
+            )}
+            
+            {/* Número da multa para service_orders */}
+            {recurso.is_service_order && recurso.multa_numero && recurso.multa_numero !== 'N/A' && (
+              <p className="text-xs text-gray-500">
+                <FileText className="w-3 h-3 inline mr-1" />
+                Auto: {recurso.multa_numero}
               </p>
             )}
           </div>
@@ -225,7 +240,7 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
           </div>
         </div>
         
-        {multa && (
+        {(recurso.is_service_order ? recurso.valor_original : multa?.valor_original) && (
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
@@ -233,7 +248,9 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
               </div>
               <div>
                 <p className="text-xs text-gray-500 font-medium">Valor</p>
-                <p className="text-lg font-bold text-gray-900">R$ {(multa.valor_original || 0).toFixed(2)}</p>
+                <p className="text-lg font-bold text-gray-900">
+                  R$ {((recurso.is_service_order ? recurso.valor_original : multa.valor_original) || 0).toFixed(2)}
+                </p>
               </div>
             </div>
           </div>
@@ -529,10 +546,12 @@ export default function Recursos() {
     const fetchServiceOrdersIniciados = async () => {
       if (!user) return;
       try {
+        console.log('🔍 [Recursos] Buscando service_orders com recursos iniciados...');
+        
         let query = supabase
           .from('service_orders')
           .select('*')
-          .in('status', ['paid', 'processing', 'completed'])
+          .eq('status', 'paid') // Apenas orders pagas
           .order('created_at', { ascending: false });
 
         // Filtro por papel do usuário
@@ -555,30 +574,80 @@ export default function Recursos() {
         const { data, error } = await query;
         if (error) throw error;
 
+        console.log(`🔍 [Recursos] Encontradas ${data?.length || 0} service_orders pagas`);
+
+        // Filtrar apenas as que têm recurso iniciado
         const initiated = (data || []).filter((order: any) => {
-          const hasGenerated = Boolean(order.recurso_generated_url) || Boolean(order.ai_analysis);
-          const isProcessingInitiated = order.status === 'processing' && Boolean(order.auto_autuacao_url);
-          const isPaidWithGenerated = order.status === 'paid' && hasGenerated;
-          const isCompleted = order.status === 'completed';
-          return hasGenerated || isProcessingInitiated || isPaidWithGenerated || isCompleted;
+          const hasRecursoGenerated = Boolean(order.recurso_generated_url);
+          const hasAiAnalysis = Boolean(order.ai_analysis);
+          const hasRecursoIniciado = hasRecursoGenerated || hasAiAnalysis;
+          
+          if (hasRecursoIniciado) {
+            console.log(`✅ [Recursos] Service Order ${order.id} tem recurso iniciado`);
+          }
+          
+          return hasRecursoIniciado;
         });
 
-        const mapped = initiated.map((order: any) => ({
-          id: `so-${order.id}`,
-          numero_processo: `SO-${String(order.id).slice(0, 8)}`,
-          tipo_recurso: order.multa_type || 'geral',
-          status: order.status === 'completed' ? 'deferido' : 'em_analise',
-          fundamentacao: order.ai_analysis || '',
-          observacoes: order.description || '',
-          created_at: order.created_at,
-          multa_id: order.multa_id || null,
-          client_id: order.client_id,
-          geradoPorIA: Boolean(order.ai_analysis || order.recurso_generated_url),
-          is_service_order: true,
-          recurso_generated_url: order.recurso_generated_url,
-          service_order_status: order.status
-        }));
+        console.log(`✅ [Recursos] ${initiated.length} service_orders com recurso iniciado`);
 
+        // Buscar informações adicionais de clientes e multas
+        const clientIds = [...new Set(initiated.map((o: any) => o.client_id).filter(Boolean))];
+        const multaIds = [...new Set(initiated.map((o: any) => o.multa_id).filter(Boolean))];
+
+        let clientsMap: Record<string, any> = {};
+        let multasMap: Record<string, any> = {};
+
+        if (clientIds.length > 0) {
+          const { data: clientsData } = await supabase
+            .from('clients')
+            .select('id, nome, cpf_cnpj')
+            .in('id', clientIds);
+          
+          if (clientsData) {
+            clientsMap = Object.fromEntries(clientsData.map(c => [c.id, c]));
+          }
+        }
+
+        if (multaIds.length > 0) {
+          const { data: multasData } = await supabase
+            .from('multas')
+            .select('id, numero_auto, placa_veiculo, descricao_infracao, valor_original')
+            .in('id', multaIds);
+          
+          if (multasData) {
+            multasMap = Object.fromEntries(multasData.map(m => [m.id, m]));
+          }
+        }
+
+        const mapped = initiated.map((order: any) => {
+          const cliente = clientsMap[order.client_id];
+          const multa = multasMap[order.multa_id];
+          
+          return {
+            id: `so-${order.id}`,
+            numero_processo: `SO-${String(order.id).slice(0, 8)}`,
+            tipo_recurso: order.multa_type || 'geral',
+            status: order.recurso_status || 'em_analise', // Usar status do recurso se disponível
+            fundamentacao: order.ai_analysis || '',
+            observacoes: order.description || '',
+            created_at: order.created_at,
+            multa_id: order.multa_id || null,
+            client_id: order.client_id,
+            geradoPorIA: Boolean(order.ai_analysis || order.recurso_generated_url),
+            is_service_order: true,
+            recurso_generated_url: order.recurso_generated_url,
+            service_order_status: order.status,
+            // Informações adicionais
+            client_name: cliente?.nome || 'Cliente não encontrado',
+            multa_numero: multa?.numero_auto || 'N/A',
+            multa_placa: multa?.placa_veiculo || 'N/A',
+            multa_descricao: multa?.descricao_infracao || 'N/A',
+            valor_original: order.value || multa?.valor_original || 0
+          };
+        });
+
+        console.log(`📋 [Recursos] Recursos mapeados:`, mapped);
         setSoRecursos(mapped);
       } catch (e) {
         console.error('Erro ao carregar service_orders iniciados:', e);
@@ -911,7 +980,7 @@ export default function Recursos() {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button
-              onClick={() => navigate('/recursos/novo')}
+              onClick={() => navigate('/meus-servicos')}
               className="inline-flex items-center justify-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
             >
               <FileText className="w-4 h-4 mr-2" />
