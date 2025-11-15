@@ -29,6 +29,10 @@ const allowedOrigins = (process.env.FRONTEND_URL ? process.env.FRONTEND_URL.spli
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
+    // Em desenvolvimento, permitir qualquer origem localhost ou 127.0.0.1
+    if (process.env.NODE_ENV !== 'production' && origin && (origin.includes('localhost') || origin.includes('127.0.0.1'))) {
+      return callback(null, true);
+    }
     if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error(`Origin ${origin} not allowed by CORS`), false);
   },

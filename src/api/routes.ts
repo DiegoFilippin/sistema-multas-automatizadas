@@ -639,6 +639,9 @@ router.post('/webhook/n8n/create-customer', authenticateToken, async (req, res) 
 // Webhook n8n: processar pagamento (proxy)
 router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (req, res) => {
   try {
+    console.log('🔍 === WEBHOOK N8N PROCESS-PAYMENT ===');
+    console.log('📦 Payload recebido:', JSON.stringify(req.body, null, 2));
+    
     const payload = req.body;
     // Endpoint atualizado para o novo servidor n8n
     const endpoint = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
@@ -652,9 +655,16 @@ router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (
       signal: AbortSignal.timeout(30000)
     });
 
+    console.log('📡 Resposta do webhook N8N:');
+    console.log('  - Status:', resp.status);
+    console.log('  - Status Text:', resp.statusText);
+    console.log('  - OK:', resp.ok);
+
     const text = await resp.text();
+    console.log('📄 Corpo da resposta:', text.substring(0, 500));
 
     if (!resp.ok) {
+      console.error('❌ Webhook N8N retornou erro:', resp.status);
       let apiMsg = '';
       try {
         const json = JSON.parse(text);
@@ -662,6 +672,7 @@ router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (
       } catch {
         apiMsg = text.slice(0, 200);
       }
+      console.error('❌ Mensagem de erro:', apiMsg);
       return res.status(resp.status).json({ error: `Webhook n8n falhou: HTTP ${resp.status} ${resp.statusText}${apiMsg ? ` - ${apiMsg}` : ''}` });
     }
 
@@ -676,12 +687,15 @@ router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (
     // Tentar JSON, cair para texto bruto dentro de JSON
     try {
       const json = JSON.parse(trimmed);
+      console.log('✅ JSON parseado com sucesso');
       return res.json(json);
-    } catch {
+    } catch (parseError) {
+      console.warn('⚠️ Falha ao parsear JSON, retornando raw:', parseError);
       return res.json({ success: true, forwarded: true, raw: trimmed });
     }
   } catch (error) {
-    console.error('Erro no webhook n8n (process-payment):', error);
+    console.error('❌ ERRO CRÍTICO no webhook n8n (process-payment):', error);
+    console.error('❌ Stack trace:', error instanceof Error ? error.stack : 'N/A');
     return res.status(500).json({ error: error instanceof Error ? error.message : 'Erro interno' });
   }
 });
