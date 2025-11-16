@@ -18,6 +18,7 @@ import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { splitService } from '@/services/splitService';
 import { logger } from '@/utils/logger';
 import { ClienteModal } from '@/components/ClienteModal';
+import { getApiUrl } from '@/lib/api-config';
 
 interface Service {
   id: string;
@@ -783,7 +784,10 @@ const MeusServicos: React.FC = () => {
         }
         
         // Fazer a requisição para o webhook N8N via proxy backend
-        response = await fetch('/api/webhook/n8n/process-payment', {
+        const apiUrl = getApiUrl('/webhook/n8n/process-payment');
+        console.log('🌐 URL da API:', apiUrl);
+        
+        response = await fetch(apiUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
