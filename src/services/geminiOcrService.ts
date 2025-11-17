@@ -80,12 +80,13 @@ interface DocumentoPessoalProcessado {
 }
 
 class GeminiOcrService {
-  private genAI: GoogleGenerativeAI;
+  private genAI: GoogleGenerativeAI | null = null;
 
   constructor() {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error('VITE_GEMINI_API_KEY não está configurada no arquivo .env');
+      console.warn('⚠️ VITE_GEMINI_API_KEY não está configurada - serviço Gemini OCR desabilitado');
+      return;
     }
     
     this.genAI = new GoogleGenerativeAI(apiKey);
@@ -109,6 +110,10 @@ class GeminiOcrService {
    * Extrai dados do auto de infração usando Gemini Vision com retry logic
    */
   async extrairDadosAutoInfracao(file: File): Promise<DocumentoProcessado> {
+    if (!this.genAI) {
+      throw new Error('Serviço Gemini não está configurado. Configure VITE_GEMINI_API_KEY nas variáveis de ambiente.');
+    }
+    
     const maxRetries = 3;
     const retryDelay = 2000; // 2 segundos
     
@@ -383,6 +388,10 @@ IMPORTANTE:
    * Extrai dados de documento de veículo (CRLV, DUT, etc.) usando Gemini Vision
    */
   async extrairDadosDocumentoVeiculo(file: File): Promise<DocumentoVeiculoProcessado> {
+    if (!this.genAI) {
+      throw new Error('Serviço Gemini não está configurado. Configure VITE_GEMINI_API_KEY nas variáveis de ambiente.');
+    }
+    
     const maxRetries = 3;
     const retryDelay = 2000;
     
@@ -553,6 +562,10 @@ IMPORTANTE:
    * Extrai dados de documento pessoal (CNH, RG, CPF) usando Gemini Vision
    */
   async extrairDadosPessoais(file: File): Promise<DocumentoPessoalProcessado> {
+    if (!this.genAI) {
+      throw new Error('Serviço Gemini não está configurado. Configure VITE_GEMINI_API_KEY nas variáveis de ambiente.');
+    }
+    
     const maxRetries = 3;
     const retryDelay = 2000;
     
