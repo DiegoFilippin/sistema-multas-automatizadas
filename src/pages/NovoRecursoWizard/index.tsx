@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useWizardState } from './hooks/useWizardState';
 import { toast } from 'sonner';
+import StepIndicator from './components/StepIndicator';
+import { WizardStep } from './types';
 
 const NovoRecursoWizard: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +16,7 @@ const NovoRecursoWizard: React.FC = () => {
     setRecurso,
     nextStep,
     previousStep,
+    goToStep,
     validateCurrentStep,
     resetWizard,
     saveDraft
@@ -74,49 +77,15 @@ const NovoRecursoWizard: React.FC = () => {
 
       {/* Main Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-2xl shadow-lg p-8">
-          {/* Step Indicator - Será implementado na Task 1.2 */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 md:p-8">
+          {/* Step Indicator */}
           <div className="mb-8">
-            <div className="flex items-center justify-center gap-4">
-              <div className="text-center">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                  state.currentStep >= 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-                }`}>
-                  1
-                </div>
-                <p className="text-xs mt-2 font-medium">Cliente</p>
-              </div>
-              <div className={`h-1 w-16 ${state.currentStep >= 2 ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
-              
-              <div className="text-center">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                  state.currentStep >= 2 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-                }`}>
-                  2
-                </div>
-                <p className="text-xs mt-2 font-medium">Serviço</p>
-              </div>
-              <div className={`h-1 w-16 ${state.currentStep >= 3 ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
-              
-              <div className="text-center">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                  state.currentStep >= 3 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-                }`}>
-                  3
-                </div>
-                <p className="text-xs mt-2 font-medium">Pagamento</p>
-              </div>
-              <div className={`h-1 w-16 ${state.currentStep >= 4 ? 'bg-blue-600' : 'bg-gray-200'}`}></div>
-              
-              <div className="text-center">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
-                  state.currentStep >= 4 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
-                }`}>
-                  4
-                </div>
-                <p className="text-xs mt-2 font-medium">Recurso</p>
-              </div>
-            </div>
+            <StepIndicator
+              currentStep={state.currentStep}
+              completedSteps={[]}
+              onStepClick={(step: WizardStep) => goToStep(step)}
+              allowNavigation={false}
+            />
           </div>
 
           {/* Step Content */}
