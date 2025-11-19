@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, User, Plus, Clock, Mail, Phone, Building } from 'lucide-react';
+import { Search, User, Plus, Mail, Phone, Building } from 'lucide-react';
 import { Cliente } from '../types';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
@@ -21,7 +21,6 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
   const [filteredClientes, setFilteredClientes] = useState<Cliente[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [recentClientes, setRecentClientes] = useState<Cliente[]>([]);
   
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
@@ -86,9 +85,6 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
 
       setClientes(clientesFormatados);
       setFilteredClientes(clientesFormatados);
-
-      // Pegar clientes recentes (últimos 5)
-      setRecentClientes(clientesFormatados.slice(0, 5));
     } catch (error) {
       console.error('Erro ao carregar clientes:', error);
       toast.error('Erro ao carregar clientes');
@@ -170,31 +166,6 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
         </div>
       )}
 
-      {/* Recent Clientes */}
-      {!searchTerm && recentClientes.length > 0 && (
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-5 h-5 text-gray-400" />
-            <h3 className="text-lg font-semibold text-gray-900">
-              Clientes Recentes
-            </h3>
-            <span className="text-sm text-gray-500">
-              (últimos 5)
-            </span>
-          </div>
-          <div className="space-y-3">
-            {recentClientes.slice(0, 5).map((cliente) => (
-              <ClienteCard
-                key={cliente.id}
-                cliente={cliente}
-                isSelected={selectedCliente?.id === cliente.id}
-                onClick={() => handleClienteClick(cliente)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* All Clientes */}
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-4">
@@ -262,16 +233,16 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
       <div className="flex items-center justify-between max-w-4xl mx-auto pt-6 border-t border-gray-200">
         <button
           onClick={() => toast.info('Cadastro de novo cliente em desenvolvimento')}
-          className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl hover:from-green-700 hover:to-green-800 transition-all shadow-md hover:shadow-lg font-medium"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-5 h-5" />
           <span>Novo Cliente</span>
         </button>
 
         <button
           onClick={handleContinue}
           disabled={!selectedCliente}
-          className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          className="px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md"
         >
           Continuar
         </button>
