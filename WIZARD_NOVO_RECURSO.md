@@ -122,16 +122,16 @@ Mobile:
 
 ---
 
-#### Task 1.3: Etapa 1 - Seleção de Cliente ⏳ PENDENTE
-- [ ] Criar componente `Step1Cliente.tsx`
-- [ ] Implementar busca de clientes
-- [ ] Criar cards de clientes com avatar
-- [ ] Adicionar seção "Clientes Recentes"
-- [ ] Implementar modal "Novo Cliente" (opcional)
-- [ ] Validar seleção antes de avançar
+#### Task 1.3: Etapa 1 - Seleção de Cliente ✅ CONCLUÍDA
+- [x] Criar componente `Step1Cliente.tsx`
+- [x] Implementar busca de clientes
+- [x] Criar cards de clientes com avatar
+- [x] Adicionar seção "Clientes Recentes"
+- [x] Implementar modal "Novo Cliente" (opcional)
+- [x] Validar seleção antes de avançar
 
-**Arquivos a Criar**:
-- `src/pages/NovoRecursoWizard/components/Step1Cliente.tsx`
+**Arquivos Criados**:
+- ✅ `src/pages/NovoRecursoWizard/components/Step1Cliente.tsx`
 
 **Funcionalidades**:
 - 🔍 Busca em tempo real
@@ -145,19 +145,23 @@ Mobile:
 - ✅ Cards clicáveis e com feedback visual
 - ✅ Validação impede avançar sem seleção
 - ✅ Design moderno e intuitivo
+- ✅ Integração com Supabase
+- ✅ Filtro por empresa
+
+**Commit**: `d411dc3` - feat: implementar Etapa 1 - Seleção de Cliente (Task 1.3)
 
 ---
 
-#### Task 1.4: Etapa 2 - Escolha de Serviço ⏳ PENDENTE
-- [ ] Criar componente `Step2Servico.tsx`
-- [ ] Buscar tipos de serviço do banco
-- [ ] Criar cards visuais para cada serviço
-- [ ] Exibir preço e taxa de sucesso
-- [ ] Adicionar tooltips explicativos
-- [ ] Validar seleção antes de avançar
+#### Task 1.4: Etapa 2 - Escolha de Serviço ✅ CONCLUÍDA
+- [x] Criar componente `Step2Servico.tsx`
+- [x] Buscar tipos de serviço do banco
+- [x] Criar cards visuais para cada serviço
+- [x] Exibir preço e taxa de sucesso
+- [x] Adicionar tooltips explicativos
+- [x] Validar seleção antes de avançar
 
-**Arquivos a Criar**:
-- `src/pages/NovoRecursoWizard/components/Step2Servico.tsx`
+**Arquivos Criados**:
+- ✅ `src/pages/NovoRecursoWizard/components/Step2Servico.tsx`
 
 **Dados a Exibir**:
 - 📄 Nome do serviço
@@ -171,6 +175,10 @@ Mobile:
 - ✅ Cards com hover effects
 - ✅ Informações claras e visíveis
 - ✅ Validação impede avançar sem seleção
+- ✅ Badges coloridos por tipo
+- ✅ Grid responsivo
+
+**Commit**: `58f6647` - feat: implementar Etapa 2 - Escolha de Serviço (Task 1.4)
 
 ---
 
@@ -486,6 +494,28 @@ setInterval(() => {
 ---
 
 ## 🔄 Changelog
+
+### [19/11/2025 - 14:10] - Task 1.4 Concluída ✅
+- ✅ Componente Step2Servico criado
+- ✅ Cards de serviço com design moderno
+- ✅ Exibição de preço, prazo e taxa de sucesso
+- ✅ Badges coloridos por tipo de recurso
+- ✅ Grid responsivo (1/2/3 colunas)
+- ✅ Integração com Supabase (multa_types)
+- ✅ Animações e hover effects
+- ✅ Validação antes de avançar
+- ✅ Commit: `58f6647`
+
+### [19/11/2025 - 14:05] - Task 1.3 Concluída ✅
+- ✅ Componente Step1Cliente criado
+- ✅ Busca em tempo real de clientes
+- ✅ Seção de clientes recentes (top 5)
+- ✅ ClienteCard com informações completas
+- ✅ Avatar com inicial do nome
+- ✅ Integração com Supabase
+- ✅ Filtro por empresa (não-superadmin)
+- ✅ Design responsivo
+- ✅ Commit: `d411dc3`
 
 ### [19/11/2025 - 13:55] - Task 1.2 Concluída ✅
 - ✅ Componente StepIndicator criado
