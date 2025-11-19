@@ -13,7 +13,10 @@ import {
   ArrowDownRight,
   Activity,
   Target,
-  Zap
+  Zap,
+  PiggyBank,
+  CreditCard,
+  Wallet
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
@@ -22,6 +25,7 @@ import { useNavigate } from 'react-router-dom';
 import { dashboardDespachanteService, type DashboardStats, type RecursoRecente, type AtividadeRecente } from '@/services/dashboardDespachanteService';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { usePrepaidWallet } from '@/hooks/usePrepaidWallet';
 
 interface StatCardProps {
   title: string;
@@ -103,6 +107,12 @@ export default function DashboardDespachante() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recursosRecentes, setRecursosRecentes] = useState<RecursoRecente[]>([]);
   const [atividades, setAtividades] = useState<AtividadeRecente[]>([]);
+  const {
+    balance: prepaidBalance,
+    isLoadingBalance,
+    isAddingFunds,
+    loadBalance
+  } = usePrepaidWallet();
 
   useEffect(() => {
     loadDashboardData();
@@ -126,6 +136,7 @@ export default function DashboardDespachante() {
       setStats(statsData);
       setRecursosRecentes(recursosData);
       setAtividades(atividadesData);
+      await loadBalance();
     } catch (error) {
       console.error('❌ Erro ao carregar dashboard:', error);
       toast.error('Erro ao carregar dados do dashboard');
@@ -163,6 +174,30 @@ export default function DashboardDespachante() {
           <p className="text-gray-600 mt-1">Visão geral do seu negócio</p>
         </div>
         <div className="flex items-center space-x-3">
+          <div className="hidden sm:flex items-center space-x-3">
+            <div className="flex flex-col items-end text-right">
+              <span className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Saldo Pré-Pago</span>
+              <span className="text-lg font-bold text-slate-900">
+                {isLoadingBalance ? 'Carregando...' : `R$ ${prepaidBalance.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => navigate('/meus-servicos?acao=adicionar-saldo')}
+                className="px-3 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors flex items-center space-x-1 text-sm shadow-sm"
+              >
+                <PiggyBank className="w-4 h-4" />
+                <span>Adicionar saldo</span>
+              </button>
+              <button
+                onClick={() => navigate('/meus-servicos?acao=novo-prepago')}
+                className="px-3 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center space-x-1 text-sm shadow-sm"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>Usar saldo</span>
+              </button>
+            </div>
+          </div>
           <button
             onClick={() => navigate('/meus-servicos')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"

@@ -1,24 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, DollarSign, Calculator, Save, CheckCircle, Plus, FileText, QrCode, Copy, Eye, ExternalLink, RefreshCw, Clock, UserPlus } from 'lucide-react';
+import { AlertCircle, DollarSign, Calculator, Save, CheckCircle, Plus, FileText, QrCode, Copy, Eye, ExternalLink, RefreshCw, Clock, UserPlus, PiggyBank, Wallet, CreditCard, ShieldCheck } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useAuthStore } from '@/stores/authStore';
 import { supabase } from '@/lib/supabase';
 import { serviceOrdersService } from '@/services/serviceOrdersService';
 import { toast } from 'sonner';
 
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CobrancaDetalhes } from '@/components/CobrancaDetalhes';
 import { splitService } from '@/services/splitService';
 import { logger } from '@/utils/logger';
 import { ClienteModal } from '@/components/ClienteModal';
 import { getApiUrl } from '@/lib/api-config';
+import { usePrepaidWallet } from '@/hooks/usePrepaidWallet';
+import { PrepaidRechargeModal } from '@/components/PrepaidRechargeModal';
+import { PaymentMethodSelector } from '@/components/PaymentMethodSelector';
+import { PrepaidRechargesHistory } from '@/components/PrepaidRechargesHistory';
 
 interface Service {
   id: string;
@@ -116,6 +120,11 @@ interface PaymentResponse {
     customer_cpf?: string;
     customer_endereco?: string;
   };
+  prepaid_details?: {
+    debitedAmount: number;
+    balanceAfter: number;
+    transactionId: string;
+  };
   // Novos campos da API
   payment?: {
     id?: string;
@@ -138,6 +147,7 @@ const MeusServicos: React.FC = () => {
   
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [services, setServices] = useState<ServiceWithPricing[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -156,6 +166,7 @@ const MeusServicos: React.FC = () => {
   const [creatingPayment, setCreatingPayment] = useState(false);
   const [paymentResult, setPaymentResult] = useState<PaymentResponse | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [showPaymentMethodModal, setShowPaymentMethodModal] = useState(false);
   
   // Estados para sistema de splits dinâmicos
   const [custoMinimo, setCustoMinimo] = useState<number>(0);
@@ -172,10 +183,137 @@ const MeusServicos: React.FC = () => {
   const [syncingWithAsaas, setSyncingWithAsaas] = useState(false);
   const [activeTab, setActiveTab] = useState('criar');
   const [filter, setFilter] = useState<'all' | 'pending' | 'paid'>('all');
-  
+
   // Estado para modal de novo cliente
   const [showNovoClienteModal, setShowNovoClienteModal] = useState(false);
-  
+
+  // Estados e dados do saldo pré-pago
+  const {
+    balance: prepaidBalance,
+    lastTransactionAt,
+    transactions: prepaidTransactions,
+    isLoadingBalance,
+    isLoadingTransactions,
+    isAddingFunds,
+    loadBalance,
+    loadTransactions,
+    createRecharge,
+    addFunds
+  } = usePrepaidWallet({ autoLoadTransactions: true, transactionsLimit: 6 });
+
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'prepaid' | 'asaas'>('asaas');
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
+  const [showPaymentMethodSelector, setShowPaymentMethodSelector] = useState(false);
+  const [hasHandledSearchAction, setHasHandledSearchAction] = useState(false);
+
+  const selectedService = useMemo(() => {
+    return multaTypes.find(type => type?.type === selectedMultaType);
+  }, [multaTypes, selectedMultaType]);
+
+  const amountToCharge = useMemo(() => {
+    if (customAmount && customAmount > 0) {
+      return customAmount;
+    }
+    return selectedService?.suggested_price || 0;
+  }, [customAmount, selectedService]);
+
+  const prepaidServiceCost = useMemo(() => {
+    if (!selectedService) return 0;
+    const acsm = selectedService.acsm_value || 0;
+    const icetran = selectedService.icetran_value || 0;
+    const fee = selectedService.taxa_cobranca || 0;
+    return acsm + icetran + fee;
+  }, [selectedService]);
+
+  const projectedPrepaidBalance = useMemo(() => {
+    if (!selectedService) return prepaidBalance;
+    return prepaidBalance - prepaidServiceCost;
+  }, [prepaidBalance, prepaidServiceCost, selectedService]);
+
+  const hasSufficientPrepaidBalance = useMemo(() => {
+    if (!selectedService) {
+      return false;
+    }
+    if (prepaidServiceCost <= 0) {
+      return false;
+    }
+    return prepaidBalance >= prepaidServiceCost;
+  }, [prepaidBalance, prepaidServiceCost, selectedService]);
+
+  const isChargeBelowMinimum = useMemo(() => {
+    if (!selectedService) return false;
+    if (import.meta.env.DEV) return false;
+    if (!custoMinimo) return false;
+    return amountToCharge < custoMinimo;
+  }, [amountToCharge, custoMinimo, selectedService]);
+
+  const lastTransactionFormatted = useMemo(() => {
+    if (!lastTransactionAt) return null;
+    try {
+      const date = new Date(lastTransactionAt);
+      return new Intl.DateTimeFormat('pt-BR', {
+        dateStyle: 'short',
+        timeStyle: 'short'
+      }).format(date);
+    } catch (error) {
+      console.warn('Erro ao formatar data da última transação', error);
+      return null;
+    }
+  }, [lastTransactionAt]);
+
+  const handleRechargeCreated = async (recharge: any) => {
+    toast.success('Recarga criada! Aguardando pagamento...');
+    await loadBalance();
+  };
+
+  const handlePaymentMethodSelected = (method: 'prepaid' | 'asaas') => {
+    console.log('💳 Método de pagamento selecionado:', method);
+    setSelectedPaymentMethod(method);
+    setShowPaymentMethodSelector(false);
+    
+    if (method === 'prepaid') {
+      if (!hasSufficientPrepaidBalance) {
+        toast.error('Saldo insuficiente para usar pagamento pré-pago.');
+        setSelectedPaymentMethod('asaas'); // Voltar para Asaas
+        return;
+      }
+      
+      // Forçar uso do custo mínimo quando pré-pago
+      const selectedType = getSelectedType();
+      if (selectedType) {
+        setCustomAmount(selectedType.total_price);
+        console.log('💰 Valor ajustado para custo do serviço:', selectedType.total_price);
+      }
+      
+      toast.success('Método alterado para Saldo Pré-Pago. Valor fixado no custo do serviço.');
+    } else {
+      toast.info('Método alterado para Cobrança Asaas. Clique em "Criar Cobrança" para confirmar.');
+    }
+    // NÃO chamar createServiceOrder() aqui - usuário deve clicar no botão
+  };
+
+  // Detectar ação da URL (adicionar-saldo ou novo-prepago)
+  useEffect(() => {
+    if (hasHandledSearchAction) return;
+    
+    const acao = searchParams.get('acao');
+    if (!acao) return;
+
+    setHasHandledSearchAction(true);
+
+    if (acao === 'adicionar-saldo') {
+      setShowRechargeModal(true);
+      // Limpar parâmetro da URL
+      navigate('/meus-servicos', { replace: true });
+    } else if (acao === 'novo-prepago') {
+      setSelectedPaymentMethod('prepaid');
+      setActiveTab('criar');
+      toast.info('Selecione o serviço e cliente para usar saldo pré-pago');
+      // Limpar parâmetro da URL
+      navigate('/meus-servicos', { replace: true });
+    }
+  }, [searchParams, hasHandledSearchAction, navigate]);
+
   // Função para salvar novo cliente
   const handleSalvarNovoCliente = async (novoCliente: any) => {
     try {
@@ -562,6 +700,8 @@ const MeusServicos: React.FC = () => {
     console.log('  - Cliente selecionado:', selectedClient);
     console.log('  - Tipo de multa:', selectedMultaType);
     console.log('  - Valor customizado:', customAmount);
+    console.log('  - Método de pagamento selecionado:', selectedPaymentMethod);
+    console.log('  - É pré-pago?:', selectedPaymentMethod === 'prepaid');
     
     // Validações com logs
     if (!selectedClient) {
@@ -587,7 +727,7 @@ const MeusServicos: React.FC = () => {
     console.log('🔍 Procurando serviço por type:', selectedMultaType);
     console.log('📋 Tipos disponíveis:', multaTypes.map(t => ({ id: t.id, type: t.type, name: t.name })));
     
-    const selectedType = multaTypes.find(t => t.type === selectedMultaType);
+    const selectedType = selectedService;
     if (!selectedType) {
       console.error('❌ ERRO: Serviço de multa não encontrado');
       console.log('  - Tipo procurado:', selectedMultaType);
@@ -603,13 +743,84 @@ const MeusServicos: React.FC = () => {
       custo_minimo: selectedType.total_price
     });
 
-    const finalAmount = customAmount || selectedType.suggested_price;
-    
+    const finalAmount = amountToCharge;
+    const isPrepaid = selectedPaymentMethod === 'prepaid';
+
     console.log('\n💰 CÁLCULO DE VALORES:');
     console.log('  - Valor customizado:', customAmount);
     console.log('  - Valor base:', selectedType.suggested_price);
     console.log('  - Valor final:', finalAmount);
+    console.log('  - Método de pagamento:', selectedPaymentMethod);
+    console.log('  - É pré-pago?:', isPrepaid);
+    console.log('  - Tem saldo suficiente?:', hasSufficientPrepaidBalance);
+
+    if (isPrepaid && !hasSufficientPrepaidBalance) {
+      console.error('❌ ERRO: Saldo pré-pago insuficiente');
+      toast.error('Saldo pré-pago insuficiente para este serviço. Adicione saldo para continuar.');
+      setShowRechargeModal(true);
+      return;
+    }
+
+    // ========== FLUXO PARA SALDO PRÉ-PAGO ==========
+    if (isPrepaid) {
+      console.log('\n💰 PROCESSANDO PAGAMENTO COM SALDO PRÉ-PAGO');
+      try {
+        setCreatingPayment(true);
+
+        // Criar service_order diretamente com status 'paid'
+        const apiUrl = getApiUrl('/service-orders/create-with-prepaid');
+        console.log('🌐 URL da requisição:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
+          },
+          body: JSON.stringify({
+            client_id: selectedClient.id,
+            service_id: selectedType.id,
+            amount: finalAmount,
+            notes: `Recurso de Multa - ${selectedType.name}`,
+            multa_type: selectedType.type,
+          }),
+        });
+
+        let data;
+        try {
+          data = await response.json();
+        } catch (parseError) {
+          console.error('❌ Erro ao parsear resposta:', parseError);
+          throw new Error(`Erro na resposta do servidor (${response.status}): ${response.statusText}`);
+        }
+
+        if (!response.ok || !data.success) {
+          console.error('❌ Resposta de erro:', data);
+          console.error('❌ Status:', response.status);
+          console.error('❌ Detalhes:', data.details);
+          throw new Error(data.error || data.message || 'Erro ao criar ordem de serviço');
+        }
+
+        console.log('✅ Service Order criado:', data.serviceOrder);
+        console.log('✅ Saldo debitado com sucesso');
+
+        toast.success('Pagamento realizado com saldo pré-pago! Redirecionando para criar o recurso...');
+
+        // Redirecionar para criar recurso
+        setTimeout(() => {
+          navigate(`/recursos/novo?service_order_id=${data.serviceOrder.id}`);
+        }, 1500);
+
+      } catch (error) {
+        console.error('❌ Erro ao processar pagamento pré-pago:', error);
+        toast.error(error instanceof Error ? error.message : 'Erro ao processar pagamento');
+      } finally {
+        setCreatingPayment(false);
+      }
+      return;
+    }
     
+    // ========== FLUXO NORMAL (COBRANÇA ASAAS) ==========
     try {
       setCreatingPayment(true);
 
@@ -627,7 +838,7 @@ const MeusServicos: React.FC = () => {
         return;
       }
       
-      if (!selectedClient.asaas_customer_id) {
+      if (!isPrepaid && !selectedClient.asaas_customer_id) {
          console.warn('⚠️ AVISO: Cliente não possui asaas_customer_id, será criado automaticamente');
          toast.warning('Cliente não possui integração com Asaas. O customer será criado automaticamente.');
        }
@@ -2066,6 +2277,12 @@ const MeusServicos: React.FC = () => {
                     {selectedMultaType === type.type && (
                       <div className="mt-4 pt-4 border-t border-gray-200">
                         <Label className="text-sm font-medium">💰 Valor da Cobrança</Label>
+                        {selectedPaymentMethod === 'prepaid' && (
+                          <div className="mb-2 p-2 bg-emerald-50 border border-emerald-200 rounded text-sm text-emerald-700">
+                            <ShieldCheck className="h-4 w-4 inline mr-1" />
+                            Pagamento pré-pago: valor fixo do custo do serviço (não editável)
+                          </div>
+                        )}
                         <div className="flex gap-2 mt-2">
                           <Input
                              type="number"
@@ -2073,9 +2290,10 @@ const MeusServicos: React.FC = () => {
                              step="0.01"
                              value={customAmount || 0}
                              onChange={(e) => setCustomAmount(parseFloat(e.target.value) || 0)}
+                             disabled={selectedPaymentMethod === 'prepaid'}
                              className={`flex-1 ${
                                customAmount < custoMinimo ? 'border-red-500' : ''
-                             }`}
+                             } ${selectedPaymentMethod === 'prepaid' ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                              placeholder={`Mínimo: R$ ${custoMinimo.toFixed(2)}`}
                            />
                           <Button
@@ -2086,6 +2304,7 @@ const MeusServicos: React.FC = () => {
                               e.stopPropagation();
                               handleUseSuggested(type);
                             }}
+                            disabled={selectedPaymentMethod === 'prepaid'}
                           >Usar Sugerido</Button>
                         </div>
 
@@ -2143,25 +2362,95 @@ const MeusServicos: React.FC = () => {
 
           {/* Botão de Criar Cobrança */}
           {selectedMultaType && (
-            <div className="flex justify-end">
-              <Button
-                onClick={createServiceOrder}
-                disabled={!selectedClient || !selectedMultaType || creatingPayment || (!import.meta.env.DEV && (customAmount < custoMinimo))}
-                className="min-w-[220px] bg-violet-600 hover:bg-violet-700 text-white shadow-lg focus:outline-none focus:ring-4 focus:ring-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
-                size="lg"
-              >
-                {creatingPayment ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                    Criando...
-                  </>
-                ) : (
-                  <>
-                    <FileText className="h-4 w-4 mr-2" />
-                    Criar Cobrança - {formatCurrency(customAmount || getSelectedType()?.suggested_price || 0)}
-                  </>
+            <div className="flex flex-col gap-3">
+              {/* Indicador de Método de Pagamento Selecionado */}
+              {prepaidBalance > 0 && (
+                <div className="flex items-center justify-end gap-2 text-sm">
+                  <span className="text-gray-600">Método de pagamento:</span>
+                  <Badge 
+                    variant={selectedPaymentMethod === 'prepaid' ? 'default' : 'secondary'}
+                    className={selectedPaymentMethod === 'prepaid' ? 'bg-emerald-600' : ''}
+                  >
+                    {selectedPaymentMethod === 'prepaid' ? (
+                      <>
+                        <Wallet className="h-3 w-3 mr-1" />
+                        Saldo Pré-Pago
+                      </>
+                    ) : (
+                      <>
+                        <CreditCard className="h-3 w-3 mr-1" />
+                        Cobrança Cliente
+                      </>
+                    )}
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowPaymentMethodSelector(true)}
+                    className="text-xs"
+                  >
+                    Alterar
+                  </Button>
+                </div>
+              )}
+              
+              <div className="flex justify-end gap-2">
+                {/* Botão de Adicionar Saldo (se método prepaid e saldo insuficiente) */}
+                {selectedPaymentMethod === 'prepaid' && !hasSufficientPrepaidBalance && (
+                  <Button
+                    onClick={() => setShowRechargeModal(true)}
+                    variant="outline"
+                    className="border-emerald-500 text-emerald-700 hover:bg-emerald-50"
+                  >
+                    <PiggyBank className="h-4 w-4 mr-2" />
+                    Adicionar Saldo
+                  </Button>
                 )}
-              </Button>
+                
+                <Button
+                  onClick={() => {
+                    // Se já selecionou um método, criar diretamente
+                    if (selectedPaymentMethod === 'prepaid' || selectedPaymentMethod === 'asaas') {
+                      console.log('🔵 Método já selecionado:', selectedPaymentMethod);
+                      createServiceOrder();
+                    }
+                    // Se tiver saldo pré-pago e ainda não selecionou, mostrar seletor
+                    else if (prepaidBalance > 0) {
+                      console.log('🔵 Abrindo seletor de método de pagamento');
+                      setShowPaymentMethodSelector(true);
+                    } 
+                    // Senão, criar diretamente via Asaas
+                    else {
+                      console.log('🔵 Criando via Asaas (sem saldo)');
+                      createServiceOrder();
+                    }
+                  }}
+                  disabled={!selectedClient || !selectedMultaType || creatingPayment || (!import.meta.env.DEV && (customAmount < custoMinimo))}
+                  className="min-w-[220px] bg-violet-600 hover:bg-violet-700 text-white shadow-lg focus:outline-none focus:ring-4 focus:ring-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  size="lg"
+                >
+                  {creatingPayment ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                      Criando...
+                    </>
+                  ) : (
+                    <>
+                      {selectedPaymentMethod === 'prepaid' ? (
+                        <>
+                          <Wallet className="h-4 w-4 mr-2" />
+                          Pagar com Saldo - {formatCurrency(customAmount || getSelectedType()?.suggested_price || 0)}
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="h-4 w-4 mr-2" />
+                          {prepaidBalance > 0 && !selectedPaymentMethod ? 'Escolher Pagamento' : 'Criar Cobrança'} - {formatCurrency(customAmount || getSelectedType()?.suggested_price || 0)}
+                        </>
+                      )}
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           )}
         </CardContent>
@@ -2204,6 +2493,27 @@ const MeusServicos: React.FC = () => {
           isOpen={showNovoClienteModal}
           onClose={() => setShowNovoClienteModal(false)}
           onSave={handleSalvarNovoCliente}
+        />
+      )}
+
+      {/* Modal de Recarga de Saldo Pré-Pago */}
+      <PrepaidRechargeModal
+        isOpen={showRechargeModal}
+        onClose={() => setShowRechargeModal(false)}
+        onRechargeCreated={handleRechargeCreated}
+      />
+
+      {/* Modal de Seleção de Método de Pagamento */}
+      {selectedService && (
+        <PaymentMethodSelector
+          isOpen={showPaymentMethodSelector}
+          onClose={() => setShowPaymentMethodSelector(false)}
+          onSelectMethod={handlePaymentMethodSelected}
+          prepaidBalance={prepaidBalance}
+          serviceCost={prepaidServiceCost}
+          serviceAmount={amountToCharge}
+          serviceName={selectedService.name || 'Serviço'}
+          hasSufficientBalance={hasSufficientPrepaidBalance}
         />
       )}
     </div>

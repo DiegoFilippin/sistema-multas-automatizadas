@@ -812,19 +812,13 @@ const TesteRecursoIA: React.FC = () => {
           // Salvar no banco de dados se temos sessão ativa
           if (chatSessionId) {
             try {
-              await chatService.addMessage({
-                chatSessionId: chatSessionId,
-                messageType: 'assistant',
-                content: responseContent,
-                metadata: { 
-                  source: `n8n_polling_${type}`,
-                  attempt: attempt,
-                  webhookResponse: webhookResponse,
-                  timestamp: new Date().toISOString()
-                }
-              });
+              // Importar função de salvar mensagem N8N
+              const { saveN8nMessage } = await import('../services/n8nChatService');
               
-              console.log(`✅ Resposta do polling salva no banco (tentativa ${attempt})`);
+              // Salvar na tabela n8n_chat_recurso_de_multas
+              await saveN8nMessage(chatSessionId, 'ai', responseContent);
+              
+              console.log(`✅ Resposta do polling salva no banco n8n (tentativa ${attempt})`);
               
               // Detectar e salvar recurso se presente
               console.log('🔍 === VERIFICANDO DETECÇÃO DE RECURSO NO POLLING ===');
@@ -1719,21 +1713,16 @@ const TesteRecursoIA: React.FC = () => {
         
         // Salvar mensagens iniciais no banco de dados
         try {
-          await chatService.addMessage({
-            chatSessionId: chatSession.id,
-            messageType: 'user',
-            content: mensagemInicial,
-            metadata: { source: 'n8n_initial_user' }
-          });
+          // Importar função de salvar mensagem N8N
+          const { saveN8nMessage } = await import('../services/n8nChatService');
           
-          await chatService.addMessage({
-            chatSessionId: chatSession.id,
-            messageType: 'assistant',
-            content: responseContent,
-            metadata: { source: 'n8n_initial_response' }
-          });
+          // Salvar mensagem inicial do usuário
+          await saveN8nMessage(chatSession.id, 'human', mensagemInicial);
           
-          console.log('✅ Mensagens iniciais salvas no banco');
+          // Salvar resposta inicial da IA
+          await saveN8nMessage(chatSession.id, 'ai', responseContent);
+          
+          console.log('✅ Mensagens iniciais salvas no banco n8n');
         } catch (messageError: any) {
           console.warn('⚠️ Erro ao salvar mensagens iniciais:', messageError);
         }
@@ -1831,16 +1820,13 @@ const TesteRecursoIA: React.FC = () => {
             // Salvar no banco se temos sessão
             if (chatSessionId) {
               try {
-                await chatService.addMessage({
-                  chatSessionId: chatSessionId,
-                  messageType: 'assistant',
-                  content: realContent,
-                  metadata: { 
-                    source: 'n8n_delayed_response',
-                    attempt: pollAttempts,
-                    timestamp: new Date().toISOString()
-                  }
-                });
+                // Importar função de salvar mensagem N8N
+                const { saveN8nMessage } = await import('../services/n8nChatService');
+                
+                // Salvar resposta na tabela n8n_chat_recurso_de_multas
+                await saveN8nMessage(chatSessionId, 'ai', realContent);
+                
+                console.log('✅ Resposta atrasada salva no banco n8n');
                 
                 // Detectar recurso se presente
                 if (multaUUID) {
@@ -2084,25 +2070,16 @@ const TesteRecursoIA: React.FC = () => {
                  // Salvar no banco se temos sessão
                  if (chatSessionId) {
                    try {
-                     // Salvar mensagem do usuário
-                     await chatService.addMessage({
-                       chatSessionId: chatSessionId,
-                       messageType: 'user',
-                       content: message,
-                       metadata: { source: 'n8n_user_input' }
-                     });
+                     // Importar função de salvar mensagem N8N
+                     const { saveN8nMessage } = await import('../services/n8nChatService');
                      
-                     // Salvar resposta da IA
-                     await chatService.addMessage({
-                       chatSessionId: chatSessionId,
-                       messageType: 'assistant',
-                       content: messageContent,
-                       metadata: { 
-                         source: 'n8n_delayed_message_response',
-                         attempt: messagePollAttempts,
-                         timestamp: new Date().toISOString()
-                       }
-                     });
+                     // Salvar mensagem do usuário na tabela n8n_chat_recurso_de_multas
+                     await saveN8nMessage(chatSessionId, 'human', message);
+                     
+                     // Salvar resposta da IA na tabela n8n_chat_recurso_de_multas
+                     await saveN8nMessage(chatSessionId, 'ai', messageContent);
+                     
+                     console.log('✅ Mensagens do polling de mensagem salvas no banco n8n');
                      
                      // Detectar recurso se presente
                      if (multaUUID) {
@@ -2185,28 +2162,16 @@ const TesteRecursoIA: React.FC = () => {
         // Salvar mensagens no banco de dados se temos uma sessão ativa
         if (chatSessionId) {
           try {
-            // Salvar mensagem do usuário
-            await chatService.addMessage({
-              chatSessionId: chatSessionId,
-              messageType: 'user',
-              content: message,
-              metadata: { source: 'n8n_user_input' }
-            });
+            // Importar função de salvar mensagem N8N
+            const { saveN8nMessage } = await import('../services/n8nChatService');
             
-            // Salvar resposta da IA
-             await chatService.addMessage({
-               chatSessionId: chatSessionId,
-               messageType: 'assistant',
-               content: responseContent,
-               metadata: { 
-                 source: 'n8n_webhook_response',
-                 webhookResponse: webhookResponse,
-                 responseContent: responseContent,
-                 timestamp: new Date().toISOString()
-               }
-             });
+            // Salvar mensagem do usuário na tabela n8n_chat_recurso_de_multas
+            await saveN8nMessage(chatSessionId, 'human', message);
             
-            console.log('✅ === MENSAGENS DO CHAT SALVAS NO BANCO ===');
+            // Salvar resposta da IA na tabela n8n_chat_recurso_de_multas
+            await saveN8nMessage(chatSessionId, 'ai', responseContent);
+            
+            console.log('✅ === MENSAGENS DO CHAT SALVAS NO BANCO N8N ===');
              console.log('🆔 Session ID:', chatSessionId);
              console.log('💬 Mensagem do usuário salva:', message);
              console.log('🤖 Resposta da IA salva:', responseContent);

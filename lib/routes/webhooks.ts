@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { paymentService } from '../services/paymentService.js';
 import { asaasService } from '../services/asaasService.js';
+import { prepaidRechargeService } from '../../src/services/prepaidRechargeService';
 
 const router = Router();
 
@@ -34,6 +35,23 @@ router.post('/asaas-credits', async (req: Request, res: Response) => {
       case 'PAYMENT_CONFIRMED':
       case 'PAYMENT_RECEIVED':
         console.log(`Processando confirmação de pagamento: ${asaasPaymentId}`);
+        
+        // Tentar processar como recarga de saldo pré-pago primeiro
+        try {
+          const recharge = await prepaidRechargeService.confirmRechargePayment({
+            asaasPaymentId,
+            paidAt: payment.confirmedDate || payment.paymentDate || new Date().toISOString()
+          });
+          
+          if (recharge) {
+            console.log('✅ Recarga de saldo pré-pago confirmada:', recharge.id);
+            break; // Sair do switch se for recarga
+          }
+        } catch (error) {
+          console.log('ℹ️ Não é uma recarga de saldo pré-pago, processando como pagamento normal');
+        }
+        
+        // Se não for recarga, processar como pagamento normal
         await paymentService.processPaymentConfirmation(asaasPaymentId, webhookData);
         break;
 

@@ -1,11 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import VectorService from './vectorService';
 import { autoRelevanceService, RelevanceMetrics, DocumentRelevanceData } from './autoRelevanceService';
-
-const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL!,
-  import.meta.env.VITE_SUPABASE_ANON_KEY!
-);
 
 export interface KnowledgeDocument {
   id: string;

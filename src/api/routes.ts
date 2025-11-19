@@ -10,10 +10,12 @@ import { authenticateToken, authorizeRoles } from '../middleware/auth';
 import creditsRouter from '../../lib/routes/credits';
 import webhooksRouter from '../../lib/routes/webhooks';
 import paymentsRouter from '../../lib/routes/payments';
-
+import serviceOrdersPrepaidRouter from './routes/service-orders-prepaid';
 import forceSyncRouter from '../../lib/routes/force-sync';
 import { supabase } from '../lib/supabase';
 import { n8nWebhookService } from '../services/n8nWebhookService';
+import { prepaidWalletService } from '../services/prepaidWalletService';
+import { prepaidRechargeService } from '../services/prepaidRechargeService';
 
 const router = express.Router();
 
@@ -60,6 +62,165 @@ router.put('/auth/profile', authenticateToken, async (req, res) => {
     res.json(user);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// Rotas de saldo pré-pago do despachante
+router.get('/wallets/prepaid/balance', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      return res.status(400).json({
+        error: 'COMPANY_ID_REQUIRED',
+        message: 'Usuário não está associado a uma empresa para consultar o saldo pré-pago.'
+      });
+    }
+
+    const balance = await prepaidWalletService.getBalance(companyId);
+    return res.json({ success: true, ...balance });
+  } catch (error) {
+    console.error('Erro ao consultar saldo pré-pago:', error);
+    return res.status(500).json({ error: 'Não foi possível consultar o saldo pré-pago.' });
+  }
+});
+
+router.get('/wallets/prepaid/transactions', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      return res.status(400).json({
+        error: 'COMPANY_ID_REQUIRED',
+        message: 'Usuário não está associado a uma empresa para consultar o extrato pré-pago.'
+      });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const offset = Number(req.query.offset) || 0;
+    const transactions = await prepaidWalletService.getTransactions(companyId, limit, offset);
+
+    return res.json({
+      success: true,
+      transactions,
+      pagination: {
+        limit,
+        offset,
+        count: transactions.length
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao listar transações de saldo pré-pago:', error);
+    return res.status(500).json({ error: 'Não foi possível listar as transações de saldo pré-pago.' });
+  }
+});
+
+// Rota para criar recarga de saldo pré-pago (gera cobrança Asaas)
+router.post('/wallets/prepaid/create-recharge', authenticateToken, authorizeRoles(['Despachante', 'ICETRAN', 'Superadmin']), async (req, res) => {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      return res.status(400).json({
+        error: 'COMPANY_ID_REQUIRED',
+        message: 'Usuário não está associado a uma empresa para criar recarga.'
+      });
+    }
+
+    const amountRaw = req.body?.amount;
+    const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+    const amount = Number(amountRaw);
+
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      return res.status(400).json({
+        error: 'INVALID_AMOUNT',
+        message: 'Informe um valor válido para a recarga.'
+      });
+    }
+
+    const recharge = await prepaidRechargeService.createRecharge({
+      companyId,
+      amount,
+      notes,
+      createdBy: req.user?.id
+    });
+
+    return res.status(201).json({
+      success: true,
+      recharge
+    });
+  } catch (error) {
+    console.error('Erro ao criar recarga:', error);
+    const message = error instanceof Error ? error.message : 'Não foi possível criar a recarga.';
+    return res.status(500).json({ error: message });
+  }
+});
+
+// Rota para listar recargas
+router.get('/wallets/prepaid/recharges', authenticateToken, async (req, res) => {
+  try {
+    const companyId = req.user?.companyId;
+    if (!companyId) {
+      return res.status(400).json({
+        error: 'COMPANY_ID_REQUIRED',
+        message: 'Usuário não está associado a uma empresa.'
+      });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const offset = Number(req.query.offset) || 0;
+    const recharges = await prepaidRechargeService.getRecharges(companyId, limit, offset);
+
+    return res.json({
+      success: true,
+      recharges,
+      pagination: {
+        limit,
+        offset,
+        count: recharges.length
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao listar recargas:', error);
+    return res.status(500).json({ error: 'Não foi possível listar as recargas.' });
+  }
+});
+
+// Rota manual para adicionar saldo (apenas para testes/admin)
+router.post('/wallets/prepaid/add-funds', authenticateToken, authorizeRoles(['Superadmin']), async (req, res) => {
+  try {
+    const companyId = req.body?.companyId || req.user?.companyId;
+    if (!companyId) {
+      return res.status(400).json({
+        error: 'COMPANY_ID_REQUIRED',
+        message: 'Informe o ID da empresa para adicionar saldo.'
+      });
+    }
+
+    const amountRaw = req.body?.amount;
+    const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+    const amount = Number(amountRaw);
+
+    if (!amount || Number.isNaN(amount) || amount <= 0) {
+      return res.status(400).json({
+        error: 'INVALID_AMOUNT',
+        message: 'Informe um valor válido para adicionar ao saldo pré-pago.'
+      });
+    }
+
+    const result = await prepaidWalletService.addFunds({
+      companyId,
+      amount,
+      notes,
+      createdBy: req.user?.id
+    });
+
+    return res.status(201).json({
+      success: true,
+      transaction: result.transaction,
+      balance: result.balance
+    });
+  } catch (error) {
+    console.error('Erro ao adicionar saldo pré-pago:', error);
+    const message = error instanceof Error ? error.message : 'Não foi possível adicionar saldo pré-pago.';
+    return res.status(500).json({ error: message });
   }
 });
 
@@ -636,13 +797,180 @@ router.post('/webhook/n8n/create-customer', authenticateToken, async (req, res) 
   }
 });
 
-// Webhook n8n: processar pagamento (proxy)
 router.post('/webhook/n8n/process-payment', maybeAuthForN8nProxy as any, async (req, res) => {
   try {
     console.log('🔍 === WEBHOOK N8N PROCESS-PAYMENT ===');
     console.log('📦 Payload recebido:', JSON.stringify(req.body, null, 2));
-    
+
     const payload = req.body;
+    const paymentMethod = (payload?.paymentMethod || payload?.payment_method || '').toLowerCase() || 'asaas';
+    console.log('💳 Método de pagamento solicitado:', paymentMethod);
+
+    const resolveCompanyId = () => {
+      return req.user?.companyId || payload?.despachante?.company_id || payload?.company_id || payload?.companyId;
+    };
+
+    const resolveServiceId = () => payload?.Idserviço || payload?.service_id || payload?.serviceId;
+
+    if (paymentMethod === 'prepaid') {
+      console.log('⚡ Processando fluxo de pagamento via saldo pré-pago');
+
+      const companyId = resolveCompanyId();
+      if (!companyId) {
+        console.error('❌ Empresa não encontrada no payload ou usuário');
+        return res.status(400).json({
+          error: 'COMPANY_ID_REQUIRED',
+          message: 'Não foi possível identificar a empresa para débito do saldo pré-pago.'
+        });
+      }
+
+      const serviceId = resolveServiceId();
+      const client = payload?.Customer_cliente || payload?.cliente || null;
+
+      if (!serviceId) {
+        return res.status(400).json({
+          error: 'SERVICE_ID_REQUIRED',
+          message: 'Identificador do serviço não informado para débito pré-pago.'
+        });
+      }
+
+      if (!client?.id) {
+        return res.status(400).json({
+          error: 'CLIENT_ID_REQUIRED',
+          message: 'Cliente inválido para registrar a ordem de serviço pré-paga.'
+        });
+      }
+
+      const parseCurrency = (value: unknown) => {
+        if (typeof value === 'string') {
+          const normalized = value.replace(/[^0-9,.-]/g, '').replace('.', '').replace(',', '.');
+          const parsed = Number(normalized);
+          return Number.isFinite(parsed) ? parsed : 0;
+        }
+        if (typeof value === 'number') return value;
+        return 0;
+      };
+
+      const acsmCost = parseCurrency(payload?.valoracsm);
+      const icetranCost = parseCurrency(payload?.valoricetran);
+      const feeCost = parseCurrency(payload?.taxa);
+      const serviceCost = acsmCost + icetranCost + feeCost;
+      const totalAmount = parseCurrency(payload?.Valor_cobrança) || serviceCost;
+
+      console.log('💰 Custos para débito pré-pago:', {
+        acsmCost,
+        icetranCost,
+        feeCost,
+        serviceCost,
+        totalAmount
+      });
+
+      if (serviceCost <= 0) {
+        return res.status(400).json({
+          error: 'INVALID_COST',
+          message: 'Não foi possível calcular o custo do serviço para débito pré-pago.'
+        });
+      }
+
+      // Registrar débito no saldo pré-pago
+      let debitResult;
+      try {
+        debitResult = await prepaidWalletService.debitForService({
+          companyId,
+          amount: serviceCost,
+          serviceId,
+          notes: `Débito pré-pago para serviço ${serviceId}`,
+          createdBy: req.user?.id
+        });
+        console.log('✅ Débito registrado no saldo pré-pago:', debitResult.transaction.id);
+      } catch (debitError) {
+        console.error('❌ Erro ao debitar saldo pré-pago:', debitError);
+        const message = debitError instanceof Error ? debitError.message : 'Falha ao debitar saldo pré-pago';
+        return res.status(400).json({ error: 'PREPAID_DEBIT_FAILED', message });
+      }
+
+      // Criar ordem de serviço já paga
+      const nowIso = new Date().toISOString();
+      const serviceOrderPayload: any = {
+        client_id: client.id,
+        customer_name: client.nome || payload?.customer_name || 'Cliente',
+        customer_document: client.cpf_cnpj || null,
+        customer_email: client.email || null,
+        service_id: serviceId,
+        company_id: companyId,
+        amount: totalAmount,
+        status: 'paid',
+        paid_at: nowIso,
+        description: payload?.descricaoserviço || payload?.service_description || 'Serviço pré-pago',
+        service_type: 'recurso_multa',
+        multa_type: payload?.multa_type || null,
+        billing_type: 'PREPAID',
+        payment_method: 'prepaid',
+        prepaid_transaction_id: debitResult.transaction.id,
+        splits_config: {
+          acsm_value: acsmCost,
+          icetran_value: icetranCost,
+          taxa_cobranca: feeCost,
+          prepaid_cost: serviceCost,
+          total_amount: totalAmount
+        },
+        webhook_response: null,
+        created_at: nowIso,
+        updated_at: nowIso
+      };
+
+      try {
+        const { data: serviceOrder, error: serviceOrderError } = await supabase
+          .from('service_orders')
+          .insert(serviceOrderPayload)
+          .select()
+          .single();
+
+        if (serviceOrderError) {
+          console.error('❌ Erro ao criar service_order pré-pago:', serviceOrderError);
+
+          // Reverter débito em caso de falha ao salvar
+          try {
+            await prepaidWalletService.addFunds({
+              companyId,
+              amount: serviceCost,
+              notes: `Estorno automático por falha ao salvar service_order (${serviceId})`,
+              createdBy: req.user?.id
+            });
+            console.log('✅ Estorno automático aplicado após falha ao salvar service_order');
+          } catch (rollbackError) {
+            console.error('⚠️ Falha ao estornar débito após erro no service_order:', rollbackError);
+          }
+
+          return res.status(500).json({
+            error: 'SERVICE_ORDER_CREATION_FAILED',
+            message: serviceOrderError.message
+          });
+        }
+
+        await prepaidWalletService.linkTransactionToServiceOrder(debitResult.transaction.id, serviceOrder.id);
+
+        return res.json({
+          success: true,
+          paymentMethod: 'prepaid',
+          serviceOrder,
+          prepaid: {
+            debitedAmount: serviceCost,
+            totalAmount,
+            transaction: debitResult.transaction,
+            balance: debitResult.balance
+          },
+          nextStep: 'start_recurso'
+        });
+      } catch (insertError) {
+        console.error('❌ Erro inesperado ao processar fluxo pré-pago:', insertError);
+        return res.status(500).json({
+          error: 'PREPAID_PROCESS_FAILED',
+          message: insertError instanceof Error ? insertError.message : 'Falha interna ao processar pagamento pré-pago.'
+        });
+      }
+    }
+
     // Endpoint atualizado para o novo servidor n8n
     const endpoint = 'https://webhookn8n.synsoft.com.br/webhook/d37fac6e-9379-4bca-b015-9c56b104cae1';
 
@@ -709,6 +1037,8 @@ router.use('/webhooks', webhooksRouter);
 // Rotas de cobranças/pagamentos
 router.use('/payments', paymentsRouter);
 
+// Rotas de service orders com saldo pré-pago
+router.use('/service-orders', serviceOrdersPrepaidRouter);
 
 // Rotas de sincronização forçada
 router.use('/force-sync', forceSyncRouter);

@@ -16,7 +16,8 @@ import {
   Receipt,
   Building,
   PieChart,
-  Package
+  Package,
+  Wallet
 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { cn } from '@/lib/utils';
@@ -89,6 +90,13 @@ const menuItems: MenuItem[] = [
     label: 'Cobranças',
     icon: Receipt,
     href: '/cobrancas',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
+  },
+  {
+    id: 'recargas',
+    label: 'Recargas',
+    icon: Wallet,
+    href: '/recargas',
     roles: ['Superadmin', 'ICETRAN', 'Despachante']
   },
   {

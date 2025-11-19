@@ -67,6 +67,7 @@ class ServiceOrdersService {
         invoice_url: order.invoice_url,
         pix_qr_code: order.qr_code_image || order.qr_code,
         pix_copy_paste: order.pix_payload || order.pix_copy_paste,
+        notes: order.notes,
         source: 'service_order'
       }));
       

@@ -47,6 +47,7 @@ interface Cobranca {
   pix_qr_code?: string;
   pix_code?: string;
   company_name?: string;
+  notes?: string;
   company_id?: string;
 }
 
@@ -221,6 +222,15 @@ function CobrancaCard({ cobranca, onViewDetails, onResend, onCancel, onBaixaManu
           <span className="truncate">{cobranca.description}</span>
         </div>
         
+        {cobranca.notes?.includes('[PRÉ-PAGO]') && (
+          <div className="flex items-center space-x-2 px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-xs font-medium text-emerald-700">Pago com Saldo Pré-Pago</span>
+          </div>
+        )}
+        
         {showCompany && cobranca.company_name && (
           <div className="flex items-center space-x-2 text-sm text-blue-600">
             <User className="w-4 h-4" />
@@ -323,7 +333,8 @@ export default function CobrancasGerais() {
         invoice_url: payment.invoice_url,
         pix_qr_code: payment.pix_qr_code,
         company_name: payment.company_name,
-        company_id: payment.company_id
+        company_id: payment.company_id,
+        notes: payment.notes
       }));
       
       log.debug('Dados mapeados:', mappedPayments); // Debug
@@ -599,12 +610,7 @@ export default function CobrancasGerais() {
             {isSuperadmin() ? 'Gestão de Cobranças - Todas as Empresas' : 'Gestão de Cobranças'}
           </h1>
           <p className="text-gray-600 mt-1">
-            {cobrancas.length} cobrança(s) registrada(s)
-            {isSuperadmin() && companyFilter !== 'all' && (
-              <span className="ml-2 text-blue-600">
-                • Filtrado por: {companies.find(c => c.id === companyFilter)?.nome}
-              </span>
-            )}
+            Gerencie cobranças de serviços e recargas de saldo
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex space-x-3">

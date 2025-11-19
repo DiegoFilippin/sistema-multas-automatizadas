@@ -17,9 +17,11 @@ import Multas from './pages/Multas';
 import MultaDetalhes from './pages/MultaDetalhesSimples';
 import Recursos from './pages/Recursos';
 import NovoRecurso from './pages/NovoRecursoSimples';
+import NovoRecursoWizard from './pages/NovoRecursoWizard';
 import Clientes from './pages/Clientes';
 import ClienteDetalhes from './pages/ClienteDetalhes';
 import CobrancasGerais from './pages/CobrancasGerais';
+import Recargas from './pages/Recargas';
 import RelatoriosFinanceiros from './pages/RelatoriosFinanceiros';
 import Configuracoes from './pages/Configuracoes';
 
@@ -196,6 +198,15 @@ function AppContent() {
           />
           
           <Route 
+            path="/recursos/novo-wizard" 
+            element={
+              <ProtectedRoute>
+                <NovoRecursoWizard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
             path="/clientes" 
             element={
               <ProtectedRoute>
@@ -218,6 +229,15 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <CobrancasGerais />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/recargas" 
+            element={
+              <ProtectedRoute>
+                <Recargas />
               </ProtectedRoute>
             } 
           />

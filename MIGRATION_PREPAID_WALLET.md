@@ -1,40 +1,18 @@
--- Migração para adicionar coluna data_nascimento na tabela clients
--- Este arquivo deve ser executado pelo Trae diretamente no Supabase
+# Migração: Sistema de Saldo Pré-Pago
 
-BEGIN;
+## ⚠️ IMPORTANTE: Execute esta migração no Supabase antes de usar o sistema
 
--- Adicionar coluna data_nascimento se não existir
-DO $$ 
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_schema = 'public' 
-        AND table_name = 'clients' 
-        AND column_name = 'data_nascimento'
-    ) THEN
-        ALTER TABLE public.clients ADD COLUMN data_nascimento DATE;
-        RAISE NOTICE 'Coluna data_nascimento adicionada com sucesso';
-    ELSE
-        RAISE NOTICE 'Coluna data_nascimento já existe';
-    END IF;
-END $$;
+### Passo 1: Acessar o Supabase SQL Editor
 
--- Criar índice se não existir
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes 
-        WHERE schemaname = 'public'
-        AND tablename = 'clients' 
-        AND indexname = 'idx_clients_data_nascimento'
-    ) THEN
-        CREATE INDEX idx_clients_data_nascimento ON public.clients(data_nascimento);
-        RAISE NOTICE 'Índice idx_clients_data_nascimento criado com sucesso';
-    ELSE
-        RAISE NOTICE 'Índice idx_clients_data_nascimento já existe';
-    END IF;
-END $$;
+1. Acesse o [Supabase Dashboard](https://supabase.com/dashboard)
+2. Selecione seu projeto
+3. Vá em **SQL Editor** no menu lateral
 
+### Passo 2: Executar a Migração
+
+Copie e execute o seguinte SQL no editor:
+
+```sql
 -- Criar tabela de transações de saldo pré-pago se não existir
 DO $$
 BEGIN
@@ -137,10 +115,19 @@ BEGIN
         RAISE NOTICE 'Tabela prepaid_recharges já existe';
     END IF;
 END $$;
+```
 
-COMMIT;
+### Passo 3: Verificar a Migração
 
+Execute este SQL para verificar se as tabelas foram criadas:
+
+```sql
 -- Verificar estruturas criadas
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN ('prepaid_wallet_transactions', 'prepaid_recharges');
+
 SELECT column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_schema = 'public'
@@ -152,18 +139,44 @@ FROM information_schema.columns
 WHERE table_schema = 'public'
   AND table_name = 'payments'
   AND column_name = 'is_prepaid';
+```
 
-SELECT table_name
-FROM information_schema.tables
-WHERE table_schema = 'public'
-  AND table_name IN ('prepaid_wallet_transactions', 'prepaid_recharges');
+### Resultado Esperado
 
--- Verificar se a coluna foi criada
-SELECT 
-    column_name, 
-    data_type, 
-    is_nullable 
-FROM information_schema.columns 
-WHERE table_schema = 'public' 
-AND table_name = 'clients' 
-AND column_name = 'data_nascimento';
+Você deve ver:
+- ✅ Tabela `prepaid_wallet_transactions` criada
+- ✅ Tabela `prepaid_recharges` criada
+- ✅ Coluna `payment_method` em `service_orders`
+- ✅ Coluna `prepaid_transaction_id` em `service_orders`
+- ✅ Coluna `is_prepaid` em `payments`
+
+### Passo 4: Testar o Sistema
+
+Após executar a migração:
+
+1. **Reinicie o servidor backend** (já feito automaticamente)
+2. **Recarregue o frontend** no navegador
+3. **Teste criar uma recarga** clicando em "Adicionar Saldo"
+4. **Verifique se a cobrança é gerada** no Asaas
+
+### Troubleshooting
+
+Se ainda houver erros:
+
+1. **Verifique os logs do servidor** para ver erros específicos
+2. **Confirme que a migração foi executada** com sucesso
+3. **Verifique as permissões** do usuário no Supabase
+4. **Limpe o cache do navegador** e recarregue
+
+### Estrutura das Tabelas
+
+#### `prepaid_wallet_transactions`
+Armazena todas as transações de crédito/débito do saldo pré-pago.
+
+#### `prepaid_recharges`
+Armazena as recargas criadas via cobrança Asaas, vinculando o pagamento à transação de crédito.
+
+#### Colunas Adicionadas
+- `service_orders.payment_method`: Indica se foi pago via saldo pré-pago ou Asaas
+- `service_orders.prepaid_transaction_id`: Referência à transação de débito
+- `payments.is_prepaid`: Flag para identificar pagamentos pré-pagos

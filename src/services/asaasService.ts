@@ -189,8 +189,12 @@ class AsaasService {
     if (!this.config) {
       throw new Error('Configuração do Asaas não carregada')
     }
+    // Detectar ambiente: Node.js (servidor) vs Browser (cliente)
+    const isNode = typeof window === 'undefined'
+    const isProd = isNode ? process.env.NODE_ENV === 'production' : false
+    
     // Usar Vercel Functions em produção, proxy local em desenvolvimento
-    const baseUrl = import.meta.env.PROD ? '' : 'http://localhost:3001'
+    const baseUrl = isProd ? '' : 'http://localhost:3001'
     return `${baseUrl}/api/asaas-proxy`
   }
 
@@ -510,7 +514,36 @@ class AsaasService {
 
   // Métodos para Cobranças
   async createPayment(payment: AsaasPaymentCreate): Promise<AsaasPayment> {
-    return this.makeRequest<AsaasPayment>('/payments', 'POST', payment)
+    const createdPayment = await this.makeRequest<AsaasPayment>('/payments', 'POST', payment);
+    
+    // Se for PIX, buscar QR Code automaticamente
+    if (payment.billingType === 'PIX' && createdPayment.id) {
+      try {
+        console.log('🔍 Buscando QR Code PIX para pagamento:', createdPayment.id);
+        const pixQrCode = await this.getPixQrCode(createdPayment.id);
+        
+        // Adicionar dados do PIX ao pagamento
+        createdPayment.pix = {
+          qrCode: pixQrCode.encodedImage,
+          payload: pixQrCode.payload
+        };
+        
+        console.log('✅ QR Code PIX obtido com sucesso');
+      } catch (error) {
+        console.error('❌ Erro ao buscar QR Code PIX:', error);
+        // Não falhar a criação do pagamento se o QR Code falhar
+      }
+    }
+    
+    return createdPayment;
+  }
+
+  async getPixQrCode(paymentId: string): Promise<{ encodedImage: string; payload: string; expirationDate: string }> {
+    console.log('📞 Chamando API Asaas para obter QR Code PIX:', paymentId);
+    return this.makeRequest<{ encodedImage: string; payload: string; expirationDate: string }>(
+      `/payments/${paymentId}/pixQrCode`,
+      'GET'
+    );
   }
 
   /**

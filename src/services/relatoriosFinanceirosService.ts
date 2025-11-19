@@ -49,18 +49,21 @@ class RelatoriosFinanceirosService {
       // Buscar todas as service_orders (pending e paid)
       const { data: serviceOrders, error } = await supabase
         .from('service_orders')
-        .select('amount, created_at, client_id, status, splits_config')
+        .select('amount, created_at, client_id, status, splits_config, notes')
         .eq('company_id', companyId)
         .gte('created_at', dataInicio.toISOString());
 
       if (error) throw error;
 
-      // Total a Receber = cobranças pendentes
-      const receita = serviceOrders?.filter(o => o.status === 'pending' || o.status === 'pending_payment')
+      // Filtrar apenas service_orders que NÃO são pré-pagos (identificados pelo prefixo [PRÉ-PAGO] nas notas)
+      const nonPrepaidOrders = serviceOrders?.filter(o => !o.notes?.includes('[PRÉ-PAGO]')) || [];
+
+      // Total a Receber = cobranças pendentes (excluindo pré-pagos)
+      const receita = nonPrepaidOrders.filter(o => o.status === 'pending' || o.status === 'pending_payment')
         .reduce((sum, order) => sum + (parseFloat(order.amount) || 0), 0) || 0;
       
-      // Recebido = cobranças pagas
-      const recebido = serviceOrders?.filter(o => o.status === 'paid')
+      // Recebido = cobranças pagas (excluindo pré-pagos)
+      const recebido = nonPrepaidOrders.filter(o => o.status === 'paid')
         .reduce((sum, order) => sum + (parseFloat(order.amount) || 0), 0) || 0;
 
       // Calcular recursos processados (service_orders com multa_id)
@@ -70,9 +73,9 @@ class RelatoriosFinanceirosService {
       const clientesUnicos = new Set(serviceOrders?.map(order => order.client_id).filter(Boolean));
       const clientesAtivos = clientesUnicos.size;
 
-      // Calcular split do despachante (valor que o despachante recebe)
+      // Calcular split do despachante (valor que o despachante recebe) - excluindo pré-pagos
       // Extrair margem_despachante do splits_config ou usar 15% do amount como fallback
-      const splitPendente = serviceOrders?.filter(o => o.status === 'pending' || o.status === 'pending_payment')
+      const splitPendente = nonPrepaidOrders.filter(o => o.status === 'pending' || o.status === 'pending_payment')
         .reduce((sum, order) => {
           const amount = parseFloat(order.amount) || 0;
           const splitsConfig = order.splits_config as any;
@@ -80,8 +83,8 @@ class RelatoriosFinanceirosService {
           return sum + margemDespachante;
         }, 0) || 0;
       
-      // Split recebido = margem_despachante das orders paid
-      const splitRecebido = serviceOrders?.filter(o => o.status === 'paid')
+      // Split recebido = margem_despachante das orders paid (excluindo pré-pagos)
+      const splitRecebido = nonPrepaidOrders.filter(o => o.status === 'paid')
         .reduce((sum, order) => {
           const amount = parseFloat(order.amount) || 0;
           const splitsConfig = order.splits_config as any;

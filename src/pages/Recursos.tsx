@@ -75,15 +75,19 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
   
   return (
     <div className={cn(
-      'bg-white rounded-xl shadow-sm border-2 p-6 hover:shadow-lg transition-all duration-200 cursor-pointer group',
+      'bg-white rounded-xl shadow-sm border p-4 hover:shadow-md transition-all duration-200 cursor-pointer group',
       statusConfig.border
     )}>
-      {/* Header com Status Badge */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex-1">
-          <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        
+        {/* Info Principal e Status */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 mb-1">
+            <h3 className="font-bold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+              {recurso.numero_processo}
+            </h3>
             <span className={cn(
-              'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+              'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium shrink-0',
               statusConfig.badge
             )}>
               <StatusIcon className={cn('w-3 h-3 mr-1', statusConfig.iconColor)} />
@@ -92,187 +96,134 @@ function RecursoCard({ recurso, multa, onEdit, onDelete, onSend, onViewDetails, 
                recurso.status === 'em_analise' ? 'Em Análise' : 'Rascunho'}
             </span>
             {recurso.geradoPorIA && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 shrink-0">
                 <Bot className="w-3 h-3 mr-1" />
                 IA
               </span>
             )}
-            {recurso.is_service_order && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                Service Order
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+            <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
+            
+            <div className="flex items-center gap-1">
+              <Car className="w-4 h-4 text-gray-400" />
+              <span className="truncate max-w-[120px]">
+                {(recurso.is_service_order ? recurso.multa_placa : multa?.placa_veiculo) || 'Placa não info.'}
               </span>
+            </div>
+
+            <div className="hidden lg:block h-4 w-px bg-gray-200"></div>
+
+            <div className="flex items-center gap-1">
+              <User className="w-4 h-4 text-blue-500" />
+              <span className="font-medium text-gray-900 truncate max-w-[150px]">
+                {(recurso.is_service_order ? recurso.client_name : multa?.clients?.nome) || 'Cliente não info.'}
+              </span>
+            </div>
+
+            {recurso.client_email && (
+              <>
+                <div className="hidden lg:block h-4 w-px bg-gray-200"></div>
+                <div className="flex items-center gap-1 text-xs">
+                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                  </svg>
+                  <span className="truncate max-w-[180px]">{recurso.client_email}</span>
+                </div>
+              </>
+            )}
+
+            {recurso.client_telefone && (
+              <>
+                <div className="hidden xl:block h-4 w-px bg-gray-200"></div>
+                <div className="flex items-center gap-1 text-xs">
+                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
+                  <span>{recurso.client_telefone}</span>
+                </div>
+              </>
             )}
           </div>
-          
-          <h3 className="font-bold text-lg text-gray-900 mb-1 group-hover:text-blue-600 transition-colors">
-            {recurso.numero_processo}
-          </h3>
-          
-          <div className="space-y-2">
+        </div>
+
+        {/* Datas e Ações */}
+        <div className="flex items-center justify-between md:justify-end gap-6 min-w-[200px]">
+          <div className="text-right hidden md:block">
+            <div className="text-xs text-gray-500 mb-1">Criado em</div>
+            <div className="text-sm font-medium text-gray-900">
+              {format(new Date(recurso.created_at), 'dd/MM/yyyy', { locale: ptBR })}
+            </div>
+          </div>
+
+          {showActions && (
             <div className="flex items-center gap-2">
-              <TipoRecursoTag tipoRecurso={recurso.tipo_recurso} size="sm" />
-            </div>
-            
-            {/* Informações da multa - priorizar dados do service_order se disponível */}
-            {(recurso.is_service_order ? recurso.multa_placa : multa?.placa_veiculo) && (
-              <p className="text-sm text-gray-600">
-                <Car className="w-4 h-4 inline mr-1" />
-                {recurso.is_service_order ? recurso.multa_placa : multa.placa_veiculo}
-                {(recurso.is_service_order ? recurso.multa_descricao : multa?.descricao_infracao) && 
-                  ` • ${recurso.is_service_order ? recurso.multa_descricao : multa.descricao_infracao}`
-                }
-              </p>
-            )}
-            
-            {/* Nome do cliente */}
-            {(recurso.is_service_order ? recurso.client_name : multa?.clients?.nome) && (
-              <p className="text-xs text-blue-600 font-medium">
-                <User className="w-3 h-3 inline mr-1" />
-                {recurso.is_service_order ? recurso.client_name : multa.clients.nome}
-              </p>
-            )}
-            
-            {/* Número da multa para service_orders */}
-            {recurso.is_service_order && recurso.multa_numero && recurso.multa_numero !== 'N/A' && (
-              <p className="text-xs text-gray-500">
-                <FileText className="w-3 h-3 inline mr-1" />
-                Auto: {recurso.multa_numero}
-              </p>
-            )}
-          </div>
-        </div>
-        
-        {showActions && (
-          <div className="relative ml-4">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-            
-            {showMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
+              <button
+                onClick={(e) => { e.stopPropagation(); onViewDetails(recurso); }}
+                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                title="Ver Detalhes"
+              >
+                <Eye className="w-5 h-5" />
+              </button>
+              
+              <button
+                onClick={(e) => { e.stopPropagation(); onDownloadPDF(recurso.id); }}
+                className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                title="Baixar PDF"
+              >
+                <Download className="w-5 h-5" />
+              </button>
+
+              <div className="relative">
                 <button
-                  onClick={() => {
-                    onViewDetails(recurso);
-                    setShowMenu(false);
-                  }}
-                  className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                  className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 >
-                  <Eye className="w-4 h-4" />
-                  <span>Ver Detalhes</span>
+                  <MoreVertical className="w-5 h-5" />
                 </button>
                 
-                <button
-                  onClick={() => {
-                    onDownloadPDF(recurso.id);
-                    setShowMenu(false);
-                  }}
-                  className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Baixar PDF</span>
-                </button>
-                
-                {canEdit && (
-                  <button
-                    onClick={() => {
-                      onEdit(recurso);
-                      setShowMenu(false);
-                    }}
-                    className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                  >
-                    <Edit className="w-4 h-4" />
-                    <span>Editar</span>
-                  </button>
-                )}
-                
-                {canSend && (
-                  <button
-                    onClick={() => {
-                      onSend(recurso.id);
-                      setShowMenu(false);
-                    }}
-                    className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-blue-700 hover:bg-blue-50"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>Enviar Recurso</span>
-                  </button>
-                )}
-                
-                {canManageRecursos(user?.role) && (
-                  <button
-                    onClick={() => {
-                      onDelete(recurso.id);
-                      setShowMenu(false);
-                    }}
-                    className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-red-700 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    <span>Excluir</span>
-                  </button>
+                {showMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                    {canEdit && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onEdit(recurso); setShowMenu(false); }}
+                        className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      >
+                        <Edit className="w-4 h-4" />
+                        <span>Editar</span>
+                      </button>
+                    )}
+                    
+                    {canSend && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onSend(recurso.id); setShowMenu(false); }}
+                        className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-blue-700 hover:bg-blue-50"
+                      >
+                        <Send className="w-4 h-4" />
+                        <span>Enviar Recurso</span>
+                      </button>
+                    )}
+                    
+                    {canManageRecursos(user?.role) && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onDelete(recurso.id); setShowMenu(false); }}
+                        className="flex items-center space-x-2 w-full px-4 py-2 text-sm text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>Excluir</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-        )}
-      </div>
-      
-      {/* Fundamentação */}
-      <div className="mt-4 mb-4">
-        <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
-          {recurso.fundamentacao}
-        </p>
-      </div>
-      
-      {/* Métricas */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-              <Percent className="w-4 h-4 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-xs text-gray-500 font-medium">Sucesso</p>
-              <p className="text-lg font-bold text-gray-900">{recurso.probabilidade_sucesso}%</p>
-            </div>
-          </div>
-        </div>
-        
-        {(recurso.is_service_order ? recurso.valor_original : multa?.valor_original) && (
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                <DollarSign className="w-4 h-4 text-green-600" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 font-medium">Valor</p>
-                <p className="text-lg font-bold text-gray-900">
-                  R$ {((recurso.is_service_order ? recurso.valor_original : multa.valor_original) || 0).toFixed(2)}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      
-      {/* Timeline */}
-      <div className="space-y-2 pt-4 border-t border-gray-100">
-        <div className="flex items-center justify-between text-xs">
-          <div className="flex items-center space-x-2 text-gray-500">
-            <Calendar className="w-3 h-3" />
-            <span>Criado: {format(new Date(recurso.created_at), 'dd/MM/yyyy', { locale: ptBR })}</span>
-          </div>
-          
-          {recurso.data_protocolo && (
-            <div className="flex items-center space-x-2 text-green-600">
-              <Send className="w-3 h-3" />
-              <span>Enviado: {format(new Date(recurso.data_protocolo), 'dd/MM/yyyy', { locale: ptBR })}</span>
             </div>
           )}
         </div>
       </div>
+
+      {/* Expandable Content (opcional, se quisermos mostrar mais detalhes no clique) */}
+      {/* Por enquanto removi fundamentação e timeline detalhada do card principal para limpar o visual */}
     </div>
   );
 }
@@ -666,7 +617,7 @@ export default function Recursos() {
         if (clientIds.length > 0) {
           const { data: clientsData } = await supabase
             .from('clients')
-            .select('id, nome, cpf_cnpj')
+            .select('id, nome, cpf_cnpj, email, telefone')
             .in('id', clientIds);
           
           if (clientsData) {
@@ -705,6 +656,8 @@ export default function Recursos() {
             recurso_generated_url: order.recurso_generated_url,
             service_order_status: order.status,
             client_name: cliente?.nome || 'Cliente não encontrado',
+            client_email: cliente?.email || '',
+            client_telefone: cliente?.telefone || '',
             multa_numero: multa?.numero_auto || 'N/A',
             multa_placa: multa?.placa_veiculo || 'N/A',
             multa_descricao: multa?.descricao_infracao || 'N/A',
@@ -732,6 +685,8 @@ export default function Recursos() {
             recurso_generated_url: null,
             service_order_status: null,
             client_name: recurso.nome_requerente || cliente?.nome || 'Cliente não encontrado',
+            client_email: cliente?.email || '',
+            client_telefone: cliente?.telefone || '',
             multa_numero: recurso.numero_auto || multa?.numero_auto || 'N/A',
             multa_placa: recurso.placa_veiculo || multa?.placa_veiculo || 'N/A',
             multa_descricao: multa?.descricao_infracao || 'N/A',
@@ -827,7 +782,7 @@ export default function Recursos() {
   };
   
   const handleViewDetails = async (recurso: any) => {
-    // Navegar para a página do recurso em preenchimento
+    // Abrir recurso em nova guia
     try {
       console.log('🔍 Abrindo detalhes do recurso:', recurso);
       
@@ -849,7 +804,9 @@ export default function Recursos() {
         nome: recurso.nome_requerente || recurso.client_name || '',
       });
       
-      navigate(`/teste-recurso-ia?${params.toString()}`);
+      // Abrir em nova guia
+      const url = `/teste-recurso-ia?${params.toString()}`;
+      window.open(url, '_blank');
     } catch (error) {
       console.error('Erro ao abrir detalhes do recurso:', error);
       toast.error('Erro ao abrir detalhes do recurso');
@@ -923,12 +880,13 @@ export default function Recursos() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-gray-900">
             {user?.role === 'Usuario/Cliente' ? 'Meus Recursos' : 'Gestão de Recursos'}
           </h1>
-          <p className="text-gray-600 mt-1">
+          <p className="text-gray-600 mt-2 flex items-center gap-2">
+            <FileText className="w-4 h-4" />
             {user?.role === 'Usuario/Cliente'
               ? 'Acompanhe o status dos seus recursos de multas'
               : 'Gerencie recursos de multas dos clientes'
@@ -939,68 +897,68 @@ export default function Recursos() {
         <div className="mt-4 sm:mt-0">
           <button
             onClick={() => navigate('/recursos/novo')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-lg hover:shadow-xl font-medium"
           >
-            <FileText className="h-4 w-4" />
+            <FileText className="h-5 w-5" />
             Novo Recurso
           </button>
         </div>
       </div>
       
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white hover:shadow-xl transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Total de Recursos</p>
-              <p className="text-2xl font-bold text-gray-900 mt-2">{filteredRecursos.length}</p>
+              <p className="text-blue-100 text-sm font-medium">Total de Recursos</p>
+              <p className="text-3xl font-bold mt-2">{filteredRecursos.length}</p>
             </div>
-            <div className="p-3 rounded-lg bg-blue-50">
-              <FileText className="w-6 h-6 text-blue-600" />
+            <div className="p-3 rounded-lg bg-white/20 backdrop-blur-sm">
+              <FileText className="w-7 h-7" />
             </div>
           </div>
         </div>
         
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl shadow-lg p-6 text-white hover:shadow-xl transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Em Análise</p>
-              <p className="text-2xl font-bold text-gray-900 mt-2">
+              <p className="text-amber-100 text-sm font-medium">Em Análise</p>
+              <p className="text-3xl font-bold mt-2">
                 {filteredRecursos.filter(r => r.status === 'em_analise').length}
               </p>
             </div>
-            <div className="p-3 rounded-lg bg-yellow-50">
-              <Clock className="w-6 h-6 text-yellow-600" />
+            <div className="p-3 rounded-lg bg-white/20 backdrop-blur-sm">
+              <Clock className="w-7 h-7" />
             </div>
           </div>
         </div>
         
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-xl shadow-lg p-6 text-white hover:shadow-xl transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Deferidos</p>
-              <p className="text-2xl font-bold text-gray-900 mt-2">
+              <p className="text-emerald-100 text-sm font-medium">Deferidos</p>
+              <p className="text-3xl font-bold mt-2">
                 {filteredRecursos.filter(r => r.status === 'deferido').length}
               </p>
             </div>
-            <div className="p-3 rounded-lg bg-green-50">
-              <CheckCircle className="w-6 h-6 text-green-600" />
+            <div className="p-3 rounded-lg bg-white/20 backdrop-blur-sm">
+              <CheckCircle className="w-7 h-7" />
             </div>
           </div>
         </div>
         
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl shadow-lg p-6 text-white hover:shadow-xl transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Taxa de Sucesso</p>
-              <p className="text-2xl font-bold text-gray-900 mt-2">
+              <p className="text-purple-100 text-sm font-medium">Taxa de Sucesso</p>
+              <p className="text-3xl font-bold mt-2">
                 {filteredRecursos.length > 0 
                   ? Math.round((filteredRecursos.filter(r => r.status === 'deferido').length / filteredRecursos.filter(r => r.status !== 'em_analise').length) * 100) || 0
                   : 0}%
               </p>
             </div>
-            <div className="p-3 rounded-lg bg-purple-50">
-              <Percent className="w-6 h-6 text-purple-600" />
+            <div className="p-3 rounded-lg bg-white/20 backdrop-blur-sm">
+              <Percent className="w-7 h-7" />
             </div>
           </div>
         </div>
@@ -1063,9 +1021,9 @@ export default function Recursos() {
         )}
       </div>
       
-      {/* Recursos Grid */}
+      {/* Recursos Lista */}
       {paginatedRecursos.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-6">
+        <div className="space-y-3">
           {paginatedRecursos.map((recurso) => {
             const multa = multas.find(m => m.id === recurso.multa_id);
             return (
