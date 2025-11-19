@@ -85,14 +85,14 @@ src/pages/NovoRecursoWizard/
 
 ---
 
-#### Task 1.2: Componente StepIndicator ⏳ PENDENTE
-- [ ] Criar componente `StepIndicator.tsx`
-- [ ] Implementar design com círculos e linhas
-- [ ] Adicionar animações de transição
-- [ ] Tornar responsivo (mobile/desktop)
+#### Task 1.2: Componente StepIndicator ✅ CONCLUÍDA
+- [x] Criar componente `StepIndicator.tsx`
+- [x] Implementar design com círculos e linhas
+- [x] Adicionar animações de transição
+- [x] Tornar responsivo (mobile/desktop)
 
-**Arquivos a Criar**:
-- `src/pages/NovoRecursoWizard/components/StepIndicator.tsx`
+**Arquivos Criados**:
+- ✅ `src/pages/NovoRecursoWizard/components/StepIndicator.tsx`
 
 **Design**:
 ```
@@ -115,6 +115,10 @@ Mobile:
 - ✅ Etapas completadas marcadas com ✓
 - ✅ Animação suave ao mudar de etapa
 - ✅ Responsivo em todas as telas
+- ✅ Barra de progresso no mobile
+- ✅ Hover effects e interatividade
+
+**Commit**: `d0dc0ea` - feat: implementar componente StepIndicator moderno (Task 1.2)
 
 ---
 
@@ -482,6 +486,17 @@ setInterval(() => {
 ---
 
 ## 🔄 Changelog
+
+### [19/11/2025 - 13:55] - Task 1.2 Concluída ✅
+- ✅ Componente StepIndicator criado
+- ✅ Design desktop horizontal com círculos e linhas
+- ✅ Design mobile vertical com cards
+- ✅ Animações de transição suaves
+- ✅ Barra de progresso para mobile
+- ✅ Ícone de check para etapas completadas
+- ✅ Hover effects e interatividade
+- ✅ Integrado ao wizard principal
+- ✅ Commit: `d0dc0ea`
 
 ### [19/11/2025 - 11:40] - Task 1.1 Concluída ✅
 - ✅ Estrutura de pastas criada
