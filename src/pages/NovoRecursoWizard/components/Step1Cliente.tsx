@@ -52,7 +52,6 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
       let query = supabase
         .from('clients')
         .select('*')
-        .eq('ativo', true)
         .order('nome', { ascending: true });
 
       // Filtrar por empresa se não for superadmin
