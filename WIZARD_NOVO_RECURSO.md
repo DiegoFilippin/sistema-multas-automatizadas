@@ -65,21 +65,23 @@ src/pages/NovoRecursoWizard/
 **Objetivo**: Criar estrutura do wizard e implementar navegação básica  
 **Prazo Estimado**: 2-3 dias
 
-#### Task 1.1: Setup Inicial ⏳ PENDENTE
-- [ ] Criar estrutura de pastas `src/pages/NovoRecursoWizard/`
-- [ ] Criar arquivo `types.ts` com interfaces TypeScript
-- [ ] Criar hook `useWizardState.ts` para gerenciar estado
-- [ ] Configurar rota `/recursos/novo-wizard` no App.tsx
+#### Task 1.1: Setup Inicial ✅ CONCLUÍDA
+- [x] Criar estrutura de pastas `src/pages/NovoRecursoWizard/`
+- [x] Criar arquivo `types.ts` com interfaces TypeScript
+- [x] Criar hook `useWizardState.ts` para gerenciar estado
+- [x] Configurar rota `/recursos/novo-wizard` no App.tsx
 
-**Arquivos a Criar**:
-- `src/pages/NovoRecursoWizard/index.tsx`
-- `src/pages/NovoRecursoWizard/types.ts`
-- `src/pages/NovoRecursoWizard/hooks/useWizardState.ts`
+**Arquivos Criados**:
+- ✅ `src/pages/NovoRecursoWizard/index.tsx`
+- ✅ `src/pages/NovoRecursoWizard/types.ts`
+- ✅ `src/pages/NovoRecursoWizard/hooks/useWizardState.ts`
 
 **Critérios de Aceitação**:
 - ✅ Estrutura de pastas criada
 - ✅ Rota acessível no navegador
 - ✅ Estado inicial do wizard funcionando
+
+**Commit**: `de3fd66` - feat: implementar estrutura base do wizard (Task 1.1)
 
 ---
 
@@ -481,11 +483,21 @@ setInterval(() => {
 
 ## 🔄 Changelog
 
-### [19/11/2025] - Planejamento Inicial
+### [19/11/2025 - 11:40] - Task 1.1 Concluída ✅
+- ✅ Estrutura de pastas criada
+- ✅ Interfaces TypeScript definidas (types.ts)
+- ✅ Hook useWizardState implementado
+- ✅ Componente principal do wizard criado
+- ✅ Rota /recursos/novo-wizard configurada
+- ✅ Step indicator básico implementado
+- ✅ Auto-save a cada 30 segundos
+- ✅ Commit: `de3fd66`
+
+### [19/11/2025 - 11:10] - Planejamento Inicial
 - ✅ Documento de planejamento criado
 - ✅ Branch `feature/wizard-novo-recurso` criada
 - ✅ Estrutura de tasks definida
-- ⏳ Aguardando início da implementação
+- ✅ Commit: `3392f1e`
 
 ---
 
