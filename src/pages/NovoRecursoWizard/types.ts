@@ -27,6 +27,16 @@ export interface Servico {
   ativo: boolean;
 }
 
+export interface Pagamento {
+  metodo: 'prepaid' | 'charge';
+  status: 'pending' | 'paid' | 'failed';
+  valor: number;
+  service_order_id: string;
+  asaas_payment_id: string | null;
+  asaas_invoice_url?: string | null;
+  paid_at: string | null;
+}
+
 export interface PaymentInfo {
   metodo: PaymentMethod;
   cobrancaId?: string;
@@ -53,7 +63,7 @@ export interface WizardState {
   currentStep: WizardStep;
   cliente: Cliente | null;
   servico: Servico | null;
-  pagamento: PaymentInfo | null;
+  pagamento: Pagamento | null;
   recurso: RecursoFormData;
   canProceed: boolean;
   isLoading: boolean;

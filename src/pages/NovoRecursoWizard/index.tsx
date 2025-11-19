@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import StepIndicator from './components/StepIndicator';
 import Step1Cliente from './components/Step1Cliente';
 import Step2Servico from './components/Step2Servico';
+import Step3Pagamento from './components/Step3Pagamento';
 import { WizardStep } from './types';
 
 const NovoRecursoWizard: React.FC = () => {
@@ -109,21 +110,14 @@ const NovoRecursoWizard: React.FC = () => {
               />
             )}
 
-            {state.currentStep === 3 && (
-              <div className="text-center py-20">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                  Etapa 3: Pagamento
-                </h2>
-                <p className="text-gray-600 mb-8">
-                  Componente Step3Pagamento será implementado na Fase 2
-                </p>
-                <button
-                  onClick={nextStep}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Próximo (Teste)
-                </button>
-              </div>
+            {state.currentStep === 3 && state.cliente && state.servico && (
+              <Step3Pagamento
+                selectedCliente={state.cliente}
+                selectedServico={state.servico}
+                pagamento={state.pagamento}
+                onPagamentoComplete={setPagamento}
+                onBack={previousStep}
+              />
             )}
 
             {state.currentStep === 4 && (

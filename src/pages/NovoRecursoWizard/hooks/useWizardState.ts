@@ -4,7 +4,7 @@ import {
   WizardStep,
   Cliente,
   Servico,
-  PaymentInfo,
+  Pagamento,
   RecursoFormData,
   StepValidation
 } from '../types';
@@ -42,7 +42,7 @@ export const useWizardState = () => {
   }, []);
 
   // Atualizar pagamento
-  const setPagamento = useCallback((pagamento: PaymentInfo | null) => {
+  const setPagamento = useCallback((pagamento: Pagamento | null) => {
     setState(prev => ({
       ...prev,
       pagamento,
