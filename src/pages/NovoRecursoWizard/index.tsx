@@ -5,6 +5,7 @@ import { useWizardState } from './hooks/useWizardState';
 import { toast } from 'sonner';
 import StepIndicator from './components/StepIndicator';
 import Step1Cliente from './components/Step1Cliente';
+import Step2Servico from './components/Step2Servico';
 import { WizardStep } from './types';
 
 const NovoRecursoWizard: React.FC = () => {
@@ -100,20 +101,12 @@ const NovoRecursoWizard: React.FC = () => {
             )}
 
             {state.currentStep === 2 && (
-              <div className="text-center py-20">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                  Etapa 2: Escolha o Serviço
-                </h2>
-                <p className="text-gray-600 mb-8">
-                  Componente Step2Servico será implementado na Task 1.4
-                </p>
-                <button
-                  onClick={nextStep}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Próximo (Teste)
-                </button>
-              </div>
+              <Step2Servico
+                selectedServico={state.servico}
+                onServicoSelect={setServico}
+                onNext={nextStep}
+                onBack={previousStep}
+              />
             )}
 
             {state.currentStep === 3 && (
