@@ -4,6 +4,7 @@ import { ArrowLeft, Save } from 'lucide-react';
 import { useWizardState } from './hooks/useWizardState';
 import { toast } from 'sonner';
 import StepIndicator from './components/StepIndicator';
+import Step1Cliente from './components/Step1Cliente';
 import { WizardStep } from './types';
 
 const NovoRecursoWizard: React.FC = () => {
@@ -91,20 +92,11 @@ const NovoRecursoWizard: React.FC = () => {
           {/* Step Content */}
           <div className="min-h-[400px]">
             {state.currentStep === 1 && (
-              <div className="text-center py-20">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                  Etapa 1: Selecione o Cliente
-                </h2>
-                <p className="text-gray-600 mb-8">
-                  Componente Step1Cliente será implementado na Task 1.3
-                </p>
-                <button
-                  onClick={nextStep}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Próximo (Teste)
-                </button>
-              </div>
+              <Step1Cliente
+                selectedCliente={state.cliente}
+                onClienteSelect={setCliente}
+                onNext={nextStep}
+              />
             )}
 
             {state.currentStep === 2 && (
