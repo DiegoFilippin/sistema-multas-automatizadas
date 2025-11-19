@@ -37,16 +37,28 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
 
       if (error) throw error;
 
-      const servicosFormatados: Servico[] = (data || []).map((s: any) => ({
-        id: s.id,
-        nome: s.name,
-        descricao: s.description,
-        preco: s.suggested_price || 0,
-        tipo_recurso: s.category || 'recurso',
-        prazo_dias: s.prazo_dias,
-        taxa_sucesso: s.taxa_sucesso,
-        ativo: s.is_active,
-      }));
+      const servicosFormatados: Servico[] = (data || []).map((s: any) => {
+        const acsm_cost = s.acsm_value || 0;
+        const icetran_cost = s.icetran_value || 0;
+        const taxa_cobranca = s.taxa_cobranca || 3.50;
+        const base_cost = acsm_cost + icetran_cost + taxa_cobranca;
+        
+        return {
+          id: s.id,
+          nome: s.name,
+          descricao: s.description,
+          preco: s.suggested_price || base_cost,
+          tipo_recurso: s.category || 'recurso',
+          prazo_dias: s.prazo_dias,
+          taxa_sucesso: s.taxa_sucesso,
+          ativo: s.is_active,
+          // Campos adicionais para exibir custos
+          acsm_value: acsm_cost,
+          icetran_value: icetran_cost,
+          taxa_cobranca: taxa_cobranca,
+          base_cost: base_cost,
+        };
+      });
 
       setServicos(servicosFormatados);
     } catch (error) {
@@ -253,6 +265,9 @@ const ServicoCard: React.FC<ServicoCardProps> = ({
               <div className="font-bold text-xl text-green-600">
                 R$ {servico.preco.toFixed(2)}
               </div>
+              <div className="text-xs text-gray-500 mt-1">
+                Custo base: R$ {(servico as any).base_cost?.toFixed(2) || '0.00'}
+              </div>
               {isSelected && (
                 <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white">
                   <CheckCircle2 className="w-3 h-3" />
@@ -263,23 +278,36 @@ const ServicoCard: React.FC<ServicoCardProps> = ({
           </div>
 
           {/* Additional Info */}
-          <div className="flex items-center gap-4 mt-3">
-            {servico.prazo_dias && (
-              <div className="flex items-center gap-1 text-sm text-gray-600">
-                <Clock className="w-4 h-4" />
-                <span>{servico.prazo_dias} dias</span>
-              </div>
-            )}
-            {servico.taxa_sucesso && (
-              <div className="flex items-center gap-1 text-sm text-gray-600">
-                <TrendingUp className="w-4 h-4" />
-                <span>{servico.taxa_sucesso}% sucesso</span>
-              </div>
-            )}
-            {!isSelected && (
-              <div className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
-                <Info className="w-3.5 h-3.5" />
-                <span>Clique para selecionar</span>
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-4">
+              {servico.prazo_dias && (
+                <div className="flex items-center gap-1 text-sm text-gray-600">
+                  <Clock className="w-4 h-4" />
+                  <span>{servico.prazo_dias} dias</span>
+                </div>
+              )}
+              {servico.taxa_sucesso && (
+                <div className="flex items-center gap-1 text-sm text-gray-600">
+                  <TrendingUp className="w-4 h-4" />
+                  <span>{servico.taxa_sucesso}% sucesso</span>
+                </div>
+              )}
+              {!isSelected && (
+                <div className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
+                  <Info className="w-3.5 h-3.5" />
+                  <span>Clique para selecionar</span>
+                </div>
+              )}
+            </div>
+            
+            {/* Cost Breakdown */}
+            {(servico as any).acsm_value !== undefined && (
+              <div className="flex items-center gap-3 text-xs text-gray-500 pt-2 border-t border-gray-100">
+                <span>ACSM: R$ {(servico as any).acsm_value?.toFixed(2)}</span>
+                <span>•</span>
+                <span>ICETRAN: R$ {(servico as any).icetran_value?.toFixed(2)}</span>
+                <span>•</span>
+                <span>Taxa: R$ {(servico as any).taxa_cobranca?.toFixed(2)}</span>
               </div>
             )}
           </div>
