@@ -28,23 +28,24 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
     try {
       setIsLoading(true);
 
+      // Carregar serviços da mesma forma que em MeusServicos
       const { data, error } = await supabase
         .from('services')
         .select('*')
-        .eq('category', 'Trânsito')
-        .order('name', { ascending: true });
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false });
 
       if (error) throw error;
 
       const servicosFormatados: Servico[] = (data || []).map((s: any) => ({
         id: s.id,
-        nome: s.name || s.nome,
-        descricao: s.description || s.descricao,
-        preco: parseFloat(s.fixed_value || s.minimum_value || s.preco || 0),
-        tipo_recurso: s.category || s.tipo_recurso || 'recurso',
+        nome: s.name,
+        descricao: s.description,
+        preco: s.suggested_price || 0,
+        tipo_recurso: s.category || 'recurso',
         prazo_dias: s.prazo_dias,
         taxa_sucesso: s.taxa_sucesso,
-        ativo: s.is_active !== false,
+        ativo: s.is_active,
       }));
 
       setServicos(servicosFormatados);
@@ -135,8 +136,8 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
         </div>
       )}
 
-      {/* Services Grid */}
-      <div className="max-w-5xl mx-auto">
+      {/* Services List */}
+      <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
             Serviços Disponíveis
@@ -155,7 +156,7 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-3">
             {servicos.map((servico) => (
               <ServicoCard
                 key={servico.id}
@@ -201,118 +202,87 @@ const ServicoCard: React.FC<ServicoCardProps> = ({
   isSelected,
   onClick,
 }) => {
-  const getTipoColor = (tipo: string) => {
-    const colors: Record<string, string> = {
-      leve: 'bg-green-100 text-green-700',
-      media: 'bg-yellow-100 text-yellow-700',
-      grave: 'bg-orange-100 text-orange-700',
-      gravissima: 'bg-red-100 text-red-700',
-      art267: 'bg-purple-100 text-purple-700',
-    };
-    return colors[tipo.toLowerCase()] || 'bg-gray-100 text-gray-700';
-  };
-
   return (
     <button
       onClick={onClick}
       className={`
-        w-full text-left p-5 rounded-xl border-2 transition-all group
+        w-full text-left p-5 rounded-xl border-2 transition-all
         ${
           isSelected
-            ? 'border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50 shadow-lg scale-105'
-            : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md hover:scale-102'
+            ? 'border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md'
+            : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm'
         }
       `}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-center gap-4">
+        {/* Icon */}
         <div
           className={`
-          w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0
-          ${isSelected ? 'bg-blue-600' : 'bg-gray-100 group-hover:bg-blue-100'}
+          w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0
+          ${isSelected ? 'bg-blue-600' : 'bg-gray-100'}
           transition-colors
         `}
         >
           <FileText
-            className={`w-6 h-6 ${
-              isSelected ? 'text-white' : 'text-gray-600 group-hover:text-blue-600'
+            className={`w-7 h-7 ${
+              isSelected ? 'text-white' : 'text-gray-600'
             }`}
           />
         </div>
-        {isSelected && (
-          <CheckCircle2 className="w-6 h-6 text-blue-600 animate-in zoom-in duration-200" />
-        )}
-      </div>
 
-      {/* Title */}
-      <h3
-        className={`font-bold text-lg mb-2 ${
-          isSelected ? 'text-blue-900' : 'text-gray-900'
-        }`}
-      >
-        {servico.nome}
-      </h3>
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <h3
+                className={`font-bold text-lg mb-1 ${
+                  isSelected ? 'text-blue-900' : 'text-gray-900'
+                }`}
+              >
+                {servico.nome}
+              </h3>
+              {servico.descricao && (
+                <p className="text-sm text-gray-600 line-clamp-1">
+                  {servico.descricao}
+                </p>
+              )}
+            </div>
 
-      {/* Description */}
-      {servico.descricao && (
-        <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-          {servico.descricao}
-        </p>
-      )}
-
-      {/* Type Badge */}
-      <div className="mb-3">
-        <span
-          className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold ${getTipoColor(
-            servico.tipo_recurso
-          )}`}
-        >
-          {servico.tipo_recurso}
-        </span>
-      </div>
-
-      {/* Info Grid */}
-      <div className="space-y-2">
-        {/* Price */}
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-600">Valor:</span>
-          <span className="font-bold text-lg text-green-600">
-            R$ {servico.preco.toFixed(2)}
-          </span>
-        </div>
-
-        {/* Prazo */}
-        {servico.prazo_dias && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-600 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5" />
-              Prazo:
-            </span>
-            <span className="font-medium text-gray-900">
-              {servico.prazo_dias} dias
-            </span>
+            {/* Price */}
+            <div className="flex-shrink-0 text-right">
+              <div className="font-bold text-xl text-green-600">
+                R$ {servico.preco.toFixed(2)}
+              </div>
+              {isSelected && (
+                <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-600 text-white">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Selecionado
+                </span>
+              )}
+            </div>
           </div>
-        )}
 
-        {/* Taxa de Sucesso */}
-        {servico.taxa_sucesso && (
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-600 flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" />
-              Taxa de sucesso:
-            </span>
-            <span className="font-medium text-purple-600">
-              {servico.taxa_sucesso}%
-            </span>
+          {/* Additional Info */}
+          <div className="flex items-center gap-4 mt-3">
+            {servico.prazo_dias && (
+              <div className="flex items-center gap-1 text-sm text-gray-600">
+                <Clock className="w-4 h-4" />
+                <span>{servico.prazo_dias} dias</span>
+              </div>
+            )}
+            {servico.taxa_sucesso && (
+              <div className="flex items-center gap-1 text-sm text-gray-600">
+                <TrendingUp className="w-4 h-4" />
+                <span>{servico.taxa_sucesso}% sucesso</span>
+              </div>
+            )}
+            {!isSelected && (
+              <div className="flex items-center gap-1 text-xs text-gray-400 ml-auto">
+                <Info className="w-3.5 h-3.5" />
+                <span>Clique para selecionar</span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Tooltip */}
-      <div className="mt-3 pt-3 border-t border-gray-200">
-        <div className="flex items-center gap-1 text-xs text-gray-500">
-          <Info className="w-3.5 h-3.5" />
-          <span>Clique para selecionar</span>
         </div>
       </div>
     </button>
