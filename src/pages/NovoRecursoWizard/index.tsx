@@ -153,29 +153,6 @@ const NovoRecursoWizard: React.FC = () => {
               <p className="text-red-800 text-sm">{state.error}</p>
             </div>
           )}
-
-          {/* Navigation Buttons */}
-          <div className="flex items-center justify-between mt-8 pt-6 border-t border-gray-200">
-            <button
-              onClick={previousStep}
-              disabled={state.currentStep === 1}
-              className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Anterior
-            </button>
-
-            <div className="text-sm text-gray-500">
-              Etapa {state.currentStep} de 4
-            </div>
-
-            <button
-              onClick={nextStep}
-              disabled={state.currentStep === 4 || !state.canProceed}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Próximo
-            </button>
-          </div>
         </div>
       </div>
     </div>

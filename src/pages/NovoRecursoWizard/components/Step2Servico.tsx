@@ -29,22 +29,22 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
       setIsLoading(true);
 
       const { data, error } = await supabase
-        .from('multa_types')
+        .from('services')
         .select('*')
-        .eq('ativo', true)
-        .order('preco', { ascending: true });
+        .eq('category', 'Trânsito')
+        .order('name', { ascending: true });
 
       if (error) throw error;
 
       const servicosFormatados: Servico[] = (data || []).map((s: any) => ({
         id: s.id,
-        nome: s.nome,
-        descricao: s.descricao,
-        preco: s.preco,
-        tipo_recurso: s.tipo_recurso,
+        nome: s.name || s.nome,
+        descricao: s.description || s.descricao,
+        preco: parseFloat(s.fixed_value || s.minimum_value || s.preco || 0),
+        tipo_recurso: s.category || s.tipo_recurso || 'recurso',
         prazo_dias: s.prazo_dias,
         taxa_sucesso: s.taxa_sucesso,
-        ativo: s.ativo,
+        ativo: s.is_active !== false,
       }));
 
       setServicos(servicosFormatados);
