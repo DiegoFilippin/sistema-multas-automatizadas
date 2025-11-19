@@ -60,7 +60,15 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
         };
       });
 
-      setServicos(servicosFormatados);
+      // Remover duplicatas por nome (manter apenas o primeiro de cada)
+      const servicosUnicos = servicosFormatados.filter((servico, index, self) =>
+        index === self.findIndex((s) => s.nome === servico.nome)
+      );
+
+      console.log('📊 Serviços carregados:', servicosFormatados.length);
+      console.log('✅ Serviços únicos:', servicosUnicos.length);
+
+      setServicos(servicosUnicos);
     } catch (error) {
       console.error('Erro ao carregar serviços:', error);
       toast.error('Erro ao carregar serviços');
