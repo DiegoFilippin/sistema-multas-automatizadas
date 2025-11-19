@@ -22,6 +22,10 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [recentClientes, setRecentClientes] = useState<Cliente[]>([]);
+  
+  // Paginação
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
 
   // Carregar clientes
   useEffect(() => {
@@ -30,6 +34,8 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
 
   // Filtrar clientes baseado na busca
   useEffect(() => {
+    setCurrentPage(1); // Resetar para primeira página ao buscar
+    
     if (searchTerm.trim() === '') {
       setFilteredClientes(clientes);
     } else {
@@ -44,6 +50,12 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
       setFilteredClientes(filtered);
     }
   }, [searchTerm, clientes]);
+
+  // Calcular clientes paginados
+  const totalPages = Math.ceil(filteredClientes.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedClientes = filteredClientes.slice(startIndex, endIndex);
 
   const loadClientes = async () => {
     try {
@@ -166,9 +178,12 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
             <h3 className="text-lg font-semibold text-gray-900">
               Clientes Recentes
             </h3>
+            <span className="text-sm text-gray-500">
+              (últimos 5)
+            </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {recentClientes.map((cliente) => (
+          <div className="space-y-3">
+            {recentClientes.slice(0, 5).map((cliente) => (
               <ClienteCard
                 key={cliente.id}
                 cliente={cliente}
@@ -200,16 +215,46 @@ const Step1Cliente: React.FC<Step1ClienteProps> = ({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto pr-2">
-            {filteredClientes.map((cliente) => (
-              <ClienteCard
-                key={cliente.id}
-                cliente={cliente}
-                isSelected={selectedCliente?.id === cliente.id}
-                onClick={() => handleClienteClick(cliente)}
-              />
-            ))}
-          </div>
+          <>
+            <div className="space-y-3">
+              {paginatedClientes.map((cliente) => (
+                <ClienteCard
+                  key={cliente.id}
+                  cliente={cliente}
+                  isSelected={selectedCliente?.id === cliente.id}
+                  onClick={() => handleClienteClick(cliente)}
+                />
+              ))}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200">
+                <div className="text-sm text-gray-600">
+                  Mostrando {startIndex + 1} a {Math.min(endIndex, filteredClientes.length)} de {filteredClientes.length}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Anterior
+                  </button>
+                  <span className="text-sm text-gray-600">
+                    Página {currentPage} de {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -254,46 +299,62 @@ const ClienteCard: React.FC<ClienteCardProps> = ({
         w-full text-left p-4 rounded-xl border-2 transition-all
         ${
           isSelected
-            ? 'border-blue-500 bg-blue-50 shadow-md'
+            ? 'border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md'
             : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-sm'
         }
       `}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-center gap-4">
+        {/* Avatar */}
         <div
           className={`
-          w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0
+          w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg flex-shrink-0
           ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}
         `}
         >
           {cliente.nome.charAt(0).toUpperCase()}
         </div>
+
+        {/* Content */}
         <div className="flex-1 min-w-0">
-          <p
-            className={`font-semibold truncate ${
-              isSelected ? 'text-blue-900' : 'text-gray-900'
-            }`}
-          >
-            {cliente.nome}
-          </p>
-          {cliente.email && (
-            <div className="flex items-center gap-1 mt-1">
-              <Mail className="w-3 h-3 text-gray-400 flex-shrink-0" />
-              <p className="text-xs text-gray-600 truncate">{cliente.email}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p
+                className={`font-semibold text-base truncate ${
+                  isSelected ? 'text-blue-900' : 'text-gray-900'
+                }`}
+              >
+                {cliente.nome}
+              </p>
+              <div className="flex items-center gap-4 mt-1">
+                {cliente.email && (
+                  <div className="flex items-center gap-1">
+                    <Mail className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <p className="text-sm text-gray-600 truncate max-w-[200px]">{cliente.email}</p>
+                  </div>
+                )}
+                {cliente.telefone && (
+                  <div className="flex items-center gap-1">
+                    <Phone className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <p className="text-sm text-gray-600">{cliente.telefone}</p>
+                  </div>
+                )}
+                {cliente.cpf_cnpj && (
+                  <div className="flex items-center gap-1">
+                    <Building className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                    <p className="text-sm text-gray-600">{cliente.cpf_cnpj}</p>
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-          {cliente.telefone && (
-            <div className="flex items-center gap-1 mt-1">
-              <Phone className="w-3 h-3 text-gray-400 flex-shrink-0" />
-              <p className="text-xs text-gray-600">{cliente.telefone}</p>
-            </div>
-          )}
-          {cliente.cpf_cnpj && (
-            <div className="flex items-center gap-1 mt-1">
-              <Building className="w-3 h-3 text-gray-400 flex-shrink-0" />
-              <p className="text-xs text-gray-600">{cliente.cpf_cnpj}</p>
-            </div>
-          )}
+
+            {/* Selected Badge */}
+            {isSelected && (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-600 text-white flex-shrink-0">
+                Selecionado
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </button>
