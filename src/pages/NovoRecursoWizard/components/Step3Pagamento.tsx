@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { CreditCard, Wallet, DollarSign, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { Cliente, Servico, Pagamento } from '../types';
 import { useAuthStore } from '@/stores/authStore';
@@ -22,6 +23,7 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
   onBack,
 }) => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [paymentMethod, setPaymentMethod] = useState<'prepaid' | 'charge' | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [prepaidBalance, setPrepaidBalance] = useState<number>(0);
@@ -193,8 +195,23 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
   };
 
   const handlePaymentConfirmed = () => {
-    if (currentPayment) {
-      onPagamentoComplete(currentPayment);
+    if (currentPayment && currentPayment.status === 'paid') {
+      // Construir URL com parâmetros para a página de recurso
+      const params = new URLSearchParams({
+        serviceOrderId: currentPayment.service_order_id,
+        nome: selectedCliente.nome,
+        email: selectedCliente.email || '',
+        telefone: selectedCliente.telefone || '',
+        cpfCnpj: selectedCliente.cpf_cnpj || '',
+      });
+
+      console.log('✅ Pagamento confirmado, redirecionando para criação de recurso...');
+      console.log('📋 Service Order ID:', currentPayment.service_order_id);
+      
+      // Redirecionar para página de criação de recurso
+      navigate(`/teste-recurso-ia?${params.toString()}`);
+      
+      toast.success('Redirecionando para criação do recurso...');
     }
   };
 
