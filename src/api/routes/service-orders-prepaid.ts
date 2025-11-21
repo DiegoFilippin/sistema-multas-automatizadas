@@ -93,7 +93,7 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
         service_id,
         company_id: companyId,
         amount,
-        status: 'paid',
+        status: 'em_preenchimento', // Status correto após pagamento
         payment_method: 'prepaid',
         notes: `[PRÉ-PAGO] ${notes || 'Pagamento via saldo pré-pago'}`,
         multa_type: multa_type || 'leve',

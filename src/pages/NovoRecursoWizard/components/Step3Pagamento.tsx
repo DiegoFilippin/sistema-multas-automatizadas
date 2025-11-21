@@ -94,11 +94,11 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
 
       console.log('💰 Processando pagamento pré-pago para rascunho:', draftId);
 
-      // 1. Atualizar rascunho para status 'paid' e payment_method 'prepaid'
+      // 1. Atualizar rascunho para status 'em_preenchimento' (pagamento confirmado)
       const { error: updateError } = await supabase
         .from('service_orders')
         .update({
-          status: 'paid',
+          status: 'em_preenchimento', // Status correto após pagamento
           payment_method: 'prepaid',
           paid_at: new Date().toISOString(),
           amount: selectedServico.preco, // Garantir que amount seja atualizado
