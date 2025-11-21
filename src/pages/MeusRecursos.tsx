@@ -16,12 +16,17 @@ import { useRecursoDraft, RecursoDraft } from '@/hooks/useRecursoDraft';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import PaymentDetailsModal from './MeusRecursos/PaymentDetailsModal';
 
 const MeusRecursos: React.FC = () => {
   const navigate = useNavigate();
   const { listDrafts, deleteDraft, isLoading } = useRecursoDraft();
   const [recursos, setRecursos] = useState<RecursoDraft[]>([]);
   const [filtroStatus, setFiltroStatus] = useState<string>('todos');
+  const [selectedPayment, setSelectedPayment] = useState<{
+    recursoId: string;
+    data: any;
+  } | null>(null);
 
   // Carregar recursos
   useEffect(() => {
@@ -47,7 +52,43 @@ const MeusRecursos: React.FC = () => {
   };
 
   const handleRetomar = (recurso: RecursoDraft) => {
-    navigate(`/novo-recurso-wizard?recursoId=${recurso.id}`);
+    console.log('🔄 Retomando recurso:', recurso.id, 'Status:', recurso.status);
+    
+    // Lógica baseada no status
+    switch (recurso.status) {
+      case 'rascunho':
+        // Rascunho: volta ao wizard no step onde parou
+        console.log('📝 Rascunho - voltando ao wizard no step', recurso.current_step);
+        navigate(`/novo-recurso-wizard?recursoId=${recurso.id}`);
+        break;
+        
+      case 'aguardando_pagamento':
+        // Aguardando pagamento: abre modal de pagamento
+        console.log('💳 Aguardando pagamento - abrindo modal de detalhes');
+        setSelectedPayment({
+          recursoId: recurso.id,
+          data: {
+            asaas_payment_id: recurso.id, // TODO: pegar o payment_id correto
+            asaas_invoice_url: null, // TODO: buscar da API
+            qr_code: null, // TODO: buscar da API
+            pix_copy_paste: null, // TODO: buscar da API
+            amount: recurso.wizard_data?.step2?.servico_preco || 0,
+            status: 'pending',
+            created_at: recurso.created_at
+          }
+        });
+        break;
+        
+      case 'em_preenchimento':
+        // Em preenchimento: vai para página de preenchimento do recurso
+        console.log('✍️ Em preenchimento - indo para página de preenchimento');
+        navigate(`/recursos/${recurso.id}/preencher`);
+        break;
+        
+      default:
+        console.warn('⚠️ Status não suportado para retomada:', recurso.status);
+        toast.error('Este recurso não pode ser retomado neste status');
+    }
   };
 
   const handleExcluir = async (recursoId: string) => {
@@ -279,15 +320,33 @@ const MeusRecursos: React.FC = () => {
 
                     {/* Ações */}
                     <div className="flex gap-2">
-                      {(recurso.status === 'rascunho' || 
-                        recurso.status === 'aguardando_pagamento' || 
-                        recurso.status === 'em_preenchimento') && (
+                      {recurso.status === 'rascunho' && (
                         <button
                           onClick={() => handleRetomar(recurso)}
                           className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                         >
                           <Eye className="w-4 h-4" />
-                          <span>Retomar</span>
+                          <span>Continuar</span>
+                        </button>
+                      )}
+                      
+                      {recurso.status === 'aguardando_pagamento' && (
+                        <button
+                          onClick={() => handleRetomar(recurso)}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm font-medium"
+                        >
+                          <CreditCard className="w-4 h-4" />
+                          <span>Ver Pagamento</span>
+                        </button>
+                      )}
+                      
+                      {recurso.status === 'em_preenchimento' && (
+                        <button
+                          onClick={() => handleRetomar(recurso)}
+                          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span>Preencher Dados</span>
                         </button>
                       )}
                       
@@ -318,6 +377,16 @@ const MeusRecursos: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Modal de Detalhes do Pagamento */}
+      {selectedPayment && (
+        <PaymentDetailsModal
+          isOpen={true}
+          onClose={() => setSelectedPayment(null)}
+          recursoId={selectedPayment.recursoId}
+          paymentData={selectedPayment.data}
+        />
+      )}
     </div>
   );
 };
