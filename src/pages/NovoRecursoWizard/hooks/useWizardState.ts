@@ -1,4 +1,5 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   WizardState,
   WizardStep,
@@ -8,6 +9,7 @@ import {
   RecursoFormData,
   StepValidation
 } from '../types';
+import { useRecursoDraft } from '@/hooks/useRecursoDraft';
 
 const initialState: WizardState = {
   currentStep: 1,
@@ -22,6 +24,14 @@ const initialState: WizardState = {
 
 export const useWizardState = () => {
   const [state, setState] = useState<WizardState>(initialState);
+  const [searchParams] = useSearchParams();
+  const { 
+    currentDraft, 
+    isSaving, 
+    createDraft, 
+    saveDraft: saveDraftToDb, 
+    loadDraft: loadDraftFromDb 
+  } = useRecursoDraft();
 
   // Atualizar cliente
   const setCliente = useCallback((cliente: Cliente | null) => {
@@ -168,58 +178,121 @@ export const useWizardState = () => {
     setState(initialState);
   }, []);
 
-  // Salvar rascunho (implementação básica)
+  // Salvar rascunho no banco de dados
   const saveDraft = useCallback(async () => {
-    try {
-      setState(prev => ({ ...prev, isLoading: true }));
-      
-      // TODO: Implementar salvamento no banco
-      const draftData = {
-        cliente: state.cliente,
-        servico: state.servico,
-        recurso: state.recurso,
-        currentStep: state.currentStep
-      };
-      
-      localStorage.setItem('wizard_draft', JSON.stringify(draftData));
-      
-      setState(prev => ({ ...prev, isLoading: false }));
-    } catch (error) {
-      console.error('Erro ao salvar rascunho:', error);
-      setState(prev => ({
-        ...prev,
-        isLoading: false,
-        error: 'Erro ao salvar rascunho'
-      }));
+    if (!currentDraft?.id) {
+      console.log('⚠️ Nenhum rascunho ativo para salvar');
+      return;
     }
-  }, [state]);
 
-  // Carregar rascunho (implementação básica)
+    try {
+      console.log(`💾 Salvando rascunho ${currentDraft.id} - Step ${state.currentStep}...`);
+      
+      // Preparar dados do step atual
+      const stepData: any = {};
+      
+      if (state.cliente) {
+        stepData.cliente_id = state.cliente.id;
+        stepData.cliente_nome = state.cliente.nome;
+        stepData.cliente_cpf_cnpj = state.cliente.cpf_cnpj;
+        stepData.cliente_email = state.cliente.email;
+      }
+      
+      if (state.servico) {
+        stepData.servico_id = state.servico.id;
+        stepData.servico_nome = state.servico.nome;
+        stepData.servico_preco = state.servico.preco;
+        stepData.servico_tipo = state.servico.tipo_recurso;
+      }
+      
+      if (state.pagamento) {
+        stepData.payment_method = state.pagamento.metodo;
+      }
+      
+      // Salvar no banco
+      await saveDraftToDb(currentDraft.id, state.currentStep, stepData);
+      
+      console.log('✅ Rascunho salvo com sucesso');
+    } catch (error) {
+      console.error('❌ Erro ao salvar rascunho:', error);
+    }
+  }, [currentDraft, state, saveDraftToDb]);
+
+  // Criar ou carregar rascunho ao iniciar
+  useEffect(() => {
+    const recursoId = searchParams.get('recursoId');
+    
+    if (recursoId) {
+      // Carregar rascunho existente
+      console.log('📂 Carregando rascunho existente:', recursoId);
+      loadDraft(recursoId);
+    } else {
+      // Criar novo rascunho
+      console.log('📝 Criando novo rascunho...');
+      createDraft().then(draft => {
+        if (draft) {
+          console.log('✅ Novo rascunho criado:', draft.id);
+        }
+      });
+    }
+  }, []);
+
+  // Auto-save ao mudar dados importantes
+  useEffect(() => {
+    if (currentDraft?.id && (state.cliente || state.servico || state.pagamento)) {
+      const timeoutId = setTimeout(() => {
+        saveDraft();
+      }, 2000); // Debounce de 2 segundos
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [state.cliente, state.servico, state.pagamento, currentDraft, saveDraft]);
+
+  // Carregar rascunho do banco de dados
   const loadDraft = useCallback(async (draftId: string) => {
     try {
       setState(prev => ({ ...prev, isLoading: true }));
+      console.log(`📂 Carregando rascunho ${draftId}...`);
       
-      // TODO: Implementar carregamento do banco
-      const draftData = localStorage.getItem('wizard_draft');
+      const draft = await loadDraftFromDb(draftId);
       
-      if (draftData) {
-        const parsed = JSON.parse(draftData);
+      if (draft && draft.wizard_data) {
+        // Restaurar dados do wizard
+        const wizardData = draft.wizard_data;
+        
         setState(prev => ({
           ...prev,
-          ...parsed,
+          currentStep: (draft.current_step || 1) as WizardStep,
+          cliente: wizardData.step1 ? {
+            id: wizardData.step1.cliente_id || '',
+            nome: wizardData.step1.cliente_nome || '',
+            cpf_cnpj: wizardData.step1.cliente_cpf_cnpj || '',
+            email: wizardData.step1.cliente_email || '',
+          } as Cliente : null,
+          servico: wizardData.step2 ? {
+            id: wizardData.step2.servico_id || '',
+            nome: wizardData.step2.servico_nome || '',
+            preco: wizardData.step2.servico_preco || 0,
+            tipo_recurso: wizardData.step2.servico_tipo || '',
+            ativo: true,
+          } as Servico : null,
           isLoading: false,
-          draftId
         }));
+        
+        console.log('✅ Rascunho carregado com sucesso');
+      } else {
+        console.log('⚠️ Rascunho não encontrado ou vazio');
+        setState(prev => ({ ...prev, isLoading: false }));
       }
     } catch (error) {
-      console.error('Erro ao carregar rascunho:', error);
+      console.error('❌ Erro ao carregar rascunho:', error);
       setState(prev => ({
         ...prev,
         isLoading: false,
         error: 'Erro ao carregar rascunho'
       }));
     }
-  }, []);
+  }, [loadDraftFromDb]);
 
   return {
     state,
@@ -233,6 +306,8 @@ export const useWizardState = () => {
     validateCurrentStep,
     resetWizard,
     saveDraft,
-    loadDraft
+    loadDraft,
+    isSaving,
+    currentDraft
   };
 };

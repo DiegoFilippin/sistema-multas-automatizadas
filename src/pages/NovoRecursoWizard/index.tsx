@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Check, Loader2 } from 'lucide-react';
 import { useWizardState } from './hooks/useWizardState';
 import { toast } from 'sonner';
+import { formatDistanceToNow } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
 import StepIndicator from './components/StepIndicator';
 import Step1Cliente from './components/Step1Cliente';
 import Step2Servico from './components/Step2Servico';
@@ -22,7 +24,9 @@ const NovoRecursoWizard: React.FC = () => {
     goToStep,
     validateCurrentStep,
     resetWizard,
-    saveDraft
+    saveDraft,
+    isSaving,
+    currentDraft
   } = useWizardState();
 
   // Auto-save a cada 30 segundos
@@ -67,13 +71,34 @@ const NovoRecursoWizard: React.FC = () => {
               </h1>
             </div>
 
-            <button
-              onClick={handleSaveDraft}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <Save className="w-4 h-4" />
-              <span className="hidden sm:inline">Salvar Rascunho</span>
-            </button>
+            {/* Indicador de auto-save */}
+            <div className="flex items-center gap-3">
+              {isSaving ? (
+                <div className="flex items-center gap-2 text-sm text-blue-600">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="hidden sm:inline">Salvando...</span>
+                </div>
+              ) : currentDraft?.last_saved_at ? (
+                <div className="flex items-center gap-2 text-sm text-green-600">
+                  <Check className="w-4 h-4" />
+                  <span className="hidden sm:inline">
+                    Salvo {formatDistanceToNow(new Date(currentDraft.last_saved_at), { 
+                      addSuffix: true, 
+                      locale: ptBR 
+                    })}
+                  </span>
+                </div>
+              ) : null}
+              
+              <button
+                onClick={handleSaveDraft}
+                className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Salvar agora"
+              >
+                <Save className="w-4 h-4" />
+                <span className="hidden sm:inline">Salvar</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
