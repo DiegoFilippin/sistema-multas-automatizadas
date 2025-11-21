@@ -4,6 +4,7 @@ import { Cliente, Servico, Pagamento } from '../types';
 import { supabase } from '@/lib/supabase';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
+import PaymentStatusModal from './PaymentStatusModal';
 
 interface Step3PagamentoProps {
   selectedCliente: Cliente;
@@ -25,6 +26,8 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [prepaidBalance, setPrepaidBalance] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
+  const [showStatusModal, setShowStatusModal] = useState(false);
+  const [currentPayment, setCurrentPayment] = useState<Pagamento | null>(null);
 
   // Carregar saldo pré-pago
   useEffect(() => {
@@ -104,8 +107,9 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
         paid_at: new Date().toISOString(),
       };
 
+      setCurrentPayment(pagamentoData);
+      setShowStatusModal(true);
       toast.success('Pagamento processado com sucesso!');
-      onPagamentoComplete(pagamentoData);
     } catch (error: any) {
       console.error('Erro ao processar pagamento pré-pago:', error);
       toast.error(error.message || 'Erro ao processar pagamento');
@@ -151,8 +155,9 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
         paid_at: null,
       };
 
+      setCurrentPayment(pagamentoData);
+      setShowStatusModal(true);
       toast.success('Cobrança gerada com sucesso!');
-      onPagamentoComplete(pagamentoData);
     } catch (error: any) {
       console.error('Erro ao gerar cobrança:', error);
       toast.error(error.message || 'Erro ao gerar cobrança');
@@ -175,6 +180,12 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       handlePrepaidPayment();
     } else {
       handleChargePayment();
+    }
+  };
+
+  const handlePaymentConfirmed = () => {
+    if (currentPayment) {
+      onPagamentoComplete(currentPayment);
     }
   };
 
@@ -354,6 +365,16 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
           )}
         </button>
       </div>
+
+      {/* Payment Status Modal */}
+      {currentPayment && (
+        <PaymentStatusModal
+          isOpen={showStatusModal}
+          onClose={() => setShowStatusModal(false)}
+          pagamento={currentPayment}
+          onPaymentConfirmed={handlePaymentConfirmed}
+        />
+      )}
     </div>
   );
 };
