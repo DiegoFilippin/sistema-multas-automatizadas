@@ -40,6 +40,11 @@ export interface Pagamento {
   asaas_payment_id: string | null;
   asaas_invoice_url?: string | null;
   paid_at: string | null;
+  // Dados do PIX/QR Code
+  qr_code?: string | null;
+  pix_copy_paste?: string | null;
+  encodedImage?: string | null;
+  payload?: string | null;
 }
 
 export interface PaymentInfo {

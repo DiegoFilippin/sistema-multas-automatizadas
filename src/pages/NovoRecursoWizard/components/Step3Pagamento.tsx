@@ -289,6 +289,10 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       }
 
       console.log('📋 Dados do pagamento:', paymentData);
+      console.log('  - ID:', paymentData.id);
+      console.log('  - Invoice URL:', paymentData.invoiceUrl);
+      console.log('  - QR Code (encodedImage):', paymentData.encodedImage ? 'PRESENTE' : 'AUSENTE');
+      console.log('  - PIX Payload:', paymentData.payload ? 'PRESENTE' : 'AUSENTE');
 
       // 7. Criar objeto de pagamento
       const pagamentoData: Pagamento = {
@@ -299,9 +303,17 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
         asaas_payment_id: paymentData.id,
         asaas_invoice_url: paymentData.invoiceUrl || null,
         paid_at: null,
+        // Dados do QR Code e PIX
+        qr_code: paymentData.encodedImage || null,
+        pix_copy_paste: paymentData.payload || null,
+        encodedImage: paymentData.encodedImage || null,
+        payload: paymentData.payload || null,
       };
 
       console.log('💳 Pagamento criado:', pagamentoData);
+      console.log('  - Payment ID:', pagamentoData.asaas_payment_id);
+      console.log('  - QR Code presente:', !!pagamentoData.qr_code);
+      console.log('  - PIX Payload presente:', !!pagamentoData.pix_copy_paste);
 
       setCurrentPayment(pagamentoData);
       setShowStatusModal(true);

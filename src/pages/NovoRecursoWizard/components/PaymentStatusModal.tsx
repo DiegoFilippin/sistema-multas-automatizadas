@@ -17,15 +17,22 @@ const PaymentStatusModal: React.FC<PaymentStatusModalProps> = ({
   onPaymentConfirmed,
 }) => {
   const [paymentStatus, setPaymentStatus] = useState(pagamento.status);
-  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+  const [qrCodeData, setQrCodeData] = useState<string | null>(
+    pagamento.qr_code || pagamento.encodedImage || null
+  );
+  const [pixPayload, setPixPayload] = useState<string | null>(
+    pagamento.pix_copy_paste || pagamento.payload || null
+  );
   const [isLoadingQR, setIsLoadingQR] = useState(false);
   const [pollingCount, setPollingCount] = useState(0);
 
-  // Carregar QR Code se for pagamento por cobrança
+  // Log dos dados recebidos
   useEffect(() => {
-    if (pagamento.metodo === 'charge' && pagamento.asaas_payment_id && !qrCodeData) {
-      loadQRCode();
-    }
+    console.log('📋 PaymentStatusModal - Dados recebidos:');
+    console.log('  - Payment ID:', pagamento.asaas_payment_id);
+    console.log('  - QR Code presente:', !!qrCodeData);
+    console.log('  - PIX Payload presente:', !!pixPayload);
+    console.log('  - Invoice URL:', pagamento.asaas_invoice_url);
   }, [pagamento]);
 
   // Polling automático para verificar status do pagamento
@@ -98,9 +105,11 @@ const PaymentStatusModal: React.FC<PaymentStatusModalProps> = ({
   };
 
   const handleCopyPixCode = () => {
-    if (qrCodeData) {
-      navigator.clipboard.writeText(qrCodeData);
-      toast.success('Código PIX copiado!');
+    if (pixPayload) {
+      navigator.clipboard.writeText(pixPayload);
+      toast.success('Código PIX copiado para a área de transferência!');
+    } else {
+      toast.error('Código PIX não disponível');
     }
   };
 
@@ -195,6 +204,28 @@ const PaymentStatusModal: React.FC<PaymentStatusModalProps> = ({
           {/* Payment Details */}
           <div className="bg-gray-50 rounded-xl p-6 space-y-3">
             <h4 className="font-semibold text-gray-900 mb-3">Detalhes do Pagamento</h4>
+            
+            {/* Payment ID */}
+            {pagamento.asaas_payment_id && (
+              <div className="flex items-center justify-between py-2 border-b border-gray-200">
+                <span className="text-gray-600">Payment ID:</span>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs font-mono bg-gray-200 px-2 py-1 rounded">
+                    {pagamento.asaas_payment_id}
+                  </code>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(pagamento.asaas_payment_id || '');
+                      toast.success('Payment ID copiado!');
+                    }}
+                    className="p-1 hover:bg-gray-200 rounded transition-colors"
+                    title="Copiar Payment ID"
+                  >
+                    <Copy className="w-4 h-4 text-gray-600" />
+                  </button>
+                </div>
+              </div>
+            )}
             
             <div className="flex items-center justify-between py-2 border-b border-gray-200">
               <span className="text-gray-600">Método:</span>
