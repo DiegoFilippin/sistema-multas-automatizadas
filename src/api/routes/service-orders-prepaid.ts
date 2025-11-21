@@ -68,9 +68,13 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
     // 2. Usar service_order existente ou criar novo
     let serviceOrder: any;
     
+    console.log('🔍 Verificando service_order_id:', service_order_id);
+    console.log('🔍 Tipo:', typeof service_order_id);
+    console.log('🔍 Valor booleano:', !!service_order_id);
+    
     if (service_order_id) {
       // Usar service_order existente (do wizard)
-      console.log('📝 Usando service_order existente:', service_order_id);
+      console.log('✅ Usando service_order existente:', service_order_id);
       
       const { data, error } = await supabase
         .from('service_orders')
@@ -85,7 +89,10 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
       
       serviceOrder = data;
       console.log('✅ Service Order encontrado:', serviceOrder.id);
+      console.log('📊 Status atual:', serviceOrder.status);
+      console.log('📊 Payment method atual:', serviceOrder.payment_method);
     } else {
+      console.log('⚠️ service_order_id não fornecido, criando novo...');
       // Criar novo service_order (fluxo antigo)
       const now = new Date();
       const serviceOrderData: any = {
