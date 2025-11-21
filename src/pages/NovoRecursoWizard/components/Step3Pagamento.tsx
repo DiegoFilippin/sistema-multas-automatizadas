@@ -14,6 +14,7 @@ interface Step3PagamentoProps {
   pagamento: Pagamento | null;
   onPagamentoComplete: (pagamento: Pagamento) => void;
   onBack: () => void;
+  draftId?: string;
 }
 
 const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
@@ -22,6 +23,7 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
   pagamento,
   onPagamentoComplete,
   onBack,
+  draftId,
 }) => {
   const { user } = useAuthStore();
   const navigate = useNavigate();
@@ -85,7 +87,31 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
         return;
       }
 
-      // Chamar API para processar pagamento pré-pago
+      if (!draftId) {
+        toast.error('Erro: Rascunho não encontrado');
+        return;
+      }
+
+      console.log('💰 Processando pagamento pré-pago para rascunho:', draftId);
+
+      // 1. Atualizar rascunho para status 'paid' e payment_method 'prepaid'
+      const { error: updateError } = await supabase
+        .from('service_orders')
+        .update({
+          status: 'paid',
+          payment_method: 'prepaid',
+          paid_at: new Date().toISOString(),
+        })
+        .eq('id', draftId);
+
+      if (updateError) {
+        console.error('❌ Erro ao atualizar rascunho:', updateError);
+        throw new Error('Erro ao atualizar status do recurso');
+      }
+
+      console.log('✅ Rascunho atualizado para status paid');
+
+      // 2. Criar transação de débito no saldo pré-pago
       const response = await fetch(getApiUrl('/service-orders/create-with-prepaid'), {
         method: 'POST',
         headers: {
@@ -96,24 +122,31 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
           client_id: selectedCliente.id,
           service_id: selectedServico.id,
           amount: selectedServico.preco,
-          notes: 'Pagamento via saldo pré-pago - Wizard',
+          notes: `Pagamento via saldo pré-pago - Recurso ${draftId}`,
           multa_type: selectedServico.tipo_recurso,
+          service_order_id: draftId, // Passar o ID do rascunho
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        // Reverter status se falhar
+        await supabase
+          .from('service_orders')
+          .update({ status: 'rascunho', payment_method: null, paid_at: null })
+          .eq('id', draftId);
         throw new Error(errorData.error || 'Erro ao processar pagamento');
       }
 
       const result = await response.json();
+      console.log('✅ Transação de débito criada:', result);
 
       // Criar objeto de pagamento
       const pagamentoData: Pagamento = {
         metodo: 'prepaid',
         status: 'paid',
         valor: selectedServico.preco,
-        service_order_id: result.serviceOrder.id,
+        service_order_id: draftId,
         asaas_payment_id: null,
         paid_at: new Date().toISOString(),
       };

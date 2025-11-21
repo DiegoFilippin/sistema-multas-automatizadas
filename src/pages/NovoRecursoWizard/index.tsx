@@ -142,6 +142,7 @@ const NovoRecursoWizard: React.FC = () => {
                 pagamento={state.pagamento}
                 onPagamentoComplete={setPagamento}
                 onBack={previousStep}
+                draftId={currentDraft?.id}
               />
             )}
 

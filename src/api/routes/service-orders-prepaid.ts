@@ -11,16 +11,17 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
   console.log('👤 User:', req.user);
   
   try {
-    const { client_id, service_id, amount, notes, multa_type } = req.body;
+    const { client_id, service_id, amount, notes, multa_type, service_order_id } = req.body;
     const companyId = req.user?.companyId;
     const userId = req.user?.id;
 
-    console.log('💰 Criando service_order com saldo pré-pago:', {
+    console.log('💰 Processando pagamento pré-pago:', {
       client_id,
       service_id,
       amount,
       company_id: companyId,
-      user_id: userId
+      user_id: userId,
+      service_order_id: service_order_id || 'CRIAR NOVO'
     });
 
     if (!companyId) {
@@ -64,38 +65,58 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
       });
     }
 
-    // 2. Criar service_order com status 'paid'
-    const now = new Date();
-    const serviceOrderData: any = {
-      client_id,
-      service_id,
-      company_id: companyId,
-      amount,
-      status: 'paid',
-      payment_method: 'prepaid', // Método de pagamento: saldo pré-pago
-      notes: `[PRÉ-PAGO] ${notes || 'Pagamento via saldo pré-pago'}`,
-      multa_type: multa_type || 'leve',
-      due_date: now.toISOString(), // Data de vencimento = data atual (já pago)
-      paid_at: now.toISOString() // Data de pagamento = data atual
-    };
+    // 2. Usar service_order existente ou criar novo
+    let serviceOrder: any;
+    
+    if (service_order_id) {
+      // Usar service_order existente (do wizard)
+      console.log('📝 Usando service_order existente:', service_order_id);
+      
+      const { data, error } = await supabase
+        .from('service_orders')
+        .select('*')
+        .eq('id', service_order_id)
+        .single();
+      
+      if (error || !data) {
+        console.error('❌ Service order não encontrado:', error);
+        throw new Error('Recurso não encontrado');
+      }
+      
+      serviceOrder = data;
+      console.log('✅ Service Order encontrado:', serviceOrder.id);
+    } else {
+      // Criar novo service_order (fluxo antigo)
+      const now = new Date();
+      const serviceOrderData: any = {
+        client_id,
+        service_id,
+        company_id: companyId,
+        amount,
+        status: 'paid',
+        payment_method: 'prepaid',
+        notes: `[PRÉ-PAGO] ${notes || 'Pagamento via saldo pré-pago'}`,
+        multa_type: multa_type || 'leve',
+        due_date: now.toISOString(),
+        paid_at: now.toISOString()
+      };
 
-    console.log('📝 Dados do service_order:', serviceOrderData);
+      console.log('📝 Criando novo service_order:', serviceOrderData);
 
-    const { data: serviceOrder, error: soError } = await supabase
-      .from('service_orders')
-      .insert(serviceOrderData)
-      .select()
-      .single();
+      const { data, error: soError } = await supabase
+        .from('service_orders')
+        .insert(serviceOrderData)
+        .select()
+        .single();
 
-    if (soError) {
-      console.error('❌ Erro ao criar service_order:', soError);
-      console.error('❌ Código do erro:', soError.code);
-      console.error('❌ Mensagem:', soError.message);
-      console.error('❌ Detalhes:', soError.details);
-      throw new Error(`Erro ao criar ordem de serviço: ${soError.message}`);
+      if (soError) {
+        console.error('❌ Erro ao criar service_order:', soError);
+        throw new Error(`Erro ao criar ordem de serviço: ${soError.message}`);
+      }
+
+      serviceOrder = data;
+      console.log('✅ Service Order criado:', serviceOrder.id);
     }
-
-    console.log('✅ Service Order criado:', serviceOrder.id);
 
     // 3. Criar transação de débito
     const newBalance = currentBalance - amount;
