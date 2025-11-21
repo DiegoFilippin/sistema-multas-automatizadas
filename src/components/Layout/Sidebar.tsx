@@ -58,6 +58,13 @@ const menuItems: MenuItem[] = [
     roles: ['Despachante']
   },
   {
+    id: 'meus-recursos',
+    label: 'Meus Recursos',
+    icon: FileText,
+    href: '/meus-recursos',
+    roles: ['Despachante']
+  },
+  {
     id: 'empresas',
     label: 'Empresas',
     icon: Building2,

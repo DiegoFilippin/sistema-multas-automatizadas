@@ -18,6 +18,7 @@ import MultaDetalhes from './pages/MultaDetalhesSimples';
 import Recursos from './pages/Recursos';
 import NovoRecurso from './pages/NovoRecursoSimples';
 import NovoRecursoWizard from './pages/NovoRecursoWizard';
+import MeusRecursos from './pages/MeusRecursos';
 import Clientes from './pages/Clientes';
 import ClienteDetalhes from './pages/ClienteDetalhes';
 import CobrancasGerais from './pages/CobrancasGerais';
@@ -202,6 +203,24 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <NovoRecursoWizard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/novo-recurso-wizard" 
+            element={
+              <ProtectedRoute>
+                <NovoRecursoWizard />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/meus-recursos" 
+            element={
+              <ProtectedRoute>
+                <MeusRecursos />
               </ProtectedRoute>
             } 
           />

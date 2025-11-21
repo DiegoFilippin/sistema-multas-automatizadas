@@ -199,7 +199,7 @@ export default function DashboardDespachante() {
             </div>
           </div>
           <button
-            onClick={() => navigate('/meus-servicos')}
+            onClick={() => navigate('/novo-recurso-wizard')}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
           >
             <Zap className="w-4 h-4" />
