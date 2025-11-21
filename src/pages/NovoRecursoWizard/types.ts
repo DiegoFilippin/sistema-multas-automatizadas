@@ -25,6 +25,11 @@ export interface Servico {
   prazo_dias?: number;
   taxa_sucesso?: number;
   ativo: boolean;
+  // Campos de custo
+  acsm_value?: number;
+  icetran_value?: number;
+  taxa_cobranca?: number;
+  base_cost?: number;
 }
 
 export interface Pagamento {

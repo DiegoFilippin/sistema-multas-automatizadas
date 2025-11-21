@@ -132,45 +132,81 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
     try {
       setIsProcessing(true);
 
-      // Chamar API para gerar cobrança Asaas
-      const response = await fetch(getApiUrl('/service-orders'), {
+      console.log('🏦 Gerando cobrança Asaas via webhook n8n...');
+
+      // Preparar payload para o webhook n8n
+      const payload = {
+        paymentMethod: 'asaas',
+        payment_method: 'asaas',
+        Customer_cliente: {
+          id: selectedCliente.id,
+          nome: selectedCliente.nome,
+          cpf_cnpj: selectedCliente.cpf_cnpj,
+          email: selectedCliente.email,
+          telefone: selectedCliente.telefone,
+        },
+        cliente: {
+          id: selectedCliente.id,
+          nome: selectedCliente.nome,
+          cpf_cnpj: selectedCliente.cpf_cnpj,
+          email: selectedCliente.email,
+        },
+        customer_name: selectedCliente.nome,
+        Idserviço: selectedServico.id,
+        service_id: selectedServico.id,
+        serviceId: selectedServico.id,
+        descricaoserviço: selectedServico.nome,
+        service_description: selectedServico.nome,
+        multa_type: selectedServico.tipo_recurso,
+        Valor_cobrança: selectedServico.preco,
+        valoracsm: selectedServico.acsm_value || 0,
+        valoricetran: selectedServico.icetran_value || 0,
+        taxa: selectedServico.taxa_cobranca || 0,
+      };
+
+      console.log('📦 Payload:', payload);
+
+      // Chamar webhook n8n para processar pagamento
+      const response = await fetch(getApiUrl('/webhook/n8n/process-payment'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          client_id: selectedCliente.id,
-          service_id: selectedServico.id,
-          amount: selectedServico.preco,
-          description: `${selectedServico.nome} - ${selectedCliente.nome}`,
-          multa_type: selectedServico.tipo_recurso,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('❌ Erro na API:', errorData);
         throw new Error(errorData.error || 'Erro ao gerar cobrança');
       }
 
       const result = await response.json();
+      console.log('✅ Resultado do webhook:', result);
+
+      // Extrair dados do pagamento da resposta
+      const paymentData = result.data?.payment || result.payment || result;
+      const serviceOrderId = result.data?.serviceOrder?.id || result.serviceOrder?.id || paymentData.id;
 
       // Criar objeto de pagamento
       const pagamentoData: Pagamento = {
         metodo: 'charge',
         status: 'pending',
         valor: selectedServico.preco,
-        service_order_id: result.serviceOrder.id,
-        asaas_payment_id: result.payment?.id || null,
-        asaas_invoice_url: result.payment?.invoiceUrl || null,
+        service_order_id: serviceOrderId,
+        asaas_payment_id: paymentData.id || null,
+        asaas_invoice_url: paymentData.invoiceUrl || null,
         paid_at: null,
       };
+
+      console.log('💳 Pagamento criado:', pagamentoData);
 
       setCurrentPayment(pagamentoData);
       setShowStatusModal(true);
       toast.success('Cobrança gerada com sucesso!');
     } catch (error: any) {
-      console.error('Erro ao gerar cobrança:', error);
+      console.error('❌ Erro ao gerar cobrança:', error);
       toast.error(error.message || 'Erro ao gerar cobrança');
     } finally {
       setIsProcessing(false);
