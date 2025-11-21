@@ -11,6 +11,7 @@ import creditsRouter from '../../lib/routes/credits';
 import webhooksRouter from '../../lib/routes/webhooks';
 import paymentsRouter from '../../lib/routes/payments';
 import serviceOrdersPrepaidRouter from './routes/service-orders-prepaid';
+import serviceOrdersDraftRouter from './routes/service-orders-draft';
 import forceSyncRouter from '../../lib/routes/force-sync';
 import { supabase } from '../lib/supabase';
 import { n8nWebhookService } from '../services/n8nWebhookService';
@@ -1039,6 +1040,9 @@ router.use('/payments', paymentsRouter);
 
 // Rotas de service orders com saldo pré-pago
 router.use('/service-orders', serviceOrdersPrepaidRouter);
+
+// Rotas de rascunhos (drafts) de service orders
+router.use('/service-orders/draft', serviceOrdersDraftRouter);
 
 // Rotas de sincronização forçada
 router.use('/force-sync', forceSyncRouter);
