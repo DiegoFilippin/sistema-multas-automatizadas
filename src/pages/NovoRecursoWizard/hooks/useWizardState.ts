@@ -188,29 +188,40 @@ export const useWizardState = () => {
     try {
       console.log(`💾 Salvando rascunho ${currentDraft.id} - Step ${state.currentStep}...`);
       
-      // Preparar dados do step atual
-      const stepData: any = {};
+      // Preparar dados organizados por step
+      const wizardData: any = {};
       
+      // Step 1 - Cliente
       if (state.cliente) {
-        stepData.cliente_id = state.cliente.id;
-        stepData.cliente_nome = state.cliente.nome;
-        stepData.cliente_cpf_cnpj = state.cliente.cpf_cnpj;
-        stepData.cliente_email = state.cliente.email;
+        wizardData.step1 = {
+          cliente_id: state.cliente.id,
+          cliente_nome: state.cliente.nome,
+          cliente_cpf_cnpj: state.cliente.cpf_cnpj,
+          cliente_email: state.cliente.email
+        };
       }
       
+      // Step 2 - Serviço
       if (state.servico) {
-        stepData.servico_id = state.servico.id;
-        stepData.servico_nome = state.servico.nome;
-        stepData.servico_preco = state.servico.preco;
-        stepData.servico_tipo = state.servico.tipo_recurso;
+        wizardData.step2 = {
+          servico_id: state.servico.id,
+          servico_nome: state.servico.nome,
+          servico_preco: state.servico.preco,
+          servico_tipo: state.servico.tipo_recurso
+        };
       }
       
+      // Step 3 - Pagamento
       if (state.pagamento) {
-        stepData.payment_method = state.pagamento.metodo;
+        wizardData.step3 = {
+          payment_method: state.pagamento.metodo
+        };
       }
+      
+      console.log('📦 Dados a salvar:', wizardData);
       
       // Salvar no banco
-      await saveDraftToDb(currentDraft.id, state.currentStep, stepData);
+      await saveDraftToDb(currentDraft.id, state.currentStep, wizardData);
       
       console.log('✅ Rascunho salvo com sucesso');
     } catch (error) {

@@ -69,19 +69,35 @@ const MeusRecursos: React.FC = () => {
         try {
           // Buscar dados completos do service_order via API
           const token = localStorage.getItem('token');
-          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/service-orders/draft/${recurso.id}`, {
+          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+          const url = `${apiUrl}/api/service-orders/draft/${recurso.id}`;
+          
+          console.log('🔍 Buscando pagamento:', {
+            url,
+            recursoId: recurso.id,
+            hasToken: !!token
+          });
+          
+          const response = await fetch(url, {
             headers: {
-              'Authorization': `Bearer ${token}`
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
             }
           });
           
+          console.log('📡 Response status:', response.status);
+          
           if (!response.ok) {
-            throw new Error('Erro ao buscar dados do pagamento');
+            const errorText = await response.text();
+            console.error('❌ Erro na resposta:', errorText);
+            throw new Error(`Erro ${response.status}: ${errorText}`);
           }
           
           const result = await response.json();
+          console.log('📦 Result completo:', result);
+          
           const serviceOrder = result.draft;
-          console.log('📦 Service Order completo:', serviceOrder);
+          console.log('📦 Service Order:', serviceOrder);
           
           setSelectedPayment({
             recursoId: recurso.id,
@@ -281,6 +297,15 @@ const MeusRecursos: React.FC = () => {
               filteredRecursos.map((recurso) => {
                 const statusInfo = getStatusInfo(recurso.status);
                 const StatusIcon = statusInfo.icon;
+                
+                // Log para debug
+                console.log('🔍 Recurso:', {
+                  id: recurso.id,
+                  wizard_data: recurso.wizard_data,
+                  client_id: recurso.client_id,
+                  service_id: recurso.service_id
+                });
+                
                 const clienteNome = recurso.wizard_data?.step1?.cliente_nome || 'Cliente não selecionado';
                 const servicoNome = recurso.wizard_data?.step2?.servico_nome || 'Serviço não selecionado';
                 const servicoPreco = recurso.wizard_data?.step2?.servico_preco || 0;
@@ -290,7 +315,7 @@ const MeusRecursos: React.FC = () => {
                     key={recurso.id}
                     className="bg-white rounded-xl shadow-sm hover:shadow-md transition-shadow p-6"
                   >
-                    {/* Status Badge */}
+                    {/* Header com ID e Status */}
                     <div className="flex items-center justify-between mb-4">
                       <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${statusInfo.bgColor}`}>
                         <StatusIcon className={`w-4 h-4 ${statusInfo.color}`} />
@@ -303,6 +328,14 @@ const MeusRecursos: React.FC = () => {
                       <div className="text-xs text-gray-500">
                         Step {recurso.current_step}/3
                       </div>
+                    </div>
+
+                    {/* ID do Recurso */}
+                    <div className="mb-3 pb-3 border-b border-gray-100">
+                      <p className="text-xs text-gray-500 mb-1">ID do Recurso</p>
+                      <p className="text-xs font-mono text-gray-700 truncate" title={recurso.id}>
+                        #{recurso.id.slice(0, 8)}...
+                      </p>
                     </div>
 
                     {/* Informações */}
