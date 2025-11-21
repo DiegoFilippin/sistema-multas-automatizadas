@@ -101,6 +101,9 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
           status: 'paid',
           payment_method: 'prepaid',
           paid_at: new Date().toISOString(),
+          amount: selectedServico.preco, // Garantir que amount seja atualizado
+          client_id: selectedCliente.id, // Garantir que client_id esteja preenchido
+          service_id: selectedServico.id, // Garantir que service_id esteja preenchido
         })
         .eq('id', draftId);
 
