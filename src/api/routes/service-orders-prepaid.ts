@@ -104,20 +104,26 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
       type: 'debit',
       amount,
       balance_after: newBalance,
-      service_order_id: serviceOrder.id
+      service_order_id: serviceOrder.id,
+      created_by: userId
     });
+
+    const transactionData = {
+      company_id: companyId,
+      type: 'debit',
+      amount,
+      balance_after: newBalance,
+      service_id,
+      service_order_id: serviceOrder.id,
+      notes: `Pagamento de serviço - ${notes || 'Recurso de Multa'}`,
+      created_by: userId
+    };
+
+    console.log('📝 Dados da transação:', transactionData);
 
     const { data: transaction, error: transactionError } = await supabase
       .from('prepaid_wallet_transactions')
-      .insert({
-        company_id: companyId,
-        type: 'debit',
-        amount,
-        balance_after: newBalance,
-        service_id,
-        service_order_id: serviceOrder.id,
-        notes: `Pagamento de serviço - ${notes || 'Recurso de Multa'}`
-      })
+      .insert(transactionData)
       .select()
       .single();
 
@@ -125,6 +131,7 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
       console.error('❌ Erro ao criar transação:', transactionError);
       console.error('❌ Código:', transactionError.code);
       console.error('❌ Mensagem:', transactionError.message);
+      console.error('❌ Detalhes:', transactionError.details);
       // Reverter service_order
       await supabase
         .from('service_orders')
@@ -134,8 +141,24 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
       throw new Error('Erro ao debitar saldo');
     }
 
-    console.log('✅ Transação criada:', transaction.id);
+    console.log('✅ Transação criada com sucesso!');
+    console.log('📋 ID da transação:', transaction.id);
+    console.log('💰 Saldo anterior:', currentBalance);
+    console.log('💰 Valor debitado:', amount);
     console.log('💰 Novo saldo:', newBalance);
+    
+    // Verificar se a transação foi realmente salva
+    const { data: verifyTransaction, error: verifyError } = await supabase
+      .from('prepaid_wallet_transactions')
+      .select('*')
+      .eq('id', transaction.id)
+      .single();
+    
+    if (verifyError) {
+      console.error('⚠️ Erro ao verificar transação:', verifyError);
+    } else {
+      console.log('✅ Transação verificada no banco:', verifyTransaction);
+    }
 
     return res.json({
       success: true,
