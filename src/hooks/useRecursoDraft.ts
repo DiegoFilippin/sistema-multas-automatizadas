@@ -124,24 +124,45 @@ export function useRecursoDraft() {
         throw fetchError;
       }
 
-      // Mesclar dados do step atual
+      // Mesclar dados do step atual com dados existentes
+      const existingWizardData = current?.wizard_data || {};
       const updatedWizardData = {
-        ...(current?.wizard_data || {}),
-        [`step${step}`]: stepData,
+        ...existingWizardData,
+        ...stepData, // Mescla os novos dados (step1, step2, step3)
       };
+
+      console.log('📦 Wizard data atualizado:', updatedWizardData);
+
+      // Preparar campos para atualizar
+      const updateData: any = {
+        current_step: step,
+        wizard_data: updatedWizardData,
+        last_saved_at: new Date().toISOString(),
+      };
+
+      // Atualizar client_id se step1 tiver cliente_id
+      if (updatedWizardData.step1?.cliente_id) {
+        updateData.client_id = updatedWizardData.step1.cliente_id;
+      }
+
+      // Atualizar service_id, amount e multa_type se step2 tiver servico_id
+      if (updatedWizardData.step2?.servico_id) {
+        updateData.service_id = updatedWizardData.step2.servico_id;
+        updateData.amount = updatedWizardData.step2.servico_preco || 0;
+        updateData.multa_type = updatedWizardData.step2.servico_tipo || 'grave';
+      }
+
+      // Atualizar payment_method se step3 tiver
+      if (updatedWizardData.step3?.payment_method) {
+        updateData.payment_method = updatedWizardData.step3.payment_method;
+      }
+
+      console.log('📝 Dados a atualizar:', updateData);
 
       // Atualizar no banco
       const { error: updateError } = await supabase
         .from('service_orders')
-        .update({
-          current_step: step,
-          wizard_data: updatedWizardData,
-          // Atualizar client_id e service_id se disponíveis
-          ...(stepData.cliente_id && { client_id: stepData.cliente_id }),
-          ...(stepData.servico_id && { service_id: stepData.servico_id }),
-          ...(stepData.servico_preco && { amount: stepData.servico_preco }),
-          ...(stepData.servico_tipo && { multa_type: stepData.servico_tipo }),
-        })
+        .update(updateData)
         .eq('id', draftId);
 
       if (updateError) {

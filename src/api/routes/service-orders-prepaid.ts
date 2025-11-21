@@ -72,6 +72,7 @@ router.post('/create-with-prepaid', authenticateToken, authorizeRoles(['Despacha
       company_id: companyId,
       amount,
       status: 'paid',
+      payment_method: 'prepaid', // Método de pagamento: saldo pré-pago
       notes: `[PRÉ-PAGO] ${notes || 'Pagamento via saldo pré-pago'}`,
       multa_type: multa_type || 'leve',
       due_date: now.toISOString(), // Data de vencimento = data atual (já pago)
