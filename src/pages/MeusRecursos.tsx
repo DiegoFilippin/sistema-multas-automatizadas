@@ -51,7 +51,7 @@ const MeusRecursos: React.FC = () => {
     navigate('/novo-recurso-wizard');
   };
 
-  const handleRetomar = (recurso: RecursoDraft) => {
+  const handleRetomar = async (recurso: RecursoDraft) => {
     console.log('🔄 Retomando recurso:', recurso.id, 'Status:', recurso.status);
     
     // Lógica baseada no status
@@ -63,20 +63,42 @@ const MeusRecursos: React.FC = () => {
         break;
         
       case 'aguardando_pagamento':
-        // Aguardando pagamento: abre modal de pagamento
-        console.log('💳 Aguardando pagamento - abrindo modal de detalhes');
-        setSelectedPayment({
-          recursoId: recurso.id,
-          data: {
-            asaas_payment_id: recurso.id, // TODO: pegar o payment_id correto
-            asaas_invoice_url: null, // TODO: buscar da API
-            qr_code: null, // TODO: buscar da API
-            pix_copy_paste: null, // TODO: buscar da API
-            amount: recurso.wizard_data?.step2?.servico_preco || 0,
-            status: 'pending',
-            created_at: recurso.created_at
+        // Aguardando pagamento: buscar dados do pagamento e abrir modal
+        console.log('💳 Aguardando pagamento - buscando dados do pagamento...');
+        
+        try {
+          // Buscar dados completos do service_order via API
+          const token = localStorage.getItem('token');
+          const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/service-orders/draft/${recurso.id}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error('Erro ao buscar dados do pagamento');
           }
-        });
+          
+          const result = await response.json();
+          const serviceOrder = result.draft;
+          console.log('📦 Service Order completo:', serviceOrder);
+          
+          setSelectedPayment({
+            recursoId: recurso.id,
+            data: {
+              asaas_payment_id: serviceOrder.asaas_payment_id,
+              asaas_invoice_url: serviceOrder.invoice_url || serviceOrder.asaas_invoice_url,
+              qr_code: serviceOrder.qr_code_image || serviceOrder.pix_qr_code,
+              pix_copy_paste: serviceOrder.pix_payload || serviceOrder.pix_copy_paste,
+              amount: serviceOrder.amount || recurso.wizard_data?.step2?.servico_preco || 0,
+              status: serviceOrder.status === 'paid' ? 'paid' : 'pending',
+              created_at: serviceOrder.created_at || recurso.created_at
+            }
+          });
+        } catch (error) {
+          console.error('❌ Erro ao buscar dados do pagamento:', error);
+          toast.error('Erro ao carregar dados do pagamento');
+        }
         break;
         
       case 'em_preenchimento':
