@@ -4,6 +4,7 @@ import { Cliente, Servico, Pagamento } from '../types';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 import PaymentStatusModal from './PaymentStatusModal';
+import { getApiUrl } from '@/lib/api-config';
 
 interface Step3PagamentoProps {
   selectedCliente: Cliente;
@@ -39,8 +40,9 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
 
       console.log('🔍 Carregando saldo pré-pago via API...');
 
-      const response = await fetch('/api/wallets/prepaid/balance', {
+      const response = await fetch(getApiUrl('/wallets/prepaid/balance'), {
         headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
           'Content-Type': 'application/json',
         },
       });
@@ -54,6 +56,12 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
 
       const data = await response.json();
       console.log('✅ Saldo carregado via API:', data);
+
+      if (!data?.success) {
+        console.error('❌ API retornou success: false');
+        setPrepaidBalance(0);
+        return;
+      }
 
       setPrepaidBalance(data.balance || 0);
     } catch (error) {
