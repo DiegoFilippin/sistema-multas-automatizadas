@@ -1038,11 +1038,11 @@ router.use('/webhooks', webhooksRouter);
 // Rotas de cobranças/pagamentos
 router.use('/payments', paymentsRouter);
 
+// Rotas de rascunhos (drafts) de service orders - DEVE VIR ANTES!
+router.use('/service-orders/draft', serviceOrdersDraftRouter);
+
 // Rotas de service orders com saldo pré-pago
 router.use('/service-orders', serviceOrdersPrepaidRouter);
-
-// Rotas de rascunhos (drafts) de service orders
-router.use('/service-orders/draft', serviceOrdersDraftRouter);
 
 // Rotas de sincronização forçada
 router.use('/force-sync', forceSyncRouter);
