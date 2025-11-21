@@ -48,7 +48,7 @@ const Step2Servico: React.FC<Step2ServicoProps> = ({
           nome: s.name,
           descricao: s.description,
           preco: s.suggested_price || base_cost,
-          tipo_recurso: s.category || 'recurso',
+          tipo_recurso: (s.tipo_multa || 'leve').toLowerCase(), // Usar tipo_multa ao invés de category
           prazo_dias: s.prazo_dias,
           taxa_sucesso: s.taxa_sucesso,
           ativo: s.is_active,
