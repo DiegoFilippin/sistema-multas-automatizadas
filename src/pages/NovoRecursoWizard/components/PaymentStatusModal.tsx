@@ -19,6 +19,7 @@ const PaymentStatusModal: React.FC<PaymentStatusModalProps> = ({
   const [paymentStatus, setPaymentStatus] = useState(pagamento.status);
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const [isLoadingQR, setIsLoadingQR] = useState(false);
+  const [pollingCount, setPollingCount] = useState(0);
 
   // Carregar QR Code se for pagamento por cobrança
   useEffect(() => {
@@ -26,6 +27,56 @@ const PaymentStatusModal: React.FC<PaymentStatusModalProps> = ({
       loadQRCode();
     }
   }, [pagamento]);
+
+  // Polling automático para verificar status do pagamento
+  useEffect(() => {
+    if (!isOpen || pagamento.metodo !== 'charge' || paymentStatus !== 'pending') {
+      return;
+    }
+
+    // Polling a cada 5 segundos
+    const pollingInterval = setInterval(() => {
+      checkPaymentStatus();
+      setPollingCount(prev => prev + 1);
+    }, 5000);
+
+    // Limpar intervalo após 5 minutos (60 tentativas)
+    const timeout = setTimeout(() => {
+      clearInterval(pollingInterval);
+      console.log('Polling timeout: 5 minutos excedidos');
+    }, 5 * 60 * 1000);
+
+    return () => {
+      clearInterval(pollingInterval);
+      clearTimeout(timeout);
+    };
+  }, [isOpen, pagamento.metodo, paymentStatus]);
+
+  const checkPaymentStatus = async () => {
+    try {
+      if (!pagamento.asaas_payment_id) return;
+
+      const response = await fetch(`/api/payments/${pagamento.asaas_payment_id}/status`);
+      
+      if (!response.ok) {
+        console.error('Erro ao verificar status do pagamento');
+        return;
+      }
+
+      const data = await response.json();
+      
+      if (data.status && data.status !== paymentStatus) {
+        console.log(`Status atualizado: ${paymentStatus} -> ${data.status}`);
+        setPaymentStatus(data.status);
+        
+        if (data.status === 'paid') {
+          toast.success('Pagamento confirmado!');
+        }
+      }
+    } catch (error) {
+      console.error('Erro ao verificar status:', error);
+    }
+  };
 
   const loadQRCode = async () => {
     try {
@@ -131,6 +182,14 @@ const PaymentStatusModal: React.FC<PaymentStatusModalProps> = ({
             <p className="text-gray-600">
               {statusConfig.description}
             </p>
+            
+            {/* Polling Indicator */}
+            {pagamento.metodo === 'charge' && paymentStatus === 'pending' && (
+              <div className="flex items-center justify-center gap-2 mt-4 text-sm text-gray-500">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                <span>Verificando pagamento automaticamente...</span>
+              </div>
+            )}
           </div>
 
           {/* Payment Details */}
