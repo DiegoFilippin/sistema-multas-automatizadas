@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 import PaymentStatusModal from './PaymentStatusModal';
 import { getApiUrl } from '@/lib/api-config';
+import { supabase } from '@/lib/supabase';
 
 interface Step3PagamentoProps {
   selectedCliente: Cliente;
@@ -133,47 +134,129 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       setIsProcessing(true);
 
       console.log('🏦 Gerando cobrança Asaas via webhook n8n...');
+      console.log('📋 Cliente selecionado:', selectedCliente);
+      console.log('📋 Serviço selecionado:', selectedServico);
 
-      // Preparar payload para o webhook n8n
-      const payload = {
-        paymentMethod: 'asaas',
-        payment_method: 'asaas',
+      // 1. Buscar dados completos do cliente (incluindo asaas_customer_id)
+      const { data: clienteCompleto, error: clienteError } = await supabase
+        .from('clients')
+        .select('id, nome, cpf_cnpj, email, telefone, asaas_customer_id')
+        .eq('id', selectedCliente.id)
+        .single();
+
+      if (clienteError || !clienteCompleto) {
+        console.error('❌ Erro ao buscar cliente:', clienteError);
+        throw new Error('Erro ao buscar dados do cliente');
+      }
+
+      console.log('✅ Cliente completo:', clienteCompleto);
+      console.log('  - Asaas Customer ID:', clienteCompleto.asaas_customer_id);
+
+      if (!clienteCompleto.asaas_customer_id) {
+        console.warn('⚠️ Cliente não possui asaas_customer_id');
+        toast.warning('Cliente não possui integração com Asaas. O customer será criado automaticamente.');
+      }
+
+      // 2. Buscar dados da empresa (wallet do despachante)
+      const { data: company, error: companyError } = await supabase
+        .from('companies')
+        .select('id, nome, manual_wallet_id')
+        .eq('id', user?.company_id)
+        .single();
+
+      if (companyError || !company) {
+        console.error('❌ Erro ao buscar empresa:', companyError);
+        throw new Error('Empresa não encontrada');
+      }
+
+      console.log('✅ Empresa encontrada:', company.nome);
+      console.log('  - Wallet ID:', (company as any).manual_wallet_id);
+
+      const dispatcherWalletId = (company as any)?.manual_wallet_id || null;
+      if (!dispatcherWalletId) {
+        console.error('❌ Wallet do despachante não configurada');
+        throw new Error('Wallet do despachante não configurada. Configure manual_wallet_id na empresa.');
+      }
+
+      // 3. Buscar wallet da ICETRAN
+      let icetranWalletId: string | null = null;
+      
+      // Primeiro tentar pela parent_company
+      const { data: companyRow } = await supabase
+        .from('companies')
+        .select('parent_company_id')
+        .eq('id', user?.company_id)
+        .single();
+
+      if (companyRow?.parent_company_id) {
+        const { data: parent } = await supabase
+          .from('companies')
+          .select('id, nome, manual_wallet_id')
+          .eq('id', companyRow.parent_company_id)
+          .single();
+        
+        if (parent?.manual_wallet_id) {
+          icetranWalletId = parent.manual_wallet_id;
+        }
+      }
+
+      // Se não encontrou, buscar por company_type ou nome
+      if (!icetranWalletId) {
+        const { data: icetranCompanies } = await supabase
+          .from('companies')
+          .select('id, nome, manual_wallet_id, company_type, status')
+          .or('company_type.eq.icetran,nome.ilike.%ICETRAN%')
+          .eq('status', 'ativo')
+          .limit(1);
+
+        const icetran = Array.isArray(icetranCompanies) ? icetranCompanies[0] : null;
+        if (icetran?.manual_wallet_id) {
+          icetranWalletId = icetran.manual_wallet_id;
+        }
+      }
+
+      console.log('🏦 Wallet ICETRAN:', icetranWalletId);
+      console.log('🏦 Wallet DESPACHANTE:', dispatcherWalletId);
+
+      // 4. Construir payload EXATO como no MeusServicos
+      const webhookPayload = {
+        wallet_icetran: icetranWalletId,
+        wallet_despachante: dispatcherWalletId,
         Customer_cliente: {
-          id: selectedCliente.id,
-          nome: selectedCliente.nome,
-          cpf_cnpj: selectedCliente.cpf_cnpj,
-          email: selectedCliente.email,
-          telefone: selectedCliente.telefone,
+          id: clienteCompleto.id,
+          nome: clienteCompleto.nome,
+          cpf_cnpj: clienteCompleto.cpf_cnpj,
+          email: clienteCompleto.email,
+          asaas_customer_id: clienteCompleto.asaas_customer_id
         },
-        cliente: {
-          id: selectedCliente.id,
-          nome: selectedCliente.nome,
-          cpf_cnpj: selectedCliente.cpf_cnpj,
-          email: selectedCliente.email,
-        },
-        customer_name: selectedCliente.nome,
-        Idserviço: selectedServico.id,
-        service_id: selectedServico.id,
-        serviceId: selectedServico.id,
-        descricaoserviço: selectedServico.nome,
-        service_description: selectedServico.nome,
-        multa_type: selectedServico.tipo_recurso,
-        Valor_cobrança: selectedServico.preco,
+        "Valor_cobrança": selectedServico.preco,
+        "Idserviço": selectedServico.id,
+        "descricaoserviço": selectedServico.nome,
+        "multa_type": selectedServico.tipo_recurso,
         valoracsm: selectedServico.acsm_value || 0,
         valoricetran: selectedServico.icetran_value || 0,
         taxa: selectedServico.taxa_cobranca || 0,
+        despachante: {
+          company_id: user?.company_id,
+          nome: company.nome,
+          wallet_id: dispatcherWalletId,
+          margem: selectedServico.preco - (selectedServico.acsm_value || 0) - (selectedServico.icetran_value || 0) - (selectedServico.taxa_cobranca || 0)
+        }
       };
 
-      console.log('📦 Payload:', payload);
+      console.log('\n📦 PAYLOAD PARA WEBHOOK N8N:');
+      console.log('=====================================');
+      console.log(JSON.stringify(webhookPayload, null, 2));
+      console.log('=====================================\n');
 
-      // Chamar webhook n8n para processar pagamento
+      // 5. Chamar webhook n8n
       const response = await fetch(getApiUrl('/webhook/n8n/process-payment'), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(webhookPayload),
       });
 
       if (!response.ok) {
@@ -185,17 +268,35 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       const result = await response.json();
       console.log('✅ Resultado do webhook:', result);
 
-      // Extrair dados do pagamento da resposta
-      const paymentData = result.data?.payment || result.payment || result;
-      const serviceOrderId = result.data?.serviceOrder?.id || result.serviceOrder?.id || paymentData.id;
+      // 6. Extrair dados do pagamento (webhook retorna array)
+      let paymentData = null;
+      
+      if (Array.isArray(result) && result.length > 0) {
+        paymentData = result[0];
+        console.log('✅ Dados extraídos do array (primeiro elemento)');
+      } else if (result.payment) {
+        paymentData = result.payment;
+        console.log('✅ Dados extraídos de result.payment');
+      } else if (result.data && result.data.payment) {
+        paymentData = result.data.payment;
+        console.log('✅ Dados extraídos de result.data.payment');
+      } else if (result.id) {
+        paymentData = result;
+        console.log('✅ Dados extraídos diretamente do result');
+      } else {
+        console.error('❌ Resposta não contém dados válidos:', result);
+        throw new Error('Resposta do webhook não contém dados válidos do pagamento');
+      }
 
-      // Criar objeto de pagamento
+      console.log('📋 Dados do pagamento:', paymentData);
+
+      // 7. Criar objeto de pagamento
       const pagamentoData: Pagamento = {
         metodo: 'charge',
         status: 'pending',
         valor: selectedServico.preco,
-        service_order_id: serviceOrderId,
-        asaas_payment_id: paymentData.id || null,
+        service_order_id: paymentData.id,
+        asaas_payment_id: paymentData.id,
         asaas_invoice_url: paymentData.invoiceUrl || null,
         paid_at: null,
       };
