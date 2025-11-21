@@ -39,26 +39,52 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       setIsLoadingBalance(true);
 
       if (!user?.company_id) {
-        console.warn('Company ID não encontrado');
+        console.warn('⚠️ Company ID não encontrado', { user });
         setPrepaidBalance(0);
         return;
       }
 
+      console.log('🔍 Buscando saldo para company_id:', user.company_id);
+
       const { data, error } = await supabase
         .from('prepaid_wallets')
-        .select('balance')
+        .select('*')
         .eq('company_id', user.company_id)
         .single();
 
       if (error) {
-        console.error('Erro ao carregar saldo:', error);
-        setPrepaidBalance(0);
+        console.error('❌ Erro ao carregar saldo:', error);
+        console.log('Tentando buscar sem .single()...');
+        
+        // Tentar sem single() caso haja múltiplos registros
+        const { data: allData, error: allError } = await supabase
+          .from('prepaid_wallets')
+          .select('*')
+          .eq('company_id', user.company_id);
+        
+        if (allError) {
+          console.error('❌ Erro na segunda tentativa:', allError);
+          setPrepaidBalance(0);
+          return;
+        }
+        
+        console.log('📊 Registros encontrados:', allData);
+        
+        if (allData && allData.length > 0) {
+          const balance = allData[0].balance || 0;
+          console.log('✅ Saldo encontrado:', balance);
+          setPrepaidBalance(balance);
+        } else {
+          console.warn('⚠️ Nenhum registro encontrado');
+          setPrepaidBalance(0);
+        }
         return;
       }
 
+      console.log('✅ Saldo carregado:', data);
       setPrepaidBalance(data?.balance || 0);
     } catch (error) {
-      console.error('Erro ao carregar saldo pré-pago:', error);
+      console.error('❌ Erro ao carregar saldo pré-pago:', error);
       setPrepaidBalance(0);
     } finally {
       setIsLoadingBalance(false);
