@@ -83,16 +83,17 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       }
 
       // Chamar API para processar pagamento pré-pago
-      const response = await fetch('/api/service-orders/prepaid', {
+      const response = await fetch(getApiUrl('/service-orders/create-with-prepaid'), {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           client_id: selectedCliente.id,
           service_id: selectedServico.id,
           amount: selectedServico.preco,
-          notes: 'Pagamento via saldo pré-pago',
+          notes: 'Pagamento via saldo pré-pago - Wizard',
           multa_type: selectedServico.tipo_recurso,
         }),
       });
@@ -130,9 +131,10 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
       setIsProcessing(true);
 
       // Chamar API para gerar cobrança Asaas
-      const response = await fetch('/api/service-orders', {
+      const response = await fetch(getApiUrl('/service-orders'), {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
