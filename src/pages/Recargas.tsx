@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Wallet, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
+import { Plus, Wallet, TrendingUp, TrendingDown, DollarSign, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { useSearchParams } from 'react-router-dom';
 
 export default function Recargas() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const { balance, isLoadingBalance, transactions, isLoadingTransactions, loadBalance } = usePrepaidWallet();
+  const { balance, isLoadingBalance, transactions, isLoadingTransactions, loadBalance, loadTransactions } = usePrepaidWallet();
   const [activeTab, setActiveTab] = useState('historico');
   const [showRechargeModal, setShowRechargeModal] = useState(false);
 
@@ -20,6 +20,14 @@ export default function Recargas() {
       setShowRechargeModal(true);
     }
   }, [searchParams]);
+
+  // Recarregar transações ao trocar para aba de consumo
+  useEffect(() => {
+    if (activeTab === 'consumo') {
+      console.log('🔄 Recarregando transações...');
+      loadTransactions();
+    }
+  }, [activeTab, loadTransactions]);
 
   // Calcular estatísticas
   const totalCredits = transactions
@@ -133,10 +141,27 @@ export default function Recargas() {
         <TabsContent value="consumo" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Consumo de Saldo</CardTitle>
-              <CardDescription>
-                Histórico de uso do saldo pré-pago em serviços
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Consumo de Saldo</CardTitle>
+                  <CardDescription>
+                    Histórico de uso do saldo pré-pago em serviços
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    console.log('🔄 Recarregando manualmente...');
+                    loadTransactions();
+                    loadBalance();
+                  }}
+                  disabled={isLoadingTransactions}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingTransactions ? 'animate-spin' : ''}`} />
+                  Atualizar
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {isLoadingTransactions ? (

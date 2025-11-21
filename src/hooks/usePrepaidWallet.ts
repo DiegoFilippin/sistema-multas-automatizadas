@@ -68,6 +68,8 @@ export function usePrepaidWallet(options: UsePrepaidWalletOptions = {}) {
   const loadTransactions = useCallback(async () => {
     try {
       setIsLoadingTransactions(true);
+      console.log('🔍 Carregando transações via API...');
+      
       const response = await fetch(getApiUrl(`/wallets/prepaid/transactions?limit=${transactionsLimit}`), {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
@@ -75,17 +77,26 @@ export function usePrepaidWallet(options: UsePrepaidWalletOptions = {}) {
       });
 
       if (!response.ok) {
+        console.error('❌ Erro na API:', response.status);
         throw new Error('Falha ao carregar extrato do saldo pré-pago');
       }
 
       const data = await response.json();
+      console.log('📊 Transações recebidas:', data);
+      
       if (!data?.success) {
+        console.error('❌ API retornou success: false');
         throw new Error('Não foi possível carregar o extrato do saldo pré-pago');
       }
 
-      setTransactions(Array.isArray(data.transactions) ? data.transactions : []);
+      const transactionsArray = Array.isArray(data.transactions) ? data.transactions : [];
+      console.log('✅ Total de transações:', transactionsArray.length);
+      console.log('📋 Débitos:', transactionsArray.filter(t => t.type === 'debit').length);
+      console.log('📋 Créditos:', transactionsArray.filter(t => t.type === 'credit').length);
+      
+      setTransactions(transactionsArray);
     } catch (error) {
-      console.error('Erro ao carregar extrato pré-pago:', error);
+      console.error('❌ Erro ao carregar extrato pré-pago:', error);
       toast.error(error instanceof Error ? error.message : 'Erro ao carregar extrato pré-pago');
     } finally {
       setIsLoadingTransactions(false);
