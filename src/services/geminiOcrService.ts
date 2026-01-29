@@ -96,12 +96,29 @@ class GeminiOcrService {
    * Converte arquivo para formato compatível com Gemini
    */
   private async fileToGenerativePart(file: File) {
+    console.log('📂 [GeminiOCR] Convertendo arquivo para base64...');
+    console.log('📂 [GeminiOCR] Arquivo:', file.name, 'Tipo:', file.type, 'Tamanho:', file.size, 'bytes');
+    
+    // Verificar se o arquivo é válido
+    if (!file || file.size === 0) {
+      throw new Error('Arquivo inválido ou vazio');
+    }
+    
+    // Verificar tamanho máximo (20MB)
+    const maxSize = 20 * 1024 * 1024;
+    if (file.size > maxSize) {
+      throw new Error(`Arquivo muito grande. Tamanho máximo: 20MB. Tamanho do arquivo: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
+    }
+    
     const base64EncodedDataPromise = new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      
+      reader.onload = () => {
+        console.log('✅ [GeminiOCR] Arquivo lido com sucesso');
         if (reader.result && typeof reader.result === 'string') {
           const base64Data = reader.result.split(',')[1];
           if (base64Data) {
+            console.log('✅ [GeminiOCR] Base64 gerado, tamanho:', base64Data.length, 'caracteres');
             resolve(base64Data);
           } else {
             reject(new Error('Falha ao converter arquivo para base64: dados vazios'));
@@ -110,9 +127,25 @@ class GeminiOcrService {
           reject(new Error('Falha ao ler arquivo: resultado inválido'));
         }
       };
-      reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
-      reader.readAsDataURL(file);
+      
+      reader.onerror = (event) => {
+        console.error('❌ [GeminiOCR] Erro ao ler arquivo:', reader.error);
+        reject(new Error(`Erro ao ler arquivo: ${reader.error?.message || 'erro desconhecido'}`));
+      };
+      
+      reader.onabort = () => {
+        console.error('❌ [GeminiOCR] Leitura do arquivo abortada');
+        reject(new Error('Leitura do arquivo foi abortada'));
+      };
+      
+      try {
+        reader.readAsDataURL(file);
+      } catch (e) {
+        console.error('❌ [GeminiOCR] Erro ao iniciar leitura:', e);
+        reject(new Error(`Erro ao iniciar leitura do arquivo: ${e instanceof Error ? e.message : 'erro desconhecido'}`));
+      }
     });
+    
     return {
       inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
     };
@@ -122,16 +155,22 @@ class GeminiOcrService {
    * Extrai dados do auto de infração usando Gemini Vision com retry logic
    */
   async extrairDadosAutoInfracao(file: File): Promise<DocumentoProcessado> {
+    console.log('🔍 [GeminiOCR] Iniciando extração de dados...');
+    console.log('📄 [GeminiOCR] Arquivo:', file.name, 'Tipo:', file.type, 'Tamanho:', file.size);
+    
     if (!this.genAI) {
+      console.error('❌ [GeminiOCR] genAI não está configurado');
       throw new Error('Serviço Gemini não está configurado. Configure VITE_GEMINI_API_KEY nas variáveis de ambiente.');
     }
+    
+    console.log('✅ [GeminiOCR] genAI está configurado');
     
     const maxRetries = 3;
     const retryDelay = 2000; // 2 segundos
     
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
+        console.log(`🔄 [GeminiOCR] Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
         
         const model = this.genAI.getGenerativeModel({ 
           model: 'gemini-2.0-flash-exp',
