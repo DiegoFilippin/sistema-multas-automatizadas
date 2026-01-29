@@ -51,12 +51,12 @@ const menuItems: MenuItem[] = [
     href: '/dashboard-icetran',
     roles: ['ICETRAN']
   },
-  // Recursos IA - segundo para Despachante
+  // Novo Recurso - segundo para Despachante
   {
-    id: 'recursos',
-    label: 'Recursos IA',
+    id: 'novo-recurso',
+    label: 'Novo Recurso',
     icon: Zap,
-    href: '/recursos',
+    href: '/novo-recurso-wizard',
     roles: ['Superadmin', 'ICETRAN', 'Despachante'],
     badge: 'IA'
   },
