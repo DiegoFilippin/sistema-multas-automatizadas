@@ -8,7 +8,8 @@ import {
   User,
   RotateCw,
   Users,
-  RefreshCw
+  RefreshCw,
+  KeyRound
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { toast } from 'sonner';
@@ -16,6 +17,7 @@ import { useEmpresasStore } from '../stores/empresasStore';
 import type { Empresa } from '../stores/empresasStore';
 import { supabase } from '../lib/supabase';
 import type { Database } from '../lib/supabase';
+import { authService } from '../services/authService';
 
 interface Usuario {
   id: string;
@@ -538,12 +540,36 @@ export default function Usuarios() {
     if (!editingUsuario) return;
     
     try {
+      // Mapear role do formulário para o banco
+      const mapRoleToDb = (r: UsuarioFormData['role']): string => {
+        switch (r) {
+          case 'Superadmin': return 'admin_master';
+          case 'ICETRAN': return 'admin';
+          case 'Despachante': return 'user';
+          case 'Usuario/Cliente': return 'viewer';
+          default: return 'user';
+        }
+      };
+
+      const dbRole = mapRoleToDb(dados.role);
+      
+      // Atualizar no banco de dados via authService
+      await authService.adminUpdateUserProfile(editingUsuario.id, {
+        nome: dados.nome,
+        email: dados.email,
+        telefone: dados.telefone,
+        role: dbRole,
+        company_id: dados.company_id || editingUsuario.company_id,
+      });
+
       const usuarioAtualizado = {
         ...editingUsuario,
         nome: dados.nome,
         email: dados.email,
         telefone: dados.telefone,
-        role: dados.role
+        role: dados.role,
+        company_id: dados.company_id || editingUsuario.company_id,
+        empresa_nome: empresas.find(e => e.id === (dados.company_id || editingUsuario.company_id))?.nome
       };
       
       setUsuarios(prev => prev.map(u => u.id === editingUsuario.id ? usuarioAtualizado : u));
@@ -580,6 +606,20 @@ export default function Usuarios() {
   const handleNewUsuario = () => {
     setEditingUsuario(null);
     setShowModal(true);
+  };
+
+  const handleResetPassword = async (usuario: Usuario) => {
+    if (!confirm(`Deseja enviar um email de redefinição de senha para ${usuario.nome} (${usuario.email})?`)) {
+      return;
+    }
+
+    try {
+      await authService.adminResetUserPassword(usuario.email);
+      toast.success(`Email de redefinição de senha enviado para ${usuario.email}`);
+    } catch (error) {
+      console.error('Erro ao enviar email de redefinição:', error);
+      toast.error('Erro ao enviar email de redefinição de senha');
+    }
   };
 
   // Funções para sincronização de customers
@@ -907,6 +947,15 @@ export default function Usuarios() {
                         >
                           <Edit className="w-4 h-4 mr-1" /> Editar
                         </button>
+                        {(user?.role === 'Superadmin' || user?.role === 'ICETRAN') && (
+                          <button
+                            onClick={() => handleResetPassword(usuario)}
+                            className="inline-flex items-center px-2 py-1 text-sm text-orange-700 hover:text-orange-900"
+                            title="Resetar Senha"
+                          >
+                            <KeyRound className="w-4 h-4 mr-1" /> Resetar Senha
+                          </button>
+                        )}
                         <button
                           onClick={() => handleToggleStatus(usuario.id)}
                           className="inline-flex items-center px-2 py-1 text-sm text-gray-700 hover:text-gray-900"

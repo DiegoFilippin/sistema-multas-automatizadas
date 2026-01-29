@@ -8,6 +8,7 @@ import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Cadastro from './pages/Cadastro';
 import Precadastros from './pages/Precadastros';
+import ResetPassword from './pages/ResetPassword';
 
 import Dashboard from './pages/Dashboard';
 import Empresas from './pages/Empresas';
@@ -115,6 +116,14 @@ function AppContent() {
             } 
           />
           
+          <Route 
+            path="/reset-password" 
+            element={
+              <PublicRoute>
+                <ResetPassword />
+              </PublicRoute>
+            } 
+          />
 
           {/* Rotas protegidas */}
           <Route 

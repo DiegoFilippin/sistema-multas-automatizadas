@@ -318,6 +318,58 @@ class AuthService {
     }
   }
 
+  async adminResetUserPassword(userEmail: string): Promise<void> {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
+        redirectTo: `${window.location.origin}/reset-password`
+      })
+      
+      if (error) {
+        throw new Error(error.message)
+      }
+    } catch (error) {
+      throw new Error(`Failed to send password reset: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  async adminUpdateUserProfile(userId: string, updates: {
+    nome?: string;
+    email?: string;
+    telefone?: string;
+    role?: string;
+    company_id?: string;
+    ativo?: boolean;
+  }): Promise<AuthUser> {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId)
+        .select()
+        .single()
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      return {
+        id: data.id,
+        email: data.email,
+        nome: data.nome,
+        role: data.role,
+        company_id: data.company_id,
+        ativo: data.ativo,
+        ultimo_login: data.ultimo_login,
+        asaas_customer_id: data.asaas_customer_id,
+      }
+    } catch (error) {
+      throw new Error(`Failed to update user profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
   async getUsersByCompany(companyId: string): Promise<AuthUser[]> {
     try {
       const { data, error } = await supabase
