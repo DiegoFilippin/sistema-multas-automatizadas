@@ -54,13 +54,11 @@ const FileUpload: React.FC<FileUploadProps> = ({
     setUploadedFile(pendingFile);
     setIsProcessing(true);
     
-    // Simular processamento
-    setTimeout(() => {
-      setIsProcessing(false);
-      onFileSelect(pendingFile);
-      toast.success('Arquivo carregado com sucesso!');
-      setPendingFile(null);
-    }, 1500);
+    // Chamar onFileSelect imediatamente para evitar perda de referência do arquivo
+    onFileSelect(pendingFile);
+    toast.success('Arquivo processado com sucesso!');
+    setIsProcessing(false);
+    setPendingFile(null);
   };
 
   const handleCancelUpload = () => {
