@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Wallet API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <h1>Debug Wallet API</h1>
+    
+    <div class="section">
+        <h2>1. Verificar Token</h2>
+        <button onclick="checkToken()">Verificar Token no LocalStorage</button>
+        <pre id="tokenInfo"></pre>
+    </div>
+
+    <div class="section">
+        <h2>2. Testar API de Saldo</h2>
+        <button onclick="testBalanceAPI()">Testar GET /api/wallets/prepaid/balance</button>
+        <pre id="balanceResult"></pre>
+    </div>
+
+    <div class="section">
+        <h2>3. Testar API de Transações</h2>
+        <button onclick="testTransactionsAPI()">Testar GET /api/wallets/prepaid/transactions</button>
+        <pre id="transactionsResult"></pre>
+    </div>
+
+    <div class="section">
+        <h2>4. Verificar User Info</h2>
+        <button onclick="checkUserInfo()">Verificar Informações do Usuário</button>
+        <pre id="userInfo"></pre>
+    </div>
+
+    <script>
+        function checkToken() {
+            const token = localStorage.getItem('token');
+            const user = localStorage.getItem('user');
+            
+            const info = {
+                hasToken: !!token,
+                tokenLength: token ? token.length : 0,
+                tokenPreview: token ? token.substring(0, 50) + '...' : 'N/A',
+                user: user ? JSON.parse(user) : null
+            };
+            
+            document.getElementById('tokenInfo').textContent = JSON.stringify(info, null, 2);
+        }
+
+        async function testBalanceAPI() {
+            const resultEl = document.getElementById('balanceResult');
+            resultEl.textContent = 'Carregando...';
+            
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    throw new Error('Token não encontrado no localStorage');
+                }
+
+                const response = await fetch('/api/wallets/prepaid/balance', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                const data = await response.json();
+                
+                const result = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok,
+                    data: data
+                };
+                
+                resultEl.className = response.ok ? 'success' : 'error';
+                resultEl.textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                resultEl.className = 'error';
+                resultEl.textContent = 'Erro: ' + error.message;
+            }
+        }
+
+        async function testTransactionsAPI() {
+            const resultEl = document.getElementById('transactionsResult');
+            resultEl.textContent = 'Carregando...';
+            
+            try {
+                const token = localStorage.getItem('token');
+                if (!token) {
+                    throw new Error('Token não encontrado no localStorage');
+                }
+
+                const response = await fetch('/api/wallets/prepaid/transactions?limit=10', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                const data = await response.json();
+                
+                const result = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    ok: response.ok,
+                    data: data
+                };
+                
+                resultEl.className = response.ok ? 'success' : 'error';
+                resultEl.textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                resultEl.className = 'error';
+                resultEl.textContent = 'Erro: ' + error.message;
+            }
+        }
+
+        function checkUserInfo() {
+            const user = localStorage.getItem('user');
+            const authStore = localStorage.getItem('auth-storage');
+            
+            const info = {
+                user: user ? JSON.parse(user) : null,
+                authStore: authStore ? JSON.parse(authStore) : null
+            };
+            
+            document.getElementById('userInfo').textContent = JSON.stringify(info, null, 2);
+        }
+
+        // Auto-check token on load
+        window.addEventListener('load', () => {
+            checkToken();
+            checkUserInfo();
+        });
+    </script>
+</body>
+</html>
