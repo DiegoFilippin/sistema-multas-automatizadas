@@ -5,8 +5,9 @@ import { Cliente, Servico, Pagamento } from '../types';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 import PaymentStatusModal from './PaymentStatusModal';
-import { getApiUrl } from '@/lib/api-config';
 import { supabase } from '@/lib/supabase';
+import { prepaidWalletService } from '@/services/prepaidWalletService';
+import { getApiUrl } from '@/lib/api-config';
 
 interface Step3PagamentoProps {
   selectedCliente: Cliente;
@@ -40,35 +41,20 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
   }, [user]);
 
   const loadPrepaidBalance = async () => {
+    if (!user?.company_id) {
+      console.log('⚠️ Usuário sem company_id, não é possível carregar saldo');
+      setIsLoadingBalance(false);
+      return;
+    }
+
     try {
       setIsLoadingBalance(true);
+      console.log('🔍 Carregando saldo pré-pago via Supabase para company_id:', user.company_id);
 
-      console.log('🔍 Carregando saldo pré-pago via API...');
+      const result = await prepaidWalletService.getBalance(user.company_id);
+      console.log('✅ Saldo carregado:', result.balance);
 
-      const response = await fetch(getApiUrl('/wallets/prepaid/balance'), {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Erro na API:', response.status, errorText);
-        setPrepaidBalance(0);
-        return;
-      }
-
-      const data = await response.json();
-      console.log('✅ Saldo carregado via API:', data);
-
-      if (!data?.success) {
-        console.error('❌ API retornou success: false');
-        setPrepaidBalance(0);
-        return;
-      }
-
-      setPrepaidBalance(data.balance || 0);
+      setPrepaidBalance(result.balance || 0);
     } catch (error) {
       console.error('❌ Erro ao carregar saldo pré-pago:', error);
       setPrepaidBalance(0);
@@ -114,35 +100,25 @@ const Step3Pagamento: React.FC<Step3PagamentoProps> = ({
 
       console.log('✅ Rascunho atualizado para status paid');
 
-      // 2. Criar transação de débito no saldo pré-pago
-      const response = await fetch(getApiUrl('/service-orders/create-with-prepaid'), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          client_id: selectedCliente.id,
-          service_id: selectedServico.id,
+      // 2. Criar transação de débito no saldo pré-pago usando Supabase diretamente
+      try {
+        const debitResult = await prepaidWalletService.debitForService({
+          companyId: user.company_id,
           amount: selectedServico.preco,
+          serviceId: selectedServico.id,
+          serviceOrderId: draftId,
           notes: `Pagamento via saldo pré-pago - Recurso ${draftId}`,
-          multa_type: selectedServico.tipo_recurso,
-          service_order_id: draftId, // Passar o ID do rascunho
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
+          createdBy: user.id
+        });
+        console.log('✅ Transação de débito criada:', debitResult);
+      } catch (debitError: any) {
         // Reverter status se falhar
         await supabase
           .from('service_orders')
           .update({ status: 'rascunho', payment_method: null, paid_at: null })
           .eq('id', draftId);
-        throw new Error(errorData.error || 'Erro ao processar pagamento');
+        throw new Error(debitError.message || 'Erro ao processar pagamento');
       }
-
-      const result = await response.json();
-      console.log('✅ Transação de débito criada:', result);
 
       // Criar objeto de pagamento
       const pagamentoData: Pagamento = {
