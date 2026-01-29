@@ -1,25 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { getApiUrl } from '@/lib/api-config';
-
-interface PrepaidBalanceResponse {
-  success: boolean;
-  balance: number;
-  lastTransactionAt: string | null;
-}
-
-interface PrepaidTransaction {
-  id: string;
-  company_id: string;
-  type: 'credit' | 'debit';
-  amount: number;
-  balance_after: number;
-  service_id?: string | null;
-  service_order_id?: string | null;
-  notes?: string | null;
-  created_by?: string | null;
-  created_at: string;
-}
+import { prepaidWalletService, PrepaidTransaction } from '@/services/prepaidWalletService';
+import { useAuthStore } from '@/stores/authStore';
 
 interface UsePrepaidWalletOptions {
   autoLoadTransactions?: boolean;
@@ -28,6 +10,7 @@ interface UsePrepaidWalletOptions {
 
 export function usePrepaidWallet(options: UsePrepaidWalletOptions = {}) {
   const { autoLoadTransactions = false, transactionsLimit = 20 } = options;
+  const { user } = useAuthStore();
 
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isLoadingTransactions, setIsLoadingTransactions] = useState(false);
@@ -38,95 +21,73 @@ export function usePrepaidWallet(options: UsePrepaidWalletOptions = {}) {
   const [transactions, setTransactions] = useState<PrepaidTransaction[]>([]);
 
   const loadBalance = useCallback(async () => {
+    if (!user?.company_id) {
+      console.log('⚠️ Usuário sem company_id, não é possível carregar saldo');
+      return;
+    }
+
     try {
       setIsLoadingBalance(true);
-      const response = await fetch(getApiUrl('/wallets/prepaid/balance'), {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error('Falha ao consultar saldo pré-pago');
-      }
-
-      const data = (await response.json()) as PrepaidBalanceResponse;
-      if (!data?.success) {
-        throw new Error('Não foi possível carregar o saldo pré-pago');
-      }
-
-      setBalance(data.balance ?? 0);
-      setLastTransactionAt(data.lastTransactionAt ?? null);
+      console.log('🔍 Carregando saldo via Supabase para company_id:', user.company_id);
+      
+      const result = await prepaidWalletService.getBalance(user.company_id);
+      
+      setBalance(result.balance ?? 0);
+      setLastTransactionAt(result.lastTransactionAt ?? null);
+      console.log('✅ Saldo carregado:', result.balance);
     } catch (error) {
-      console.error('Erro ao carregar saldo pré-pago:', error);
-      toast.error(error instanceof Error ? error.message : 'Erro ao carregar saldo pré-pago');
+      console.error('❌ Erro ao carregar saldo pré-pago:', error);
     } finally {
       setIsLoadingBalance(false);
     }
-  }, []);
+  }, [user?.company_id]);
 
   const loadTransactions = useCallback(async () => {
+    if (!user?.company_id) {
+      console.log('⚠️ Usuário sem company_id, não é possível carregar transações');
+      return;
+    }
+
     try {
       setIsLoadingTransactions(true);
-      console.log('🔍 Carregando transações via API...');
+      console.log('� Carregando transações via Supabase...');
       
-      const response = await fetch(getApiUrl(`/wallets/prepaid/transactions?limit=${transactionsLimit}`), {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.error('❌ Erro na API:', response.status);
-        throw new Error('Falha ao carregar extrato do saldo pré-pago');
-      }
-
-      const data = await response.json();
-      console.log('📊 Transações recebidas:', data);
+      const transactionsData = await prepaidWalletService.getTransactions(user.company_id, transactionsLimit);
       
-      if (!data?.success) {
-        console.error('❌ API retornou success: false');
-        throw new Error('Não foi possível carregar o extrato do saldo pré-pago');
-      }
-
-      const transactionsArray = Array.isArray(data.transactions) ? data.transactions : [];
-      console.log('✅ Total de transações:', transactionsArray.length);
-      console.log('📋 Débitos:', transactionsArray.filter(t => t.type === 'debit').length);
-      console.log('📋 Créditos:', transactionsArray.filter(t => t.type === 'credit').length);
-      
-      setTransactions(transactionsArray);
+      console.log('✅ Total de transações:', transactionsData.length);
+      setTransactions(transactionsData);
     } catch (error) {
       console.error('❌ Erro ao carregar extrato pré-pago:', error);
       toast.error(error instanceof Error ? error.message : 'Erro ao carregar extrato pré-pago');
     } finally {
       setIsLoadingTransactions(false);
     }
-  }, [transactionsLimit]);
+  }, [user?.company_id, transactionsLimit]);
 
   const createRecharge = useCallback(async (amount: number, notes?: string) => {
+    if (!user?.company_id) {
+      throw new Error('Usuário sem empresa vinculada.');
+    }
+
     try {
       if (!amount || Number.isNaN(amount) || amount <= 0) {
         throw new Error('Informe um valor válido para a recarga.');
       }
 
       setIsAddingFunds(true);
-      const response = await fetch(getApiUrl('/wallets/prepaid/create-recharge'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        },
-        body: JSON.stringify({ amount, notes }),
+      
+      // Por enquanto, adiciona fundos diretamente (sem integração com gateway de pagamento)
+      const result = await prepaidWalletService.addFunds({
+        companyId: user.company_id,
+        amount,
+        notes: notes || 'Recarga de saldo',
+        createdBy: user.id
       });
 
-      const data = await response.json();
-
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Não foi possível criar a recarga.');
-      }
-
-      toast.success('Recarga criada! Efetue o pagamento para creditar o saldo.');
-      return data.recharge;
+      toast.success('Recarga realizada com sucesso!');
+      setBalance(result.balance);
+      await loadTransactions();
+      return result.transaction;
     } catch (error) {
       console.error('Erro ao criar recarga:', error);
       toast.error(error instanceof Error ? error.message : 'Erro ao criar recarga');
@@ -134,36 +95,33 @@ export function usePrepaidWallet(options: UsePrepaidWalletOptions = {}) {
     } finally {
       setIsAddingFunds(false);
     }
-  }, []);
+  }, [user?.company_id, user?.id, loadTransactions]);
 
-  // Função legada para adicionar fundos manualmente (apenas admin)
+  // Função para adicionar fundos manualmente
   const addFunds = useCallback(async (amount: number, notes?: string) => {
+    if (!user?.company_id) {
+      throw new Error('Usuário sem empresa vinculada.');
+    }
+
     try {
       if (!amount || Number.isNaN(amount) || amount <= 0) {
         throw new Error('Informe um valor válido para adicionar ao saldo.');
       }
 
       setIsAddingFunds(true);
-      const response = await fetch(getApiUrl('/wallets/prepaid/add-funds'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token') || ''}`,
-        },
-        body: JSON.stringify({ amount, notes }),
+      
+      const result = await prepaidWalletService.addFunds({
+        companyId: user.company_id,
+        amount,
+        notes: notes || 'Adição de saldo',
+        createdBy: user.id
       });
 
-      const data = await response.json();
-
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Não foi possível adicionar saldo.');
-      }
-
       toast.success('Saldo adicionado com sucesso!');
-      setBalance(data.balance ?? 0);
-      setTransactions(prev => [data.transaction, ...prev]);
-      setLastTransactionAt(data.transaction?.created_at ?? lastTransactionAt);
-      return data.transaction as PrepaidTransaction;
+      setBalance(result.balance);
+      setTransactions(prev => [result.transaction, ...prev]);
+      setLastTransactionAt(result.transaction?.created_at ?? lastTransactionAt);
+      return result.transaction;
     } catch (error) {
       console.error('Erro ao adicionar saldo pré-pago:', error);
       toast.error(error instanceof Error ? error.message : 'Erro ao adicionar saldo pré-pago');
@@ -171,7 +129,7 @@ export function usePrepaidWallet(options: UsePrepaidWalletOptions = {}) {
     } finally {
       setIsAddingFunds(false);
     }
-  }, [lastTransactionAt]);
+  }, [user?.company_id, user?.id, lastTransactionAt]);
 
   useEffect(() => {
     loadBalance();
