@@ -36,6 +36,7 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
+  // Dashboard - primeiro para todos
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -50,12 +51,14 @@ const menuItems: MenuItem[] = [
     href: '/dashboard-icetran',
     roles: ['ICETRAN']
   },
+  // Recursos IA - segundo para Despachante
   {
-    id: 'meus-servicos',
-    label: 'Meus Serviços',
-    icon: Package,
-    href: '/meus-servicos',
-    roles: ['Despachante']
+    id: 'recursos',
+    label: 'Recursos IA',
+    icon: Zap,
+    href: '/recursos',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante'],
+    badge: 'IA'
   },
   {
     id: 'meus-recursos',
@@ -64,6 +67,39 @@ const menuItems: MenuItem[] = [
     href: '/meus-recursos',
     roles: ['Despachante']
   },
+  // Clientes - terceiro para Despachante
+  {
+    id: 'clientes',
+    label: 'Clientes',
+    icon: Shield,
+    href: '/clientes',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
+  },
+  // Cobranças - quarto para Despachante
+  {
+    id: 'cobrancas',
+    label: 'Cobranças',
+    icon: Receipt,
+    href: '/cobrancas',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
+  },
+  // Recargas - quinto para Despachante
+  {
+    id: 'recargas',
+    label: 'Recargas',
+    icon: Wallet,
+    href: '/recargas',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
+  },
+  // Relatórios - sexto para Despachante
+  {
+    id: 'relatorios-financeiros',
+    label: 'Relatórios Financeiros',
+    icon: BarChart3,
+    href: '/relatorios-financeiros',
+    roles: ['Superadmin', 'ICETRAN', 'Despachante']
+  },
+  // Itens exclusivos Superadmin/ICETRAN
   {
     id: 'empresas',
     label: 'Empresas',
@@ -86,50 +122,13 @@ const menuItems: MenuItem[] = [
     roles: ['Superadmin']
   },
   {
-    id: 'clientes',
-    label: 'Clientes',
-    icon: Shield,
-    href: '/clientes',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante']
-  },
-  {
-    id: 'cobrancas',
-    label: 'Cobranças',
-    icon: Receipt,
-    href: '/cobrancas',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante']
-  },
-  {
-    id: 'recargas',
-    label: 'Recargas',
-    icon: Wallet,
-    href: '/recargas',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante']
-  },
-  {
-    id: 'recursos',
-    label: 'Recursos IA',
-    icon: Zap,
-    href: '/recursos',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante'],
-    badge: 'IA'
-  },
-  {
-    id: 'relatorios-financeiros',
-    label: 'Relatórios Financeiros',
-    icon: BarChart3,
-    href: '/relatorios-financeiros',
-    roles: ['Superadmin', 'ICETRAN', 'Despachante']
-  },
-
-  {
     id: 'servicos-splits',
     label: 'Serviços e Splits',
     icon: PieChart,
     href: '/servicos-splits',
     roles: ['Superadmin', 'ICETRAN']
   },
-
+  // Configurações - último para Despachante
   {
     id: 'configuracoes',
     label: 'Configurações',
@@ -144,7 +143,6 @@ const menuItems: MenuItem[] = [
     href: '/asaas-config',
     roles: ['Superadmin']
   },
-
   {
     id: 'admin-panel',
     label: 'Painel Administrativo',
@@ -153,7 +151,6 @@ const menuItems: MenuItem[] = [
     roles: ['Superadmin'],
     badge: 'ADMIN'
   },
-  
 ];
 
 export default function Sidebar({ className }: SidebarProps) {

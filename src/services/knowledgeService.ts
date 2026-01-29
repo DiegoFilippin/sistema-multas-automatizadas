@@ -411,8 +411,8 @@ export class KnowledgeService {
         throw error;
       }
 
-      const uniqueTags = [...new Set(data?.map(item => item.tag_name) || [])];
-      return uniqueTags;
+      const tags: string[] = (data || []).map(item => String(item.tag_name));
+      return [...new Set(tags)];
     } catch (error) {
       console.error('Erro ao buscar tags:', error);
       return [];
