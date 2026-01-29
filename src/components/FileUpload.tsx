@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useRef } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Upload, FileText, X, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -20,7 +20,6 @@ const FileUpload: React.FC<FileUploadProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const fileDataRef = useRef<ArrayBuffer | null>(null);
 
   const validateFile = (file: File): boolean => {
     // Verificar tamanho
@@ -40,42 +39,26 @@ const FileUpload: React.FC<FileUploadProps> = ({
     return true;
   };
 
-  const handleFileSelect = useCallback(async (file: File) => {
+  const handleFileSelect = useCallback((file: File) => {
     if (!validateFile(file)) return;
 
-    try {
-      // Ler o arquivo imediatamente para evitar perda de referência
-      const arrayBuffer = await file.arrayBuffer();
-      fileDataRef.current = arrayBuffer;
-      
-      // Armazenar arquivo pendente e mostrar modal de confirmação
-      setPendingFile(file);
-      setShowConfirmModal(true);
-    } catch (error) {
-      console.error('Erro ao ler arquivo:', error);
-      toast.error('Erro ao ler arquivo. Tente novamente.');
-    }
+    // Mostrar modal de confirmação com o arquivo original
+    setPendingFile(file);
+    setShowConfirmModal(true);
   }, [maxSize, acceptedTypes]);
 
   const handleConfirmUpload = () => {
-    if (!pendingFile || !fileDataRef.current) return;
+    if (!pendingFile) return;
 
     setShowConfirmModal(false);
+    setUploadedFile(pendingFile);
     setIsProcessing(true);
     
-    // Criar novo File a partir do ArrayBuffer armazenado
-    const newFile = new File(
-      [fileDataRef.current], 
-      pendingFile.name, 
-      { type: pendingFile.type }
-    );
-    
-    setUploadedFile(newFile);
-    onFileSelect(newFile);
-    toast.success('Arquivo processado com sucesso!');
+    // Passar o arquivo diretamente - o OCR service vai ler
+    onFileSelect(pendingFile);
+    toast.success('Arquivo enviado para processamento!');
     setIsProcessing(false);
     setPendingFile(null);
-    fileDataRef.current = null;
   };
 
   const handleCancelUpload = () => {
