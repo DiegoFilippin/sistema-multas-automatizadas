@@ -96,9 +96,21 @@ class GeminiOcrService {
    * Converte arquivo para formato compatível com Gemini
    */
   private async fileToGenerativePart(file: File) {
-    const base64EncodedDataPromise = new Promise<string>((resolve) => {
+    const base64EncodedDataPromise = new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.onloadend = () => {
+        if (reader.result && typeof reader.result === 'string') {
+          const base64Data = reader.result.split(',')[1];
+          if (base64Data) {
+            resolve(base64Data);
+          } else {
+            reject(new Error('Falha ao converter arquivo para base64: dados vazios'));
+          }
+        } else {
+          reject(new Error('Falha ao ler arquivo: resultado inválido'));
+        }
+      };
+      reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
       reader.readAsDataURL(file);
     });
     return {
