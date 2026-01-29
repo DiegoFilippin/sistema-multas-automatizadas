@@ -17,12 +17,16 @@ import {
   Shield,
   Eye,
   EyeOff,
-  Wallet
+  Wallet,
+  Plus,
+  Coins
 } from 'lucide-react';
 import { useEmpresasStore } from '../stores/empresasStore';
 import { supabase } from '../lib/supabase';
 import { toast } from 'sonner';
 import SubcontaAsaasTab from '../components/SubcontaAsaasTab';
+import { prepaidWalletService } from '../services/prepaidWalletService';
+import { useAuthStore } from '../stores/authStore';
 
 interface Usuario {
   id: string;
@@ -45,6 +49,7 @@ export default function EmpresaDetalhes() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { empresas, isLoading, fetchEmpresas, atualizarEmpresa, suspenderEmpresa, reativarEmpresa } = useEmpresasStore();
+  const { user } = useAuthStore();
   
   const [activeTab, setActiveTab] = useState<'dados' | 'usuarios' | 'uso' | 'subconta' | 'configuracoes'>('dados');
   const [isEditing, setIsEditing] = useState(false);
@@ -59,6 +64,14 @@ export default function EmpresaDetalhes() {
   });
   const [showSuspendModal, setShowSuspendModal] = useState(false);
   const [isConfirmingSuspension, setIsConfirmingSuspension] = useState(false);
+  
+  // Estados para gerenciamento de créditos
+  const [showCreditModal, setShowCreditModal] = useState(false);
+  const [creditAmount, setCreditAmount] = useState('');
+  const [creditNotes, setCreditNotes] = useState('');
+  const [isAddingCredit, setIsAddingCredit] = useState(false);
+  const [companyBalance, setCompanyBalance] = useState<number>(0);
+  const [loadingBalance, setLoadingBalance] = useState(false);
   const [formData, setFormData] = useState({
     nome: '',
     cnpj: '',
@@ -133,8 +146,52 @@ export default function EmpresaDetalhes() {
         fetchEmpresas();
       }
       loadUsuarios(id);
+      loadCompanyBalance(id);
     }
   }, [id, empresas, fetchEmpresas]);
+
+  const loadCompanyBalance = async (companyId: string) => {
+    setLoadingBalance(true);
+    try {
+      const { balance } = await prepaidWalletService.getBalance(companyId);
+      setCompanyBalance(balance);
+    } catch (error) {
+      console.error('Erro ao carregar saldo:', error);
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
+
+  const handleAddCredit = async () => {
+    if (!id || !creditAmount) return;
+    
+    const amount = parseFloat(creditAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Informe um valor válido');
+      return;
+    }
+
+    setIsAddingCredit(true);
+    try {
+      await prepaidWalletService.addFunds({
+        companyId: id,
+        amount,
+        notes: creditNotes || `Crédito adicionado pelo Superadmin`,
+        createdBy: user?.id
+      });
+      
+      toast.success(`R$ ${amount.toFixed(2)} adicionados com sucesso!`);
+      setShowCreditModal(false);
+      setCreditAmount('');
+      setCreditNotes('');
+      loadCompanyBalance(id);
+    } catch (error) {
+      console.error('Erro ao adicionar crédito:', error);
+      toast.error('Erro ao adicionar crédito');
+    } finally {
+      setIsAddingCredit(false);
+    }
+  };
 
   const loadUsuarios = async (empresaId: string) => {
     try {
@@ -538,6 +595,36 @@ export default function EmpresaDetalhes() {
           })}
         </nav>
       </div>
+
+      {/* Card de Saldo - Visível para Superadmin */}
+      {(user?.role === 'Superadmin' || user?.role === 'admin_master') && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-green-100 rounded-full">
+                <Coins className="w-6 h-6 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm text-gray-500">Saldo de Créditos</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {loadingBalance ? (
+                    <span className="text-gray-400">Carregando...</span>
+                  ) : (
+                    `R$ ${companyBalance.toFixed(2)}`
+                  )}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowCreditModal(true)}
+              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Adicionar Crédito
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tab Content */}
       <div className="bg-white rounded-lg shadow">
@@ -956,6 +1043,71 @@ export default function EmpresaDetalhes() {
         onSave={handleSaveUser}
         usuario={editingUser}
       />
+
+      {/* Modal de Adicionar Crédito */}
+      {showCreditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-md p-6">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-green-100 rounded-full">
+                <Coins className="w-5 h-5 text-green-600" />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Adicionar Crédito</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Valor (R$) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  value={creditAmount}
+                  onChange={(e) => setCreditAmount(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Ex: 100.00"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Observação (opcional)
+                </label>
+                <textarea
+                  value={creditNotes}
+                  onChange={(e) => setCreditNotes(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  placeholder="Ex: Crédito promocional, Bônus de indicação..."
+                  rows={3}
+                />
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowCreditModal(false);
+                  setCreditAmount('');
+                  setCreditNotes('');
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                disabled={isAddingCredit}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleAddCredit}
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-60"
+                disabled={isAddingCredit || !creditAmount}
+              >
+                {isAddingCredit ? 'Adicionando...' : 'Adicionar Crédito'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
