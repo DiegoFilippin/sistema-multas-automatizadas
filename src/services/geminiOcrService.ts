@@ -94,14 +94,50 @@ class GeminiOcrService {
 
   /**
    * Converte arquivo para formato compatível com Gemini
+   * Aceita File, ArrayBuffer ou base64 string
    */
-  private async fileToGenerativePart(file: File) {
-    console.log('📂 [GeminiOCR] Convertendo arquivo para base64...');
+  private async fileToGenerativePart(fileOrData: File | ArrayBuffer | { base64: string; mimeType: string }) {
+    console.log('📂 [GeminiOCR] Convertendo dados para base64...');
+    
+    // Se já é base64, retornar diretamente
+    if (typeof fileOrData === 'object' && 'base64' in fileOrData) {
+      console.log('✅ [GeminiOCR] Dados já em base64, tamanho:', fileOrData.base64.length);
+      return {
+        inlineData: { data: fileOrData.base64, mimeType: fileOrData.mimeType },
+      };
+    }
+    
+    // Se é ArrayBuffer, converter diretamente
+    if (fileOrData instanceof ArrayBuffer) {
+      console.log('📂 [GeminiOCR] Convertendo ArrayBuffer para base64...');
+      const uint8Array = new Uint8Array(fileOrData);
+      let binaryString = '';
+      const chunkSize = 8192;
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+        binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      
+      const base64Data = btoa(binaryString);
+      console.log('✅ [GeminiOCR] Base64 gerado de ArrayBuffer, tamanho:', base64Data.length);
+      
+      return {
+        inlineData: { data: base64Data, mimeType: 'application/octet-stream' },
+      };
+    }
+    
+    // É um File object
+    const file = fileOrData as File;
     console.log('📂 [GeminiOCR] Arquivo:', file.name, 'Tipo:', file.type, 'Tamanho:', file.size, 'bytes');
     
     // Verificar se o arquivo é válido
-    if (!file || file.size === 0) {
-      throw new Error('Arquivo inválido ou vazio');
+    if (!file) {
+      throw new Error('Arquivo não fornecido');
+    }
+    
+    if (file.size === 0) {
+      throw new Error('Arquivo está vazio (0 bytes)');
     }
     
     // Verificar tamanho máximo (20MB)
@@ -110,45 +146,248 @@ class GeminiOcrService {
       throw new Error(`Arquivo muito grande. Tamanho máximo: 20MB. Tamanho do arquivo: ${(file.size / 1024 / 1024).toFixed(2)}MB`);
     }
     
-    const base64EncodedDataPromise = new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
+    // Usar ArrayBuffer como alternativa mais confiável
+    try {
+      console.log('📂 [GeminiOCR] Lendo arquivo como ArrayBuffer...');
+      const arrayBuffer = await file.arrayBuffer();
+      console.log('✅ [GeminiOCR] ArrayBuffer obtido, tamanho:', arrayBuffer.byteLength);
       
-      reader.onload = () => {
-        console.log('✅ [GeminiOCR] Arquivo lido com sucesso');
-        if (reader.result && typeof reader.result === 'string') {
-          const base64Data = reader.result.split(',')[1];
-          if (base64Data) {
-            console.log('✅ [GeminiOCR] Base64 gerado, tamanho:', base64Data.length, 'caracteres');
-            resolve(base64Data);
-          } else {
-            reject(new Error('Falha ao converter arquivo para base64: dados vazios'));
-          }
-        } else {
-          reject(new Error('Falha ao ler arquivo: resultado inválido'));
-        }
-      };
+      // Converter ArrayBuffer para Base64
+      const uint8Array = new Uint8Array(arrayBuffer);
+      let binaryString = '';
+      const chunkSize = 8192;
       
-      reader.onerror = (event) => {
-        console.error('❌ [GeminiOCR] Erro ao ler arquivo:', reader.error);
-        reject(new Error(`Erro ao ler arquivo: ${reader.error?.message || 'erro desconhecido'}`));
-      };
-      
-      reader.onabort = () => {
-        console.error('❌ [GeminiOCR] Leitura do arquivo abortada');
-        reject(new Error('Leitura do arquivo foi abortada'));
-      };
-      
-      try {
-        reader.readAsDataURL(file);
-      } catch (e) {
-        console.error('❌ [GeminiOCR] Erro ao iniciar leitura:', e);
-        reject(new Error(`Erro ao iniciar leitura do arquivo: ${e instanceof Error ? e.message : 'erro desconhecido'}`));
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+        binaryString += String.fromCharCode.apply(null, Array.from(chunk));
       }
-    });
+      
+      const base64Data = btoa(binaryString);
+      console.log('✅ [GeminiOCR] Base64 gerado, tamanho:', base64Data.length, 'caracteres');
+      
+      // Determinar MIME type
+      let mimeType = file.type;
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        if (ext === 'pdf') mimeType = 'application/pdf';
+        else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+        else if (ext === 'png') mimeType = 'image/png';
+        else mimeType = 'application/octet-stream';
+        console.log('📂 [GeminiOCR] MIME type inferido:', mimeType);
+      }
+      
+      return {
+        inlineData: { data: base64Data, mimeType },
+      };
+    } catch (error: any) {
+      // Melhor serialização do erro para debug
+      let errorDetails = 'erro desconhecido';
+      if (error instanceof Error) {
+        errorDetails = error.message;
+      } else if (error && typeof error === 'object') {
+        try {
+          errorDetails = JSON.stringify(error);
+        } catch {
+          errorDetails = error.toString?.() || 'objeto não serializável';
+        }
+      } else if (error) {
+        errorDetails = String(error);
+      }
+      
+      console.error('❌ [GeminiOCR] Erro ao converter arquivo:', errorDetails);
+      console.error('❌ [GeminiOCR] Tipo do erro:', typeof error);
+      console.error('❌ [GeminiOCR] Stack:', error?.stack || 'sem stack');
+      
+      // Verificar se é erro de referência perdida
+      if (errorDetails.includes('NotReadable') || errorDetails.includes('reference') || errorDetails === '{}') {
+        throw new Error('Arquivo não pode ser lido. A referência foi perdida. Faça o upload novamente.');
+      }
+      
+      throw new Error(`Erro ao processar arquivo: ${errorDetails}`);
+    }
+  }
+  
+  /**
+   * Pré-processa o arquivo para evitar perda de referência
+   * Deve ser chamado imediatamente após o upload
+   */
+  async preProcessFile(file: File): Promise<{ base64: string; mimeType: string; fileName: string }> {
+    console.log('🔄 [GeminiOCR] Pré-processando arquivo para evitar perda de referência...');
     
-    return {
-      inlineData: { data: await base64EncodedDataPromise, mimeType: file.type },
-    };
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      let binaryString = '';
+      const chunkSize = 8192;
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+        binaryString += String.fromCharCode.apply(null, Array.from(chunk));
+      }
+      
+      const base64 = btoa(binaryString);
+      
+      let mimeType = file.type;
+      if (!mimeType || mimeType === 'application/octet-stream') {
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        if (ext === 'pdf') mimeType = 'application/pdf';
+        else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+        else if (ext === 'png') mimeType = 'image/png';
+        else mimeType = 'application/octet-stream';
+      }
+      
+      console.log('✅ [GeminiOCR] Arquivo pré-processado:', {
+        fileName: file.name,
+        mimeType,
+        base64Length: base64.length
+      });
+      
+      return { base64, mimeType, fileName: file.name };
+    } catch (error: any) {
+      console.error('❌ [GeminiOCR] Erro no pré-processamento:', error);
+      throw new Error('Erro ao pré-processar arquivo. Tente novamente.');
+    }
+  }
+  
+  /**
+   * Extrai dados usando dados pré-processados (base64)
+   */
+  async extrairDadosAutoInfracaoFromBase64(data: { base64: string; mimeType: string }): Promise<DocumentoProcessado> {
+    console.log('🔍 [GeminiOCR] Iniciando extração de dados de base64...');
+    
+    if (!this.genAI) {
+      throw new Error('Serviço Gemini não está configurado. Configure VITE_GEMINI_API_KEY nas variáveis de ambiente.');
+    }
+    
+    const maxRetries = 3;
+    const retryDelay = 2000;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🔄 [GeminiOCR] Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
+        
+        const model = this.genAI.getGenerativeModel({ 
+          model: 'gemini-2.5-pro',
+          generationConfig: {
+            temperature: 0.1,
+            topK: 1,
+            topP: 0.8,
+            maxOutputTokens: 8192,
+          },
+        });
+        
+        const imagePart = await this.fileToGenerativePart(data);
+        
+        const prompt = this.getExtractionPrompt();
+        
+        const result = await model.generateContent([prompt, imagePart]);
+        const response = await result.response;
+        const text = response.text();
+        
+        return this.parseOcrResponse(text);
+      } catch (error: any) {
+        console.error(`Erro na tentativa ${attempt}/${maxRetries}:`, error);
+        
+        if (attempt === maxRetries) {
+          throw new Error(`Erro no processamento OCR após ${maxRetries} tentativas: ${error.message}`);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
+    
+    throw new Error('Erro inesperado no processamento OCR');
+  }
+  
+  private getExtractionPrompt(): string {
+    return `Analise esta imagem de um auto de infração de trânsito brasileiro e extraia TODAS as informações disponíveis em formato JSON.
+
+Retorne APENAS um objeto JSON válido com os seguintes campos:
+{
+  "numeroAuto": "número do auto de infração",
+  "dataInfracao": "data no formato DD/MM/AAAA",
+  "horaInfracao": "hora no formato HH:MM",
+  "localInfracao": "local da infração",
+  "codigoInfracao": "código da infração",
+  "descricaoInfracao": "descrição da infração",
+  "valorMulta": 0,
+  "placaVeiculo": "placa do veículo",
+  "condutor": "nome do condutor",
+  "orgaoAutuador": "órgão autuador",
+  "agente": "nome do agente",
+  "observacoes": "observações básicas",
+  
+  "numeroEquipamento": "número do equipamento ou instrumento de aferição",
+  "dadosEquipamento": "dados técnicos do equipamento",
+  "tipoEquipamento": "tipo de equipamento (radar, lombada, etc.)",
+  "dataAfericao": "data de aferição do equipamento",
+  
+  "nomeProprietario": "nome do proprietário/arrendatário",
+  "cpfCnpjProprietario": "CPF/CNPJ do proprietário",
+  "identificacaoProprietario": "identificação completa do proprietário",
+  
+  "observacoesCompletas": "campo observações completo",
+  "mensagemSenatran": "mensagem SENATRAN",
+  "motivoNaoAbordagem": "motivo da não abordagem",
+  
+  "temRegistroFotografico": true,
+  "descricaoFoto": "transcrição da imagem do registro fotográfico",
+  "placaFoto": "placa visível na foto",
+  "caracteristicasVeiculo": "características do veículo na foto",
+  "dataHoraFoto": "data/hora do registro fotográfico",
+  
+  "codigoAcesso": "código de acesso da notificação",
+  "linkNotificacao": "link ou informações de acesso",
+  "protocoloNotificacao": "protocolo da notificação"
+}
+
+IMPORTANTE: Retorne APENAS o JSON, sem texto adicional.`;
+  }
+  
+  private parseOcrResponse(text: string): DocumentoProcessado {
+    console.log('📝 [GeminiOCR] Resposta bruta (primeiros 500 chars):', text.substring(0, 500));
+    
+    // Limpar resposta
+    let cleanText = text.trim();
+    
+    // Remover marcadores de código
+    if (cleanText.startsWith('```json')) {
+      cleanText = cleanText.slice(7);
+    }
+    if (cleanText.startsWith('```')) {
+      cleanText = cleanText.slice(3);
+    }
+    if (cleanText.endsWith('```')) {
+      cleanText = cleanText.slice(0, -3);
+    }
+    cleanText = cleanText.trim();
+    
+    // Tentar extrair JSON de dentro do texto
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleanText = jsonMatch[0];
+    }
+    
+    try {
+      return JSON.parse(cleanText);
+    } catch (parseError) {
+      console.error('❌ [GeminiOCR] Erro ao parsear JSON:', parseError);
+      console.error('❌ [GeminiOCR] Texto limpo:', cleanText.substring(0, 1000));
+      
+      // Tentar recuperar JSON incompleto adicionando fechamentos
+      try {
+        let fixedJson = cleanText;
+        // Contar chaves abertas e fechar
+        const openBraces = (fixedJson.match(/\{/g) || []).length;
+        const closeBraces = (fixedJson.match(/\}/g) || []).length;
+        for (let i = 0; i < openBraces - closeBraces; i++) {
+          fixedJson += '"}';
+        }
+        return JSON.parse(fixedJson);
+      } catch {
+        throw new Error('Resposta do OCR não é um JSON válido');
+      }
+    }
   }
 
   /**
@@ -173,12 +412,12 @@ class GeminiOcrService {
         console.log(`🔄 [GeminiOCR] Tentativa ${attempt}/${maxRetries} de processamento OCR...`);
         
         const model = this.genAI.getGenerativeModel({ 
-          model: 'gemini-2.0-flash-exp',
+          model: 'gemini-2.5-pro',
           generationConfig: {
             temperature: 0.1,
             topK: 1,
             topP: 0.8,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 8192,
           },
         });
         
@@ -451,12 +690,12 @@ IMPORTANTE:
         // console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento de veículo...`);
         
         const model = this.genAI.getGenerativeModel({ 
-          model: 'gemini-2.0-flash-exp',
+          model: 'gemini-2.5-pro',
           generationConfig: {
             temperature: 0.1,
             topK: 1,
             topP: 0.8,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 8192,
           },
         });
         
@@ -625,12 +864,12 @@ IMPORTANTE:
         // console.log(`Tentativa ${attempt}/${maxRetries} de processamento OCR do documento pessoal...`);
         
         const model = this.genAI.getGenerativeModel({ 
-          model: 'gemini-2.0-flash-exp',
+          model: 'gemini-2.5-pro',
           generationConfig: {
             temperature: 0.1,
             topK: 1,
             topP: 0.8,
-            maxOutputTokens: 2048,
+            maxOutputTokens: 8192,
           },
         });
         

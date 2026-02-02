@@ -118,9 +118,13 @@ const MeusRecursos: React.FC = () => {
         break;
         
       case 'em_preenchimento':
-        // Em preenchimento: vai para página de preenchimento do recurso
-        console.log('✍️ Em preenchimento - indo para página de preenchimento');
-        navigate(`/recursos/${recurso.id}/preencher`);
+        // Em preenchimento: vai para página de recurso inteligente com os dados do service order
+        console.log('✍️ Em preenchimento - indo para página de recurso inteligente');
+        // Construir URL com parâmetros do cliente se disponíveis
+        const params = new URLSearchParams();
+        params.set('serviceOrderId', recurso.id);
+        if (recurso.client_id) params.set('clientId', recurso.client_id);
+        navigate(`/teste-recurso-ia?${params.toString()}`);
         break;
         
       default:

@@ -86,7 +86,7 @@ export class AiRecursoService {
     for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
       try {
         // Removido log de tentativa dentro do loop para reduzir ruído
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
       const isConversaoAdvertencia = tipoDocumento === 'conversao_advertencia';
       

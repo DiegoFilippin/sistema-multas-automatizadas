@@ -2,8 +2,14 @@ import React, { useCallback, useState } from 'react';
 import { Upload, FileText, X, AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
+interface FileData {
+  file: File;
+  base64: string;
+  mimeType: string;
+}
+
 interface FileUploadProps {
-  onFileSelect: (file: File) => void;
+  onFileSelect: (fileData: FileData) => void;
   acceptedTypes?: string[];
   maxSize?: number; // em MB
   className?: string;
@@ -18,18 +24,14 @@ const FileUpload: React.FC<FileUploadProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const validateFile = (file: File): boolean => {
-    // Verificar tamanho
     const fileSizeMB = file.size / 1024 / 1024;
     if (fileSizeMB > maxSize) {
       toast.error(`Arquivo muito grande. Tamanho máximo: ${maxSize}MB`);
       return false;
     }
 
-    // Verificar tipo
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!acceptedTypes.includes(fileExtension)) {
       toast.error(`Tipo de arquivo não suportado. Tipos aceitos: ${acceptedTypes.join(', ')}`);
@@ -39,33 +41,56 @@ const FileUpload: React.FC<FileUploadProps> = ({
     return true;
   };
 
-  const handleFileSelect = useCallback((file: File) => {
+  const processFile = useCallback((file: File) => {
     if (!validateFile(file)) return;
 
-    // Mostrar modal de confirmação com o arquivo original
-    setPendingFile(file);
-    setShowConfirmModal(true);
-  }, [maxSize, acceptedTypes]);
-
-  const handleConfirmUpload = () => {
-    if (!pendingFile) return;
-
-    setShowConfirmModal(false);
-    setUploadedFile(pendingFile);
+    console.log('📁 [FileUpload] Processando arquivo:', file.name);
+    
+    const fileCopy = file.slice(0, file.size, file.type);
+    const fileName = file.name;
+    const fileType = file.type || 'application/pdf';
+    
+    setUploadedFile(file);
     setIsProcessing(true);
     
-    // Passar o arquivo diretamente - o OCR service vai ler
-    onFileSelect(pendingFile);
-    toast.success('Arquivo enviado para processamento!');
-    setIsProcessing(false);
-    setPendingFile(null);
-  };
-
-  const handleCancelUpload = () => {
-    setShowConfirmModal(false);
-    setPendingFile(null);
-    toast.info('Upload cancelado. Envie o documento correto.');
-  };
+    const reader = new FileReader();
+    
+    reader.onloadend = () => {
+      try {
+        const result = reader.result as string;
+        if (!result) throw new Error('Resultado vazio');
+        
+        const base64 = result.split(',')[1];
+        if (!base64) throw new Error('Falha ao extrair base64');
+        
+        let mimeType = fileType;
+        if (!mimeType || mimeType === 'application/octet-stream') {
+          const ext = fileName.split('.').pop()?.toLowerCase();
+          if (ext === 'pdf') mimeType = 'application/pdf';
+          else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+          else if (ext === 'png') mimeType = 'image/png';
+        }
+        
+        console.log('✅ [FileUpload] Sucesso:', { mimeType, length: base64.length });
+        onFileSelect({ file, base64, mimeType });
+        toast.success('Arquivo enviado!');
+      } catch (error: any) {
+        console.error('❌ [FileUpload] Erro:', error);
+        toast.error('Erro ao processar arquivo.');
+        setIsProcessing(false);
+        setUploadedFile(null);
+      }
+    };
+    
+    reader.onerror = () => {
+      console.error('❌ [FileUpload] FileReader error:', reader.error);
+      toast.error('Arquivo inacessível. Copie para a pasta Downloads e tente novamente.');
+      setIsProcessing(false);
+      setUploadedFile(null);
+    };
+    
+    reader.readAsDataURL(fileCopy);
+  }, [onFileSelect]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -83,14 +108,14 @@ const FileUpload: React.FC<FileUploadProps> = ({
     
     const files = Array.from(e.dataTransfer.files);
     if (files.length > 0) {
-      handleFileSelect(files[0]);
+      processFile(files[0]);
     }
-  }, [handleFileSelect]);
+  }, [processFile]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      handleFileSelect(files[0]);
+      processFile(files[0]);
     }
   };
 
@@ -150,113 +175,59 @@ const FileUpload: React.FC<FileUploadProps> = ({
   }
 
   return (
-    <>
-      <div className={className}>
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          className={`
-            border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer
-            ${isDragOver 
-              ? 'border-blue-400 bg-blue-50' 
-              : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+    <div className={className}>
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        className={`
+          border-2 border-dashed rounded-lg p-8 text-center transition-all duration-200 cursor-pointer
+          ${isDragOver 
+            ? 'border-blue-400 bg-blue-50' 
+            : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
+          }
+        `}
+      >
+        <Upload className={`w-12 h-12 mx-auto mb-4 ${
+          isDragOver ? 'text-blue-600' : 'text-gray-400'
+        }`} />
+        
+        <div className="space-y-2">
+          <p className="text-gray-600 font-medium">
+            {isDragOver 
+              ? 'Solte o arquivo aqui' 
+              : 'Arraste e solte o documento da multa aqui'
             }
-          `}
+          </p>
+          
+          <p className="text-sm text-gray-500">
+            ou clique para selecionar
+          </p>
+          
+          <div className="flex items-center justify-center space-x-2 text-xs text-gray-400">
+            <AlertCircle className="w-3 h-3" />
+            <span>
+              Tipos aceitos: {acceptedTypes.join(', ')} | Tamanho máximo: {maxSize}MB
+            </span>
+          </div>
+        </div>
+        
+        <input
+          type="file"
+          accept={acceptedTypes.join(',')}
+          onChange={handleInputChange}
+          className="hidden"
+          id="file-upload-input"
+        />
+        
+        <label
+          htmlFor="file-upload-input"
+          className="inline-block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors font-medium"
         >
-          <Upload className={`w-12 h-12 mx-auto mb-4 ${
-            isDragOver ? 'text-blue-600' : 'text-gray-400'
-          }`} />
-          
-          <div className="space-y-2">
-            <p className="text-gray-600 font-medium">
-              {isDragOver 
-                ? 'Solte o arquivo aqui' 
-                : 'Arraste e solte o documento da multa aqui'
-              }
-            </p>
-            
-            <p className="text-sm text-gray-500">
-              ou clique para selecionar
-            </p>
-            
-            <div className="flex items-center justify-center space-x-2 text-xs text-gray-400">
-              <AlertCircle className="w-3 h-3" />
-              <span>
-                Tipos aceitos: {acceptedTypes.join(', ')} | Tamanho máximo: {maxSize}MB
-              </span>
-            </div>
-          </div>
-          
-          <input
-            type="file"
-            accept={acceptedTypes.join(',')}
-            onChange={handleInputChange}
-            className="hidden"
-            id="file-upload-input"
-          />
-          
-          <label
-            htmlFor="file-upload-input"
-            className="inline-block mt-4 bg-blue-600 text-white px-6 py-2 rounded-lg cursor-pointer hover:bg-blue-700 transition-colors font-medium"
-          >
-            Selecionar Arquivo
-          </label>
-        </div>
+          Selecionar Arquivo
+        </label>
       </div>
-
-      {/* Modal de Confirmação */}
-      {showConfirmModal && pendingFile && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-start space-x-4 mb-6">
-              <div className="flex-shrink-0">
-                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-blue-600" />
-                </div>
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                  Confirmar envio de documento
-                </h3>
-                <p className="text-gray-600 mb-4">
-                  Você confirma que o documento enviado é o documento correto para recurso?
-                </p>
-                <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                  <div className="flex items-center space-x-2">
-                    <FileText className="w-4 h-4 text-gray-500" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {pendingFile.name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatFileSize(pendingFile.size)}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex space-x-3">
-              <button
-                onClick={handleCancelUpload}
-                className="flex-1 px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmUpload}
-                className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center justify-center space-x-2"
-              >
-                <CheckCircle className="w-4 h-4" />
-                <span>Confirmar</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
 };
 

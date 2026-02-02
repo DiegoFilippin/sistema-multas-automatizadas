@@ -69,7 +69,7 @@ export function useRecursoDraft() {
         current_step: 1,
         wizard_data: {},
         multa_type: params?.multa_type || 'grave',
-        amount: params?.amount || 0,
+        amount: params?.amount || 1, // Valor mínimo para satisfazer constraint
       };
 
       const { data, error } = await supabase

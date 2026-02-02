@@ -39,6 +39,7 @@ import SubcontasSplitTest from './components/SubcontasSplitTest';
 import TesteRecursoIA from './pages/TesteRecursoIA';
 import TesteN8nDemo from './pages/TesteN8nDemo';
 import TesteDataNascimentoOCR from './pages/TesteDataNascimentoOCR';
+import UploadDocumentoSimples from './pages/UploadDocumentoSimples';
 import AppLayout from './components/Layout/AppLayout';
 
 // Componentes de rota movidos para dentro do contexto do Router
@@ -379,6 +380,15 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <TesteDataNascimentoOCR />
+              </ProtectedRoute>
+            } 
+          />
+          
+          <Route 
+            path="/upload-documento" 
+            element={
+              <ProtectedRoute>
+                <UploadDocumentoSimples />
               </ProtectedRoute>
             } 
           />

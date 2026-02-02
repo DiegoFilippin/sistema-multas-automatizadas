@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Upload, 
@@ -22,6 +22,8 @@ import HistoricoMultasModal from '@/components/HistoricoMultasModal';
 import { ClienteModal } from '@/components/ClienteModal';
 import { isMultaLeve, podeConverterEmAdvertencia, getTextoConversaoAdvertencia, type MultaData } from '@/utils/multaUtils';
 import { asaasService } from '@/services/asaasService';
+import { supabase } from '@/lib/supabase';
+import { useRecursoDraft } from '@/hooks/useRecursoDraft';
 
 // Interfaces para compatibilidade com ClienteModal
 interface Email {
@@ -81,12 +83,27 @@ interface Cliente {
 
 export default function NovoRecursoSimples() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuthStore();
   const { clients, fetchClients, addClient, isLoading: loadingClientes } = useClientsStore();
   const { addMulta, addRecurso } = useMultasStore();
   
+  // Sistema de draft para salvar progresso
+  const { 
+    currentDraft, 
+    createDraft, 
+    saveDraft, 
+    loadDraft, 
+    isSaving: isSavingDraft,
+    isLoading: isLoadingDraft 
+  } = useRecursoDraft();
+  
+  const [draftId, setDraftId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isGeneratingRecurso, setIsGeneratingRecurso] = useState(false);
   const [extractedData, setExtractedData] = useState<DocumentoProcessado | null>(null);
@@ -131,6 +148,109 @@ export default function NovoRecursoSimples() {
     console.log('✅ Valor formatado:', valorFormatado);
     return valorFormatado;
   };
+  
+  // Inicializar ou carregar draft ao montar o componente
+  useEffect(() => {
+    const initializeDraft = async () => {
+      const draftIdFromUrl = searchParams.get('draft');
+      
+      if (draftIdFromUrl) {
+        // Carregar draft existente
+        console.log('📂 Carregando draft existente:', draftIdFromUrl);
+        const draft = await loadDraft(draftIdFromUrl);
+        
+        if (draft) {
+          setDraftId(draft.id);
+          setCurrentStep(draft.current_step || 1);
+          
+          // Restaurar dados do wizard
+          if (draft.wizard_data) {
+            const wizardData = draft.wizard_data as any;
+            
+            // Restaurar cliente selecionado
+            if (wizardData.step1?.cliente_id) {
+              const cliente = clients.find(c => c.id === wizardData.step1.cliente_id);
+              if (cliente) {
+                setClienteSelecionado({
+                  id: cliente.id,
+                  nome: cliente.nome,
+                  cpf: cliente.cpf_cnpj || '',
+                  emails: [],
+                  telefones: [],
+                  enderecos: [],
+                  dataNascimento: '',
+                  cnh: '',
+                  veiculos: [],
+                  multas: 0,
+                  recursosAtivos: 0,
+                  valorEconomizado: 0,
+                  dataCadastro: cliente.created_at || '',
+                  status: cliente.status as 'ativo' | 'inativo'
+                });
+              }
+            }
+            
+            // Restaurar dados extraídos do OCR
+            if (wizardData.extractedData) {
+              setExtractedData(wizardData.extractedData);
+            }
+            
+            // Restaurar URL do arquivo
+            if (wizardData.uploadedFileUrl) {
+              setUploadedFileUrl(wizardData.uploadedFileUrl);
+              setUploadedFileName(wizardData.uploadedFileName);
+            }
+          }
+          
+          toast.info('Rascunho carregado! Continue de onde parou.');
+        } else {
+          // Draft não encontrado, criar novo
+          const newDraft = await createDraft();
+          if (newDraft) {
+            setDraftId(newDraft.id);
+            setSearchParams({ draft: newDraft.id });
+          }
+        }
+      } else {
+        // Criar novo draft
+        console.log('📝 Criando novo draft...');
+        const newDraft = await createDraft();
+        if (newDraft) {
+          setDraftId(newDraft.id);
+          setSearchParams({ draft: newDraft.id });
+        }
+      }
+    };
+    
+    if (user?.company_id) {
+      initializeDraft();
+    }
+  }, [user?.company_id, searchParams.get('draft')]);
+  
+  // Função para salvar progresso automaticamente
+  const saveProgress = useCallback(async (step: number, data: any) => {
+    if (!draftId) return;
+    
+    console.log(`💾 Salvando progresso - Step ${step}...`);
+    await saveDraft(draftId, step, data);
+  }, [draftId, saveDraft]);
+  
+  // Função para selecionar cliente e salvar progresso
+  const handleSelectCliente = useCallback(async (cliente: Cliente) => {
+    setClienteSelecionado(cliente);
+    
+    // Salvar progresso com cliente selecionado
+    await saveProgress(currentStep, {
+      step1: {
+        cliente_id: cliente.id,
+        cliente_nome: cliente.nome,
+        cliente_cpf_cnpj: cliente.cpf,
+        cliente_email: cliente.emails?.[0]?.endereco || ''
+      }
+    });
+    
+    toast.success(`Cliente ${cliente.nome} selecionado!`);
+  }, [saveProgress, currentStep]);
   
   // Função para salvar novo cliente
   const handleSalvarNovoCliente = async (novoCliente: Partial<Cliente>) => {
@@ -369,7 +489,7 @@ export default function NovoRecursoSimples() {
   };
 
   const gerarRecursoCompleto = async () => {
-    if (!clienteSelecionado || !extractedData || !uploadedFile) {
+    if (!clienteSelecionado || !extractedData || !uploadedFileUrl) {
       toast.error('Dados incompletos para gerar recurso');
       return;
     }
@@ -474,7 +594,7 @@ export default function NovoRecursoSimples() {
     }
   };
   
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       // Validar tipo de arquivo
@@ -490,13 +610,65 @@ export default function NovoRecursoSimples() {
         return;
       }
       
-      setUploadedFile(file);
-      toast.success('Arquivo carregado com sucesso!');
+      setIsUploading(true);
+      
+      try {
+        // Gerar nome único para o arquivo
+        const fileExtension = file.name.split('.').pop();
+        const uniqueFileName = `auto-infracao-${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExtension}`;
+        
+        // Upload para Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('documents')
+          .upload(uniqueFileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (uploadError) {
+          console.error('Erro ao fazer upload para Supabase:', uploadError);
+          throw new Error(`Erro ao salvar arquivo: ${uploadError.message}`);
+        }
+        
+        // Obter URL pública do arquivo
+        const { data: urlData } = supabase.storage
+          .from('documents')
+          .getPublicUrl(uniqueFileName);
+        
+        console.log('✅ Arquivo salvo no Supabase Storage:', {
+          path: uploadData.path,
+          url: urlData.publicUrl
+        });
+        
+        // Armazenar referências
+        setUploadedFile(file);
+        setUploadedFileUrl(urlData.publicUrl);
+        setUploadedFileName(uniqueFileName);
+        
+        // Salvar progresso do upload no draft
+        await saveProgress(1, {
+          uploadedFileUrl: urlData.publicUrl,
+          uploadedFileName: uniqueFileName
+        });
+        
+        toast.success('Arquivo carregado e salvo com sucesso!');
+      } catch (error) {
+        console.error('Erro no upload:', error);
+        toast.error(error instanceof Error ? error.message : 'Erro ao fazer upload do arquivo');
+        setUploadedFile(null);
+        setUploadedFileUrl(null);
+        setUploadedFileName(null);
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
   
   const processDocument = async () => {
-    if (!uploadedFile) return;
+    if (!uploadedFileUrl || !uploadedFileName) {
+      toast.error('Arquivo não encontrado. Faça o upload novamente.');
+      return;
+    }
     
     // Verificar se a API do Gemini está configurada
     if (!GeminiOcrService.isConfigured()) {
@@ -507,11 +679,61 @@ export default function NovoRecursoSimples() {
     setIsProcessing(true);
     
     try {
+      let fileToProcess: File;
+      
+      // Tentar usar o arquivo local primeiro (mais rápido e confiável)
+      if (uploadedFile && uploadedFile.size > 0) {
+        console.log('📂 Usando arquivo local:', {
+          name: uploadedFile.name,
+          size: uploadedFile.size,
+          type: uploadedFile.type
+        });
+        fileToProcess = uploadedFile;
+      } else {
+        // Fallback: baixar do Supabase Storage
+        console.log('📥 Baixando arquivo do Supabase Storage:', uploadedFileUrl);
+        
+        const response = await fetch(uploadedFileUrl);
+        if (!response.ok) {
+          throw new Error(`Erro ao baixar arquivo do servidor: ${response.status} ${response.statusText}`);
+        }
+        
+        const blob = await response.blob();
+        
+        // Determinar o tipo MIME correto
+        let mimeType = blob.type;
+        if (!mimeType || mimeType === 'application/octet-stream') {
+          // Inferir do nome do arquivo
+          const ext = uploadedFileName?.split('.').pop()?.toLowerCase();
+          if (ext === 'pdf') mimeType = 'application/pdf';
+          else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+          else if (ext === 'png') mimeType = 'image/png';
+        }
+        
+        fileToProcess = new File([blob], uploadedFileName || 'documento', { type: mimeType });
+        
+        console.log('✅ Arquivo baixado com sucesso:', {
+          name: fileToProcess.name,
+          size: fileToProcess.size,
+          type: fileToProcess.type
+        });
+      }
+      
+      // Validar arquivo antes de processar
+      if (fileToProcess.size === 0) {
+        throw new Error('Arquivo está vazio. Faça o upload novamente.');
+      }
+      
       // Criar instância do serviço Gemini OCR
       const geminiService = new GeminiOcrService();
       
-      // Processar documento com Gemini OCR
-      const dadosExtraidos = await geminiService.extrairDadosAutoInfracao(uploadedFile);
+      // PRÉ-PROCESSAR ARQUIVO IMEDIATAMENTE para evitar perda de referência
+      console.log('🔄 Pré-processando arquivo imediatamente...');
+      const preProcessedData = await geminiService.preProcessFile(fileToProcess);
+      console.log('✅ Arquivo pré-processado com sucesso');
+      
+      // Processar documento com Gemini OCR usando dados pré-processados
+      const dadosExtraidos = await geminiService.extrairDadosAutoInfracaoFromBase64(preProcessedData);
       
       // Validação crítica dos dados extraídos
       console.log('🔍 Dados extraídos do OCR:', dadosExtraidos);
@@ -542,6 +764,13 @@ export default function NovoRecursoSimples() {
       });
       
       setExtractedData(dadosExtraidos);
+      
+      // Salvar progresso do OCR no draft
+      await saveProgress(2, {
+        extractedData: dadosExtraidos,
+        uploadedFileUrl,
+        uploadedFileName
+      });
       
       // Verificar se é multa leve para mostrar pergunta sobre histórico
       const valorNormalizado = typeof dadosExtraidos.valorMulta === 'number'
@@ -695,7 +924,19 @@ export default function NovoRecursoSimples() {
       )}
       
       <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
-        {!uploadedFile ? (
+        {isUploading ? (
+          <div className="space-y-4">
+            <Loader2 className="mx-auto h-12 w-12 text-blue-500 animate-spin" />
+            <div>
+              <p className="text-lg font-medium text-gray-900">
+                Enviando arquivo...
+              </p>
+              <p className="text-sm text-gray-500">
+                Salvando no servidor para processamento
+              </p>
+            </div>
+          </div>
+        ) : !uploadedFileUrl ? (
           <div>
             <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
             <div className="space-y-2">
@@ -718,16 +959,16 @@ export default function NovoRecursoSimples() {
             <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
             <div>
               <p className="text-lg font-medium text-gray-900">
-                Arquivo carregado: {uploadedFile.name}
+                Arquivo salvo: {uploadedFileName}
               </p>
               <p className="text-sm text-gray-500">
-                Tamanho: {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
+                {uploadedFile ? `Tamanho: ${(uploadedFile.size / 1024 / 1024).toFixed(2)} MB` : 'Arquivo pronto para processamento'}
               </p>
             </div>
             
             <div className="flex gap-3 justify-center">
               <button
-                onClick={() => setUploadedFile(null)}
+                onClick={() => { setUploadedFile(null); setUploadedFileUrl(null); setUploadedFileName(null); }}
                 className="px-4 py-2 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 Remover
@@ -1061,7 +1302,7 @@ export default function NovoRecursoSimples() {
               {filteredClientes.map((cliente) => (
                 <div
                   key={cliente.id}
-                  onClick={() => setClienteSelecionado(cliente)}
+                  onClick={() => handleSelectCliente(cliente)}
                   className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
                     clienteSelecionado?.id === cliente.id ? 'bg-blue-50 border-blue-200' : ''
                   }`}
@@ -1165,7 +1406,19 @@ export default function NovoRecursoSimples() {
               </h1>
             </div>
             
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-3 text-sm text-gray-500">
+              {isSavingDraft && (
+                <div className="flex items-center gap-1 text-blue-600">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Salvando...</span>
+                </div>
+              )}
+              {draftId && !isSavingDraft && (
+                <div className="flex items-center gap-1 text-green-600">
+                  <CheckCircle className="h-4 w-4" />
+                  <span>Salvo</span>
+                </div>
+              )}
               <span>Passo {currentStep} de 3</span>
             </div>
           </div>

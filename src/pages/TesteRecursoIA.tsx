@@ -15,6 +15,7 @@ import { recursosIniciadosService } from '../services/recursosIniciadosService';
 import RecursosGerados from '../components/RecursosGerados';
 import RecursosIniciados from '../components/RecursosIniciados';
 import { useAuthStore } from '../stores/authStore';
+import { supabase } from '../lib/supabase';
 
 // Função auxiliar para gerar UUIDs válidos
 const generateValidUUID = (): string => {
@@ -1156,7 +1157,8 @@ const TesteRecursoIA: React.FC = () => {
     }
   }, [searchParams]);
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (fileData: { file: File; base64: string; mimeType: string }) => {
+    const { file, base64, mimeType } = fileData;
     setUploadedFile(file);
     setIsProcessing(true);
     
@@ -1168,13 +1170,23 @@ const TesteRecursoIA: React.FC = () => {
         return;
       }
       
+      console.log('📁 Arquivo recebido já convertido:', {
+        name: file.name,
+        size: file.size,
+        mimeType,
+        base64Length: base64.length
+      });
+      
+      // Dados já convertidos pelo FileUpload
+      const base64Data = { base64, mimeType };
+      
       toast.info('Iniciando extração de dados do documento...');
       
       // Criar instância do serviço Gemini OCR
       const geminiService = new GeminiOcrService();
       
-      // Processar documento com Gemini OCR
-      const dadosExtraidos = await geminiService.extrairDadosAutoInfracao(file);
+      // Processar documento com Gemini OCR usando dados base64
+      const dadosExtraidos = await geminiService.extrairDadosAutoInfracaoFromBase64(base64Data);
       
       console.log('✅ Dados extraídos do documento:', dadosExtraidos);
       
